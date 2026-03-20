@@ -1,0 +1,97 @@
+{
+  "generated_at": "2026-03-20T17:50:59.534563",
+  "skill_under_test": "bug_fix",
+  "summary": {
+    "total_cases": 3,
+    "baseline_avg": 92.4,
+    "enhanced_avg": 94.8,
+    "gain": 2.3,
+    "baseline_pass_rate": "3/3",
+    "enhanced_pass_rate": "3/3",
+    "dimensions": {
+      "correctness": {
+        "baseline_avg": 91.7,
+        "enhanced_avg": 95.0,
+        "gain": 3.3
+      },
+      "completeness": {
+        "baseline_avg": 87.3,
+        "enhanced_avg": 89.0,
+        "gain": 1.7
+      },
+      "code_quality": {
+        "baseline_avg": 87.7,
+        "enhanced_avg": 92.7,
+        "gain": 5.0
+      }
+    }
+  },
+  "cases": [
+    {
+      "case_id": "bug_fix_001",
+      "title": "List组件ForEach性能崩溃修复",
+      "baseline_rule": 100.0,
+      "enhanced_rule": 100.0,
+      "baseline_total": 85.3,
+      "enhanced_total": 92.3,
+      "dimension_scores": {
+        "correctness": {
+          "baseline": 85,
+          "enhanced": 95
+        },
+        "completeness": {
+          "baseline": 72,
+          "enhanced": 82
+        },
+        "code_quality": {
+          "baseline": 78,
+          "enhanced": 88
+        }
+      }
+    },
+    {
+      "case_id": "bug_fix_002",
+      "title": "State数组修改未触发UI刷新",
+      "baseline_rule": 100.0,
+      "enhanced_rule": 100.0,
+      "baseline_total": 96.5,
+      "enhanced_total": 96.5,
+      "dimension_scores": {
+        "correctness": {
+          "baseline": 95,
+          "enhanced": 95
+        },
+        "completeness": {
+          "baseline": 100,
+          "enhanced": 95
+        },
+        "code_quality": {
+          "baseline": 90,
+          "enhanced": 95
+        }
+      }
+    },
+    {
+      "case_id": "bug_fix_003",
+      "title": "组件销毁后定时器未清除导致内存泄漏",
+      "baseline_rule": 100.0,
+      "enhanced_rule": 100.0,
+      "baseline_total": 95.5,
+      "enhanced_total": 95.5,
+      "dimension_scores": {
+        "correctness": {
+          "baseline": 95,
+          "enhanced": 95
+        },
+        "completeness": {
+          "baseline": 90,
+          "enhanced": 90
+        },
+        "code_quality": {
+          "baseline": 95,
+          "enhanced": 95
+        }
+      }
+    }
+  ]
+}
