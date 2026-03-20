@@ -1,0 +1,164 @@
+<svg width="100%" viewBox="0 0 680 490" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+  <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+<style>
+  svg { font-family: sans-serif; background: #ffffff; }
+  .th { font-size: 14px; font-weight: 500; }
+  .ts { font-size: 12px; font-weight: 400; }
+  .arr { stroke: #888780; stroke-width: 1.5; fill: none; }
+
+  .c-amber rect  { fill: #FAEEDA; stroke: #854F0B; }
+  .c-amber .th   { fill: #633806; }
+  .c-amber .ts   { fill: #854F0B; }
+
+  .c-gray rect   { fill: #F1EFE8; stroke: #5F5E5A; }
+  .c-gray .th    { fill: #2C2C2A; }
+  .c-gray .ts    { fill: #5F5E5A; }
+
+  .c-purple rect { fill: #EEEDFE; stroke: #534AB7; }
+  .c-purple .th  { fill: #3C3489; }
+  .c-purple .ts  { fill: #534AB7; }
+
+  .c-teal rect   { fill: #E1F5EE; stroke: #0F6E56; }
+  .c-teal .th    { fill: #085041; }
+  .c-teal .ts    { fill: #0F6E56; }
+
+  .c-coral rect  { fill: #FAECE7; stroke: #993C1D; }
+  .c-coral .th   { fill: #712B13; }
+  .c-coral .ts   { fill: #993C1D; }
+
+  .c-blue rect   { fill: #E6F1FB; stroke: #185FA5; }
+  .c-blue .th    { fill: #0C447C; }
+  .c-blue .ts    { fill: #185FA5; }
+
+  .c-green rect  { fill: #EAF3DE; stroke: #3B6D11; }
+  .c-green .th   { fill: #27500A; }
+  .c-green .ts   { fill: #3B6D11; }
+
+  .c-pink rect   { fill: #FBEAF0; stroke: #993556; }
+  .c-pink .th    { fill: #72243E; }
+  .c-pink .ts    { fill: #993556; }
+</style>
+</defs>
+
+<!-- ==================== 评测系统 layer ==================== -->
+<rect x="20" y="16" width="636" height="140" rx="14" fill="none" stroke="#444441" stroke-width="1" stroke-dasharray="6 4"/>
+<rect x="38" y="7" width="68" height="18" rx="4" fill="#ffffff"/>
+<text class="ts" x="72" y="16" text-anchor="middle" dominant-baseline="central" style="font-weight:500;fill:#2C2C2A">评测系统</text>
+
+<g class="c-gray">
+  <rect x="36" y="34" width="112" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="92" y="51" text-anchor="middle" dominant-baseline="central">测试用例集</text>
+  <text class="ts" x="92" y="67" text-anchor="middle" dominant-baseline="central">输入 · 任务描述</text>
+</g>
+<line x1="148" y1="56" x2="164" y2="56" stroke="#888780" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+<g class="c-amber">
+  <rect x="164" y="34" width="150" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="239" y="51" text-anchor="middle" dominant-baseline="central">Test Runner</text>
+  <text class="ts" x="239" y="67" text-anchor="middle" dominant-baseline="central">驱动 Agent · 收集输出</text>
+</g>
+
+<g class="c-green">
+  <rect x="386" y="34" width="142" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="457" y="51" text-anchor="middle" dominant-baseline="central">Evaluator</text>
+  <text class="ts" x="457" y="67" text-anchor="middle" dominant-baseline="central">对比标准 · 打分 · diff</text>
+</g>
+
+<g class="c-gray">
+  <rect x="544" y="34" width="96" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="592" y="51" text-anchor="middle" dominant-baseline="central">评分标准</text>
+  <text class="ts" x="592" y="67" text-anchor="middle" dominant-baseline="central">正确性 · 完整性</text>
+</g>
+<line x1="544" y1="56" x2="530" y2="56" stroke="#888780" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+<line x1="457" y1="78" x2="457" y2="98" stroke="#888780" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<g class="c-pink">
+  <rect x="386" y="98" width="244" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="508" y="115" text-anchor="middle" dominant-baseline="central">测试报告</text>
+  <text class="ts" x="508" y="131" text-anchor="middle" dominant-baseline="central">通过率 · 失败用例 · Skill 增益对比</text>
+</g>
+
+<!-- ==================== 跨层连线 ==================== -->
+<polyline points="239,78 239,176 250,176 250,196" fill="none" stroke="#B4B2A9" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<rect x="182" y="166" width="80" height="16" rx="4" fill="#ffffff"/>
+<text class="ts" x="222" y="174" text-anchor="middle" dominant-baseline="central" style="fill:#5F5E5A">task prompt</text>
+
+<polyline points="310,196 310,176 457,176 457,78" fill="none" stroke="#B4B2A9" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<rect x="356" y="158" width="66" height="16" rx="4" fill="#ffffff"/>
+<text class="ts" x="389" y="166" text-anchor="middle" dominant-baseline="central" style="fill:#5F5E5A">最终输出</text>
+
+<!-- ==================== Agent layer ==================== -->
+<rect x="20" y="196" width="636" height="144" rx="14" fill="none" stroke="#444441" stroke-width="1"/>
+<rect x="38" y="187" width="46" height="18" rx="4" fill="#ffffff"/>
+<text class="ts" x="61" y="196" text-anchor="middle" dominant-baseline="central" style="font-weight:500;fill:#2C2C2A">Agent</text>
+
+<g class="c-coral">
+  <rect x="36" y="212" width="100" height="36" rx="8" stroke-width="0.5"/>
+  <text class="th" x="86" y="225" text-anchor="middle" dominant-baseline="central">Skill A</text>
+  <text class="ts" x="86" y="241" text-anchor="middle" dominant-baseline="central">代码生产</text>
+</g>
+<g class="c-coral">
+  <rect x="36" y="258" width="100" height="36" rx="8" stroke-width="0.5"/>
+  <text class="th" x="86" y="271" text-anchor="middle" dominant-baseline="central">Skill B</text>
+  <text class="ts" x="86" y="287" text-anchor="middle" dominant-baseline="central">UT 生成</text>
+</g>
+
+<g class="c-purple">
+  <rect x="190" y="218" width="120" height="56" rx="8" stroke-width="0.5"/>
+  <text class="th" x="250" y="241" text-anchor="middle" dominant-baseline="central">规划 · 调度</text>
+  <text class="ts" x="250" y="259" text-anchor="middle" dominant-baseline="central">工具调用循环</text>
+</g>
+<line x1="136" y1="230" x2="188" y2="238" stroke="#888780" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+<line x1="136" y1="276" x2="188" y2="260" stroke="#888780" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+<!-- 工具层容器 -->
+<rect x="358" y="206" width="274" height="124" rx="10" fill="none" stroke="#B4B2A9" stroke-width="0.8" stroke-dasharray="5 4"/>
+<text class="ts" x="372" y="220" dominant-baseline="central" style="fill:#888780">工具层</text>
+
+<!-- MCP Server 子分组 -->
+<rect x="368" y="226" width="124" height="94" rx="8" fill="none" stroke="#D3D1C7" stroke-width="0.5"/>
+<text class="ts" x="430" y="237" text-anchor="middle" dominant-baseline="central" style="fill:#B4B2A9">MCP Server</text>
+<g class="c-blue">
+  <rect x="374" y="246" width="112" height="28" rx="6" stroke-width="0.5"/>
+  <text class="th" x="430" y="260" text-anchor="middle" dominant-baseline="central">代码执行</text>
+</g>
+<g class="c-blue">
+  <rect x="374" y="282" width="112" height="28" rx="6" stroke-width="0.5"/>
+  <text class="th" x="430" y="296" text-anchor="middle" dominant-baseline="central">搜索检索</text>
+</g>
+
+<!-- 本地工具 子分组 -->
+<rect x="502" y="226" width="124" height="94" rx="8" fill="none" stroke="#D3D1C7" stroke-width="0.5"/>
+<text class="ts" x="564" y="237" text-anchor="middle" dominant-baseline="central" style="fill:#B4B2A9">本地工具</text>
+<g class="c-gray">
+  <rect x="508" y="246" width="112" height="28" rx="6" stroke-width="0.5"/>
+  <text class="th" x="564" y="260" text-anchor="middle" dominant-baseline="central">编译 · 运行</text>
+</g>
+<g class="c-gray">
+  <rect x="508" y="282" width="112" height="28" rx="6" stroke-width="0.5"/>
+  <text class="th" x="564" y="296" text-anchor="middle" dominant-baseline="central">命令行工具</text>
+</g>
+
+<line x1="310" y1="246" x2="356" y2="256" stroke="#888780" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+<!-- ==================== 跨层：Agent ↔ LLM ==================== -->
+<line x1="306" y1="340" x2="306" y2="396" stroke="#1D9E75" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<line x1="326" y1="396" x2="326" y2="340" stroke="#1D9E75" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+<!-- ==================== LLM layer ==================== -->
+<g class="c-teal">
+  <rect x="20" y="396" width="636" height="56" rx="12" stroke-width="0.5"/>
+  <text class="th" x="338" y="419" text-anchor="middle" dominant-baseline="central">LLM API</text>
+  <text class="ts" x="338" y="437" text-anchor="middle" dominant-baseline="central">推理 · 生成代码 · 工具决策</text>
+</g>
+
+<!-- 图例 -->
+<line x1="30" y1="468" x2="58" y2="468" stroke="#1D9E75" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<text class="ts" x="66" y="468" dominant-baseline="central" style="fill:#5F5E5A">Agent ⇄ LLM</text>
+<line x1="180" y1="468" x2="208" y2="468" stroke="#B4B2A9" stroke-width="1.2" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow)"/>
+<text class="ts" x="216" y="468" dominant-baseline="central" style="fill:#5F5E5A">评测系统 ⇄ Agent</text>
+
+</svg>
