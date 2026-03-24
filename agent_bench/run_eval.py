@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Skill 评测系统 - 主入口
+"""Agent Bench 评测系统 - 主入口
+
+支持三种评测类型:
+  - skill:          Skill 文本注入 prompt
+  - mcp_tool:       MCP Tool 通过 --mcp-config 挂载
+  - system_prompt:   System Prompt 通过 -s 注入
 
 用法:
     python3 run_eval.py                          # 运行所有 bug_fix 用例
-    python3 run_eval.py --skill-type bug_fix     # 指定 skill 类型
+    python3 run_eval.py --suite bug_fix          # 指定测试套件
     python3 run_eval.py --dry-run                # 干跑模式，不调用 Agent
+    python3 run_eval.py --eval-type skill        # 只运行指定评测类型的用例
 """
 
 import argparse
@@ -13,7 +19,6 @@ import os
 import sys
 import time
 
-# 将项目根目录加入 path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from runner.agent_runner import run_baseline, run_enhanced
@@ -27,27 +32,57 @@ LLM_WEIGHT = 0.7
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# eval_type → 被测对象文件目录和扩展名
+SUBJECT_REGISTRY = {
+    "skill":         {"dir": "subjects/skill",          "ext": ".md"},
+    "mcp_tool":      {"dir": "subjects/mcp_tool",       "ext": ".json"},
+    "system_prompt": {"dir": "subjects/system_prompt",   "ext": ".md"},
+}
 
-def load_test_cases(skill_type: str) -> list:
-    cases_dir = os.path.join(BASE_DIR, "test_cases", skill_type)
+
+def load_test_cases(suite: str, eval_type_filter: str = None) -> list:
+    """加载测试套件下的所有用例，可按 eval_type 过滤"""
+    cases_dir = os.path.join(BASE_DIR, "test_cases", suite)
     cases = []
     for f in sorted(os.listdir(cases_dir)):
         if f.endswith(".json"):
             with open(os.path.join(cases_dir, f), "r", encoding="utf-8") as fh:
-                cases.append(json.load(fh))
+                case = json.load(fh)
+                # 兼容旧格式：无 eval_type 默认 skill，无 subject 取 skill_type
+                case.setdefault("eval_type", "skill")
+                case.setdefault("subject", case.get("skill_type", suite))
+                if eval_type_filter and case["eval_type"] != eval_type_filter:
+                    continue
+                cases.append(case)
     return cases
 
 
-def load_file(skill_type: str, relative_path: str) -> str:
-    path = os.path.join(BASE_DIR, "test_cases", skill_type, relative_path)
+def load_file(suite: str, relative_path: str) -> str:
+    path = os.path.join(BASE_DIR, "test_cases", suite, relative_path)
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
 
-def load_skill(skill_name: str) -> str:
-    path = os.path.join(BASE_DIR, "skills", f"{skill_name}.md")
+def load_subject(eval_type: str, subject_name: str):
+    """根据 eval_type 加载被测对象
+
+    Returns:
+        (subject_content, subject_path)
+        - skill / system_prompt: content 为文本, path 为文件路径
+        - mcp_tool: content 为 None, path 为配置文件路径
+    """
+    reg = SUBJECT_REGISTRY.get(eval_type)
+    if not reg:
+        raise ValueError(f"Unknown eval_type: {eval_type}")
+
+    path = os.path.join(BASE_DIR, reg["dir"], f"{subject_name}{reg['ext']}")
+
+    if eval_type == "mcp_tool":
+        # MCP Tool 不需要读取内容，runner 直接传路径给 --mcp-config
+        return None, path
+
     with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+        return f.read(), path
 
 
 def compute_total(rule_score: float, llm_scores: list, rubric: list) -> float:
@@ -64,15 +99,24 @@ def compute_total(rule_score: float, llm_scores: list, rubric: list) -> float:
     return round(RULE_WEIGHT * rule_score + LLM_WEIGHT * llm_avg, 1)
 
 
-def run_case(case: dict, skill_type: str, skill_content: str, dry_run: bool = False) -> dict:
+def run_case(case: dict, suite: str, dry_run: bool = False) -> dict:
     case_id = case["id"]
     title = case["title"]
+    eval_type = case["eval_type"]
+    subject_name = case["subject"]
     description = case["input"]["description"]
-    input_code = load_file(skill_type, case["input"]["code_file"])
-    reference_code = load_file(skill_type, case["expected"]["reference_file"])
+    input_code = load_file(suite, case["input"]["code_file"])
+    reference_code = load_file(suite, case["expected"]["reference_file"])
     rubric = case["expected"]["rubric"]
 
-    print(f"\n  -> 基线运行 (无 Skill)...", end=" ", flush=True)
+    # 加载被测对象
+    subject_content, subject_path = load_subject(eval_type, subject_name)
+
+    type_labels = {"skill": "Skill", "mcp_tool": "MCP Tool", "system_prompt": "System Prompt"}
+    type_label = type_labels.get(eval_type, eval_type)
+
+    # 基线运行
+    print(f"  -> 基线运行 (无 {type_label})...", end=" ", flush=True)
     if dry_run:
         baseline_output = "// dry run - no output"
         print("跳过 (dry-run)")
@@ -81,13 +125,18 @@ def run_case(case: dict, skill_type: str, skill_content: str, dry_run: bool = Fa
         baseline_output = run_baseline(description, input_code)
         print(f"完成 ({time.time() - t0:.0f}s)")
 
-    print(f"  -> 增强运行 (挂载 Skill)...", end=" ", flush=True)
+    # 增强运行
+    print(f"  -> 增强运行 (挂载 {type_label}: {subject_name})...", end=" ", flush=True)
     if dry_run:
-        enhanced_output = reference_code  # dry-run 用参考答案模拟
+        enhanced_output = reference_code
         print("跳过 (dry-run, 使用参考答案)")
     else:
         t0 = time.time()
-        enhanced_output = run_enhanced(description, input_code, skill_content)
+        enhanced_output = run_enhanced(
+            description, input_code, eval_type,
+            subject_content=subject_content,
+            subject_path=subject_path,
+        )
         print(f"完成 ({time.time() - t0:.0f}s)")
 
     # 规则评分
@@ -121,6 +170,8 @@ def run_case(case: dict, skill_type: str, skill_content: str, dry_run: bool = Fa
     return {
         "case_id": case_id,
         "title": title,
+        "eval_type": eval_type,
+        "subject": subject_name,
         "baseline_rule": baseline_rule["rule_score"],
         "enhanced_rule": enhanced_rule["rule_score"],
         "baseline_total": baseline_total,
@@ -131,33 +182,42 @@ def run_case(case: dict, skill_type: str, skill_content: str, dry_run: bool = Fa
 
 def main():
     parser = argparse.ArgumentParser(description="Skill 评测系统")
-    parser.add_argument("--skill-type", default="bug_fix", help="要测试的 skill 类型")
-    parser.add_argument("--dry-run", action="store_true", help="干跑模式，不调用 Agent")
+    parser.add_argument("--suite", default="bug_fix",
+                        help="测试套件名称（test_cases 下的目录名）")
+    parser.add_argument("--eval-type", default=None,
+                        choices=["skill", "mcp_tool", "system_prompt"],
+                        help="只运行指定评测类型的用例")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="干跑模式，不调用 Agent")
     args = parser.parse_args()
 
-    skill_type = args.skill_type
+    suite = args.suite
 
     print(f"========================================")
-    print(f"  Skill 评测系统")
-    print(f"  被测 Skill: {skill_type}")
+    print(f"  Agent Bench 评测系统")
+    print(f"  测试套件: {suite}")
+    if args.eval_type:
+        print(f"  评测类型: {args.eval_type}")
     print(f"  模式: {'dry-run' if args.dry_run else '正式运行'}")
     print(f"========================================")
 
-    cases = load_test_cases(skill_type)
+    cases = load_test_cases(suite, eval_type_filter=args.eval_type)
     print(f"\n加载了 {len(cases)} 个测试用例")
 
-    skill_content = load_skill(skill_type)
+    if not cases:
+        print("没有匹配的测试用例，退出")
+        return
 
     results = []
     for i, case in enumerate(cases):
-        print(f"\n[{i + 1}/{len(cases)}] {case['id']} - {case['title']}")
-        result = run_case(case, skill_type, skill_content, dry_run=args.dry_run)
+        print(f"\n[{i + 1}/{len(cases)}] {case['id']} - {case['title']} [{case['eval_type']}]")
+        result = run_case(case, suite, dry_run=args.dry_run)
         results.append(result)
         gain = result["enhanced_total"] - result["baseline_total"]
         print(f"  -> 结果: 基线={result['baseline_total']}, 增强={result['enhanced_total']}, 增益={'+' if gain >= 0 else ''}{gain}")
 
     output_dir = os.path.join(BASE_DIR, "report", "output")
-    json_path, md_path = generate_report(results, skill_type, output_dir)
+    json_path, md_path = generate_report(results, suite, output_dir)
 
     print(f"\n========================================")
     print(f"  评测完成!")

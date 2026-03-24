@@ -1,5 +1,7 @@
 {
   "id": "bug_fix_001",
+  "eval_type": "skill",
+  "subject": "bug_fix",
   "skill_type": "bug_fix",
   "title": "List组件ForEach性能崩溃修复",
   "input": {

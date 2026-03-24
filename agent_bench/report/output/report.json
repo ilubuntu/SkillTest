@@ -1,0 +1,103 @@
+{
+  "generated_at": "2026-03-23T21:41:31.623263",
+  "skill_under_test": "bug_fix",
+  "summary": {
+    "total_cases": 3,
+    "baseline_avg": 28.5,
+    "enhanced_avg": 89.5,
+    "gain": 61.0,
+    "baseline_pass_rate": "0/3",
+    "enhanced_pass_rate": "3/3",
+    "dimensions": {
+      "correctness": {
+        "baseline_avg": 30.0,
+        "enhanced_avg": 85.0,
+        "gain": 55.0
+      },
+      "completeness": {
+        "baseline_avg": 30.0,
+        "enhanced_avg": 85.0,
+        "gain": 55.0
+      },
+      "code_quality": {
+        "baseline_avg": 30.0,
+        "enhanced_avg": 85.0,
+        "gain": 55.0
+      }
+    }
+  },
+  "cases": [
+    {
+      "case_id": "bug_fix_001",
+      "title": "List组件ForEach性能崩溃修复",
+      "eval_type": "skill",
+      "subject": "bug_fix",
+      "baseline_rule": 25.0,
+      "enhanced_rule": 100.0,
+      "baseline_total": 28.5,
+      "enhanced_total": 89.5,
+      "dimension_scores": {
+        "correctness": {
+          "baseline": 30,
+          "enhanced": 85
+        },
+        "completeness": {
+          "baseline": 30,
+          "enhanced": 85
+        },
+        "code_quality": {
+          "baseline": 30,
+          "enhanced": 85
+        }
+      }
+    },
+    {
+      "case_id": "bug_fix_002",
+      "title": "State数组修改未触发UI刷新",
+      "eval_type": "skill",
+      "subject": "bug_fix",
+      "baseline_rule": 50.0,
+      "enhanced_rule": 100.0,
+      "baseline_total": 36.0,
+      "enhanced_total": 89.5,
+      "dimension_scores": {
+        "correctness": {
+          "baseline": 30,
+          "enhanced": 85
+        },
+        "completeness": {
+          "baseline": 30,
+          "enhanced": 85
+        },
+        "code_quality": {
+          "baseline": 30,
+          "enhanced": 85
+        }
+      }
+    },
+    {
+      "case_id": "bug_fix_003",
+      "title": "组件销毁后定时器未清除导致内存泄漏",
+      "eval_type": "skill",
+      "subject": "bug_fix",
+      "baseline_rule": 0.0,
+      "enhanced_rule": 100.0,
+      "baseline_total": 21.0,
+      "enhanced_total": 89.5,
+      "dimension_scores": {
+        "correctness": {
+          "baseline": 30,
+          "enhanced": 85
+        },
+        "completeness": {
+          "baseline": 30,
+          "enhanced": 85
+        },
+        "code_quality": {
+          "baseline": 30,
+          "enhanced": 85
+        }
+      }
+    }
+  ]
+}
