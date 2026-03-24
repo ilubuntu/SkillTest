@@ -1,6 +1,16 @@
-import subprocess
+# -*- coding: utf-8 -*-
+"""LLM-as-Judge 评分模块
+
+TODO: 切换到独立 API 调用（anthropic SDK），不再依赖 claude -p
+    当前使用 claude -p 作为 fallback，后续应该：
+    1. 使用 anthropic Python SDK 直接调用 API
+    2. 从 config.yaml 读取 judge.provider / judge.model 配置
+    3. 支持并发评分（config.yaml 中的 concurrency.llm_judge）
+"""
+
 import json
 import re
+import subprocess
 import sys
 
 TIMEOUT = 60
@@ -33,6 +43,17 @@ DEFAULT_SCORE = 50
 
 
 def judge(input_code: str, output_code: str, reference_code: str, rubric: list) -> dict:
+    """对 Agent 输出进行 LLM 评分
+
+    Args:
+        input_code: 原始有 bug 的代码
+        output_code: Agent 输出的修复代码
+        reference_code: 参考答案代码
+        rubric: 评分维度列表
+
+    Returns:
+        {"scores": [{"name": str, "score": int, "reason": str}, ...]}
+    """
     if not output_code.strip():
         return {
             "scores": [{"name": r["name"], "score": 0, "reason": "Agent无输出"} for r in rubric]
@@ -50,6 +71,16 @@ def judge(input_code: str, output_code: str, reference_code: str, rubric: list) 
         rubric_text=rubric_text,
     )
 
+    # TODO: 替换为独立 API 调用
+    #   import anthropic
+    #   client = anthropic.Anthropic()
+    #   response = client.messages.create(
+    #       model=config["judge"]["model"],
+    #       temperature=config["judge"]["temperature"],
+    #       messages=[{"role": "user", "content": prompt}],
+    #   )
+    #   return _parse_scores(response.content[0].text, rubric)
+
     try:
         result = subprocess.run(
             ["claude", "-p", prompt],
@@ -66,6 +97,7 @@ def judge(input_code: str, output_code: str, reference_code: str, rubric: list) 
 
 
 def _parse_scores(raw_output: str, rubric: list) -> dict:
+    """解析 LLM 输出的 JSON 评分"""
     try:
         match = re.search(r'\{[\s\S]*"scores"[\s\S]*\}', raw_output)
         if match:

@@ -1,0 +1,14 @@
+name: "bug_fix_enhanced"
+description: "Bug修复增强配置：Skill + 定制化最佳实践"
+scenarios:
+  - bug_fix
+enhancements:
+  skills:
+    - name: bug_fix
+      path: skills/bug_fix.md
+  system_prompt: |
+    你是一个专注于鸿蒙ArkTS开发的编程助手，擅长诊断和修复代码缺陷。
+    修复代码时请遵循ArkTS最佳实践，确保代码正确性和性能。
+agent:
+  model: "anthropic/claude-sonnet-4-6"
+  timeout: 120

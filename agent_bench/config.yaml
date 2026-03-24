@@ -1,0 +1,28 @@
+# Agent Bench 全局配置
+# 依赖: pip install pyyaml
+
+# 并发控制
+concurrency:
+  agent_runs: 3
+  llm_judge: 5
+
+# Agent 配置
+agent:
+  command: "opencode"
+  args: ["run"]
+  format: "json"
+  quiet: true
+  timeout: 120
+
+# LLM Judge 配置（独立于被测 Agent）
+judge:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  temperature: 0
+  timeout: 60
+
+# 评分权重
+scoring:
+  rule_weight: 0.3
+  llm_weight: 0.7
+  pass_threshold: 60

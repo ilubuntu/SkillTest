@@ -1,17 +1,42 @@
+# -*- coding: utf-8 -*-
+"""报告生成模块
+
+支持新的报告格式：
+  - general: 通用检查（编译/lint 通过率）— 占位，待实现
+  - by_scenario: 按场景汇总
+  - 每个用例包含 scenario 字段
+"""
+
 import json
 import os
 from datetime import datetime
 
 
-def generate(results: list, skill_name: str, output_dir: str):
+def generate(results: list, scenario: str, profile_name: str, output_dir: str):
+    """生成 JSON + Markdown 报告
+
+    Args:
+        results: 用例结果列表
+        scenario: 场景名称
+        profile_name: profile 名称
+        output_dir: 输出目录
+
+    Returns:
+        (json_path, md_path)
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     summary = _compute_summary(results)
+    general = _compute_general(results)
+    by_scenario = _compute_by_scenario(results)
 
     report_json = {
         "generated_at": datetime.now().isoformat(),
-        "skill_under_test": skill_name,
+        "profile": profile_name,
+        "scenario": scenario,
         "summary": summary,
+        "general": general,
+        "by_scenario": by_scenario,
         "cases": results,
     }
 
@@ -27,6 +52,7 @@ def generate(results: list, skill_name: str, output_dir: str):
 
 
 def _compute_summary(results: list) -> dict:
+    """计算整体汇总"""
     if not results:
         return {}
 
@@ -69,13 +95,57 @@ def _compute_summary(results: list) -> dict:
     }
 
 
+def _compute_general(results: list) -> dict:
+    """计算通用检查结果（编译/lint 通过率）
+
+    TODO: 接入实际的编译和 lint 检查
+    """
+    # 占位：当前没有编译/lint 数据
+    return {
+        "compile_pass_rate": "N/A",
+        "lint_pass_rate": "N/A",
+        "note": "通用检查（编译/lint）尚未接入，待后续实现",
+    }
+
+
+def _compute_by_scenario(results: list) -> dict:
+    """按场景分组汇总"""
+    scenarios = {}
+    for r in results:
+        sc = r.get("scenario", "unknown")
+        if sc not in scenarios:
+            scenarios[sc] = []
+        scenarios[sc].append(r)
+
+    by_scenario = {}
+    for sc, cases in scenarios.items():
+        baseline_scores = [c["baseline_total"] for c in cases]
+        enhanced_scores = [c["enhanced_total"] for c in cases]
+        b_avg = sum(baseline_scores) / len(baseline_scores)
+        e_avg = sum(enhanced_scores) / len(enhanced_scores)
+
+        by_scenario[sc] = {
+            "total_cases": len(cases),
+            "baseline_avg": round(b_avg, 1),
+            "enhanced_avg": round(e_avg, 1),
+            "gain": round(e_avg - b_avg, 1),
+        }
+
+    return by_scenario
+
+
 def _render_markdown(report: dict) -> str:
+    """渲染 Markdown 格式报告"""
     s = report["summary"]
+    if not s:
+        return "# Agent Bench 评测报告\n\n无数据\n"
+
     lines = [
-        f"# Skill 增益评测报告",
+        f"# Agent Bench 评测报告",
         f"",
         f"- **生成时间**: {report['generated_at']}",
-        f"- **被测 Skill**: {report['skill_under_test']}",
+        f"- **Profile**: {report['profile']}",
+        f"- **场景**: {report['scenario']}",
         f"",
         f"## 总览",
         f"",
@@ -86,32 +156,64 @@ def _render_markdown(report: dict) -> str:
         f"",
     ]
 
+    # 通用检查
+    general = report.get("general", {})
+    if general:
+        lines.append("## 通用检查")
+        lines.append("")
+        lines.append(f"| 检查项 | 结果 |")
+        lines.append(f"|--------|------|")
+        lines.append(f"| 编译通过率 | {general.get('compile_pass_rate', 'N/A')} |")
+        lines.append(f"| Lint 通过率 | {general.get('lint_pass_rate', 'N/A')} |")
+        if general.get("note"):
+            lines.append(f"\n> {general['note']}")
+        lines.append("")
+
+    # 按场景汇总
+    by_scenario = report.get("by_scenario", {})
+    if by_scenario:
+        lines.append("## 按场景汇总")
+        lines.append("")
+        lines.append("| 场景 | 用例数 | 基线均分 | 增强均分 | 增益 |")
+        lines.append("|------|--------|---------|---------|------|")
+        for sc, data in by_scenario.items():
+            lines.append(f"| {sc} | {data['total_cases']} | {data['baseline_avg']} "
+                         f"| {data['enhanced_avg']} | +{data['gain']} |")
+        lines.append("")
+
+    # 各维度对比
     if s.get("dimensions"):
         lines.append("## 各维度对比")
         lines.append("")
         lines.append("| 维度 | 基线均分 | 增强均分 | 增益 |")
         lines.append("|------|---------|---------|------|")
         for dim_name, dim in s["dimensions"].items():
-            lines.append(f"| {dim_name} | {dim['baseline_avg']} | {dim['enhanced_avg']} | +{dim['gain']} |")
+            lines.append(f"| {dim_name} | {dim['baseline_avg']} "
+                         f"| {dim['enhanced_avg']} | +{dim['gain']} |")
         lines.append("")
 
+    # 用例明细
     lines.append("## 用例明细")
     lines.append("")
     for r in report["cases"]:
         gain = r["enhanced_total"] - r["baseline_total"]
         flag = "+" if gain >= 0 else ""
-        lines.append(f"### {r['case_id']}: {r['title']}")
+        scenario_tag = f" [{r.get('scenario', '')}]" if r.get('scenario') else ""
+        lines.append(f"### {r['case_id']}: {r['title']}{scenario_tag}")
         lines.append("")
         lines.append(f"| | 基线 | 增强 | 增益 |")
         lines.append(f"|--|------|------|------|")
-        lines.append(f"| 规则得分 | {r['baseline_rule']} | {r['enhanced_rule']} | {flag}{round(r['enhanced_rule'] - r['baseline_rule'], 1)} |")
+        lines.append(f"| 规则得分 | {r['baseline_rule']} | {r['enhanced_rule']} "
+                     f"| {flag}{round(r['enhanced_rule'] - r['baseline_rule'], 1)} |")
 
         for dim_name, scores in r.get("dimension_scores", {}).items():
             d_gain = scores["enhanced"] - scores["baseline"]
             d_flag = "+" if d_gain >= 0 else ""
-            lines.append(f"| {dim_name} | {scores['baseline']} | {scores['enhanced']} | {d_flag}{d_gain} |")
+            lines.append(f"| {dim_name} | {scores['baseline']} "
+                         f"| {scores['enhanced']} | {d_flag}{d_gain} |")
 
-        lines.append(f"| **总分** | **{r['baseline_total']}** | **{r['enhanced_total']}** | **{flag}{round(gain, 1)}** |")
+        lines.append(f"| **总分** | **{r['baseline_total']}** "
+                     f"| **{r['enhanced_total']}** | **{flag}{round(gain, 1)}** |")
         lines.append("")
 
     return "\n".join(lines)
