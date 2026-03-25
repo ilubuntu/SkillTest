@@ -688,7 +688,7 @@ def main():
         """,
     )
     parser.add_argument("--profile", required=True,
-                        help="Profile 名称: project_gen, compilable, performance, all")
+                        help="Profile 名称: project_gen, compilable, performance, bug_fix_enhanced, baseline, all")
     parser.add_argument("--cases", default=None,
                         help="测试场景（可选），覆盖 Profile 中的 scenarios 配置。支持 all")
     parser.add_argument("--api-base", default=DEFAULT_API_BASE,
