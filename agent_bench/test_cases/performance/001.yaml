@@ -1,0 +1,26 @@
+id: performance_001
+skill_type: performance
+title: "List组件滑动性能优化"
+
+input:
+  prompt: "请优化以下List组件代码，使其支持大数据量滑动时的流畅性能（需要使用LazyForEach和cachedCount）"
+  code_file: cases/001/input.ets
+
+expected:
+  reference_file: cases/001/input.ets
+  must_contain:
+    - "LazyForEach"
+    - "cachedCount"
+    - "IDataSource"
+  must_not_contain:
+    - "ForEach"
+  rubric:
+    - name: correctness
+      weight: 40
+      criteria: "是否正确使用了LazyForEach替代ForEach，cachedCount设置是否合理"
+    - name: completeness
+      weight: 30
+      criteria: "是否完整实现了IDataSource接口，数据加载逻辑是否正确"
+    - name: code_quality
+      weight: 30
+      criteria: "代码是否遵循性能优化最佳实践，是否有效减少内存占用"

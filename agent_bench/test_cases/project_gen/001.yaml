@@ -1,0 +1,29 @@
+id: project_gen_001
+skill_type: project_gen
+title: "生成ArkTS List页面工程"
+
+input:
+  prompt: "请生成一个包含List组件的ArkTS页面工程，包含完整的项目目录结构和必要的配置文件"
+  code_file: cases/001/input.ets
+
+expected:
+  reference_file: cases/001/input.ets
+  must_contain:
+    - "pages/Index"
+    - "@Entry"
+    - "@Component"
+    - "List"
+    - "ListItem"
+  must_not_contain:
+    - "TODO"
+    - "FIXME"
+  rubric:
+    - name: correctness
+      weight: 40
+      criteria: "是否正确生成了完整的项目目录结构，包含所有必要的配置文件"
+    - name: completeness
+      weight: 30
+      criteria: "是否包含了List组件的完整实现，包含数据源和列表项渲染"
+    - name: code_quality
+      weight: 30
+      criteria: "代码是否符合ArkTS规范，目录结构是否规范"

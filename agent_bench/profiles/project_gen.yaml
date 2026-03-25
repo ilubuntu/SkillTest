@@ -1,0 +1,14 @@
+name: "project_gen"
+description: "工程生成Skill：确保Agent能正确生成完整的HarmonyOS项目结构"
+scenarios:
+  - project_gen
+enhancements:
+  skills:
+    - name: create-harmony-project
+      path: skills/create-harmony-project.md
+  system_prompt: |
+    你是一个专业的鸿蒙 ArkTS 开发工程师，擅长从零构建完整的 HarmonyOS 项目。
+    生成项目时请严格遵循项目目录结构规范，确保所有文件路径和内容都符合 HarmonyOS 应用框架要求。
+agent:
+  model: "minimax/MiniMax-M2.7"
+  timeout: 180
