@@ -7,13 +7,17 @@
 用法:
     # ── 完整流水线（最常用）──────────────────────────────────────
     # 一次性完成：Agent 运行 → 规则评分 → LLM 评分 → 生成报告
-    python cli.py run --profile <profile_name> --cases <scenario>
+    # 自动从 Profile 的 scenarios 字段读取要跑的场景
+    python cli.py run --profile <profile_name>
 
-    # 示例：用 bug_fix_enhanced 配置跑 bug_fix 场景的所有用例
+    # 示例：用 bug_fix_enhanced 配置，自动跑 Profile 中定义的场景
+    python cli.py run --profile bug_fix_enhanced
+
+    # 可选：通过 --cases 覆盖，只跑指定场景（忽略 Profile 中的 scenarios）
     python cli.py run --profile bug_fix_enhanced --cases bug_fix
 
     # 干跑模式：不调用 Agent 和 LLM，用模拟数据走完流程，用于验证流水线配置
-    python cli.py run --profile bug_fix_enhanced --cases bug_fix --dry-run
+    python cli.py run --profile bug_fix_enhanced --dry-run
 
     # 指定 run-id（默认自动按时间戳生成，如 20260324_153000）
     python cli.py run --profile bug_fix_enhanced --cases bug_fix --run-id my_test_001
@@ -46,9 +50,11 @@
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -140,6 +146,30 @@ def generate_run_id() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def resolve_scenarios(profile: dict, cases_override: str = None) -> list:
+    """解析要运行的场景列表
+
+    优先使用 --cases 覆盖参数，否则从 Profile 的 scenarios 字段读取。
+    如果两者都为空则报错退出。
+
+    Args:
+        profile: Profile 配置字典
+        cases_override: CLI 传入的 --cases 参数（可选）
+
+    Returns:
+        场景名称列表，如 ["bug_fix"] 或 ["bug_fix", "refactor"]
+    """
+    if cases_override:
+        return [cases_override]
+
+    scenarios = profile.get("scenarios", [])
+    if not scenarios:
+        print("[ERROR] Profile 未定义 scenarios，且未通过 --cases 指定场景", file=sys.stderr)
+        sys.exit(1)
+
+    return scenarios
+
+
 def compute_total(rule_score: float, llm_scores: list, rubric: list,
                   rule_weight: float, llm_weight: float) -> float:
     """综合评分 = 规则分 × rule_weight + LLM加权均分 × llm_weight
@@ -167,7 +197,7 @@ def compute_total(rule_score: float, llm_scores: list, rubric: list,
 
 def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
                     run_id: str, dry_run: bool = False) -> dict:
-    """执行单个测试用例的完整流程
+    """执行单个测试用例的完整流程（线程安全）
 
     流程：
     1. 创建沙箱目录（sandbox/{run_id}/{case_id}/）
@@ -191,46 +221,44 @@ def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
     rule_weight = scoring.get("rule_weight", 0.3)
     llm_weight = scoring.get("llm_weight", 0.7)
 
+    logs = []
+
     # 创建 sandbox 目录
     sandbox_dir = create_sandbox(run_id, case_id, profile)
 
     # 基线运行
-    print(f"  -> 基线运行...", end=" ", flush=True)
     if dry_run:
         baseline_output = "// dry run - no output"
-        print("跳过 (dry-run)")
+        logs.append("  -> 基线运行... 跳过 (dry-run)")
     else:
         t0 = time.time()
         baseline_output = run_baseline(prompt, input_code)
-        print(f"完成 ({time.time() - t0:.0f}s)")
+        logs.append(f"  -> 基线运行... 完成 ({time.time() - t0:.0f}s)")
 
     # 增强运行
     profile_name = profile.get("name", "unknown")
-    print(f"  -> 增强运行 (profile: {profile_name})...", end=" ", flush=True)
     if dry_run:
         enhanced_output = reference_code
-        print("跳过 (dry-run, 使用参考答案)")
+        logs.append(f"  -> 增强运行 (profile: {profile_name})... 跳过 (dry-run, 使用参考答案)")
     else:
         t0 = time.time()
         enhanced_output = run_enhanced(prompt, input_code, profile, sandbox_dir)
-        print(f"完成 ({time.time() - t0:.0f}s)")
+        logs.append(f"  -> 增强运行 (profile: {profile_name})... 完成 ({time.time() - t0:.0f}s)")
 
     # 规则评分
-    print(f"  -> 规则检查...", end=" ", flush=True)
     baseline_rule = rule_check(baseline_output, case["expected"])
     enhanced_rule = rule_check(enhanced_output, case["expected"])
-    print(f"基线={baseline_rule['rule_score']}, 增强={enhanced_rule['rule_score']}")
+    logs.append(f"  -> 规则检查... 基线={baseline_rule['rule_score']}, 增强={enhanced_rule['rule_score']}")
 
     # LLM 评分
-    print(f"  -> LLM 评分...", end=" ", flush=True)
     if dry_run:
         baseline_llm = {"scores": [{"name": r["name"], "score": 30, "reason": "dry-run"} for r in rubric]}
         enhanced_llm = {"scores": [{"name": r["name"], "score": 85, "reason": "dry-run"} for r in rubric]}
-        print("跳过 (dry-run)")
+        logs.append("  -> LLM 评分... 跳过 (dry-run)")
     else:
         baseline_llm = llm_judge(input_code, baseline_output, reference_code, rubric)
         enhanced_llm = llm_judge(input_code, enhanced_output, reference_code, rubric)
-        print("完成")
+        logs.append("  -> LLM 评分... 完成")
 
     # 汇总
     baseline_total = compute_total(baseline_rule["rule_score"], baseline_llm["scores"],
@@ -245,6 +273,10 @@ def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
         e_score = next((s["score"] for s in enhanced_llm["scores"] if s["name"] == name), 50)
         dimension_scores[name] = {"baseline": b_score, "enhanced": e_score}
 
+    gain = enhanced_total - baseline_total
+    sign = "+" if gain >= 0 else ""
+    logs.append(f"  -> 结果: 基线={baseline_total}, 增强={enhanced_total}, 增益={sign}{gain}")
+
     return {
         "case_id": case_id,
         "title": title,
@@ -255,6 +287,7 @@ def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
         "baseline_total": baseline_total,
         "enhanced_total": enhanced_total,
         "dimension_scores": dimension_scores,
+        "_logs": logs,
     }
 
 
@@ -292,6 +325,18 @@ def load_results(run_id: str) -> dict:
         return json.load(f)
 
 
+# 线程安全的打印锁，并行执行时防止输出交错
+_print_lock = threading.Lock()
+
+
+def _print_case_result(case_id: str, title: str, index: str, logs: list):
+    """线程安全地打印单个用例的完整执行日志"""
+    with _print_lock:
+        print(f"\n[{index}] {case_id} - {title}")
+        for line in logs:
+            print(line)
+
+
 # ── 子命令实现 ──────────────────────────────────────────────
 # 每个 cmd_* 函数对应一个 CLI 子命令，通过 argparse 的 set_defaults(func=...) 分发调用
 
@@ -299,48 +344,69 @@ def load_results(run_id: str) -> dict:
 def cmd_run(args):
     """完整流水线：Runner → Evaluator → Reporter 一次跑完
 
-    这是最常用的命令，串行执行所有用例的完整评测流程。
+    场景内用例并行执行，并发数由 config.yaml 的 concurrency.agent_runs 控制。
+    场景列表优先从 --cases 读取，未指定时自动从 Profile 的 scenarios 字段获取。
     结果持久化到 results/{run_id}/，同时生成 JSON + Markdown 报告。
     """
     config = load_config()
     profile = load_profile(args.profile)
-    cases = load_test_cases(args.cases)
     run_id = args.run_id or generate_run_id()
-
     profile_name = profile.get("name", args.profile)
-    scenario = args.cases
+    scenarios = resolve_scenarios(profile, args.cases)
+    max_workers = config.get("concurrency", {}).get("agent_runs", 3)
 
     print("=" * 50)
     print("  Agent Bench 评测系统")
     print(f"  Run ID:   {run_id}")
     print(f"  Profile:  {profile_name}")
-    print(f"  Scenario: {scenario}")
+    print(f"  Scenarios: {', '.join(scenarios)}")
+    print(f"  Parallel: {max_workers} workers")
     print(f"  Mode:     {'dry-run' if args.dry_run else '正式运行'}")
     print("=" * 50)
-    print(f"\n加载了 {len(cases)} 个测试用例")
 
-    if not cases:
-        print("没有匹配的测试用例，退出")
+    all_results = []
+
+    for scenario in scenarios:
+        cases = load_test_cases(scenario)
+        print(f"\n场景 [{scenario}] 加载了 {len(cases)} 个测试用例")
+
+        if not cases:
+            print(f"场景 [{scenario}] 没有匹配的测试用例，跳过")
+            continue
+
+        # 场景内用例并行执行
+        futures = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for i, case in enumerate(cases):
+                future = executor.submit(
+                    run_single_case, case, scenario, profile, config, run_id,
+                    dry_run=args.dry_run,
+                )
+                futures[future] = (i, case)
+
+            for future in concurrent.futures.as_completed(futures):
+                i, case = futures[future]
+                try:
+                    result = future.result()
+                    index = f"{scenario} {i + 1}/{len(cases)}"
+                    _print_case_result(result["case_id"], result["title"],
+                                       index, result.pop("_logs", []))
+                    all_results.append(result)
+                except Exception as e:
+                    print(f"\n[ERROR] {case['id']} 执行失败: {e}", file=sys.stderr)
+
+    if not all_results:
+        print("\n没有匹配的测试用例，退出")
         return
 
-    results = []
-    for i, case in enumerate(cases):
-        print(f"\n[{i + 1}/{len(cases)}] {case['id']} - {case['title']}")
-        result = run_single_case(case, scenario, profile, config, run_id,
-                                 dry_run=args.dry_run)
-        results.append(result)
-        gain = result["enhanced_total"] - result["baseline_total"]
-        sign = "+" if gain >= 0 else ""
-        print(f"  -> 结果: 基线={result['baseline_total']}, "
-              f"增强={result['enhanced_total']}, 增益={sign}{gain}")
-
     # 持久化结果
-    results_path = persist_results(results, run_id, scenario, profile_name)
+    scenarios_str = ",".join(scenarios)
+    results_path = persist_results(all_results, run_id, scenarios_str, profile_name)
     print(f"\n结果已保存: {results_path}")
 
     # 生成报告
     output_dir = os.path.join(BASE_DIR, "results", run_id)
-    json_path, md_path = generate_report(results, scenario, profile_name, output_dir)
+    json_path, md_path = generate_report(all_results, scenarios_str, profile_name, output_dir)
 
     print("\n" + "=" * 50)
     print("  评测完成!")
@@ -362,11 +428,16 @@ def cmd_run_agents(args):
     """
     config = load_config()
     profile = load_profile(args.profile)
-    cases = load_test_cases(args.cases)
     run_id = args.run_id or generate_run_id()
+    scenarios = resolve_scenarios(profile, args.cases)
+
+    total_cases = 0
+    for scenario in scenarios:
+        cases = load_test_cases(scenario)
+        total_cases += len(cases)
 
     print(f"[run-agents] Run ID: {run_id}, Profile: {profile.get('name')}, "
-          f"Scenario: {args.cases}, Cases: {len(cases)}")
+          f"Scenarios: {', '.join(scenarios)}, Cases: {total_cases}")
     print("[run-agents] Agent 运行尚未实现独立持久化，请使用 `run` 子命令")
     # TODO: 实现独立的 Agent 运行 + 结果持久化
 
@@ -422,10 +493,19 @@ def cmd_baseline(args):
     - cmd_run 中检查缓存有效性，有效则跳过基线运行
     """
     config = load_config()
-    cases = load_test_cases(args.cases)
     run_id = args.run_id or generate_run_id()
+    scenarios = [args.cases] if args.cases else []
 
-    print(f"[baseline] Run ID: {run_id}, Scenario: {args.cases}, Cases: {len(cases)}")
+    if not scenarios:
+        print("[ERROR] baseline 命令需要通过 --cases 指定场景", file=sys.stderr)
+        sys.exit(1)
+
+    total_cases = 0
+    for scenario in scenarios:
+        cases = load_test_cases(scenario)
+        total_cases += len(cases)
+
+    print(f"[baseline] Run ID: {run_id}, Scenarios: {', '.join(scenarios)}, Cases: {total_cases}")
     print("[baseline] 独立基线运行尚未实现，请使用 `run --profile baseline` 代替")
     # TODO: 实现独立的基线运行
 
@@ -441,8 +521,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  %(prog)s run --profile bug_fix_enhanced --cases bug_fix          # 完整评测
-  %(prog)s run --profile bug_fix_enhanced --cases bug_fix --dry-run # 干跑验证
+  %(prog)s run --profile bug_fix_enhanced                           # 自动读取 Profile 中的 scenarios
+  %(prog)s run --profile bug_fix_enhanced --cases bug_fix           # 覆盖：只跑指定场景
+  %(prog)s run --profile bug_fix_enhanced --dry-run                 # 干跑验证
   %(prog)s report --run-id 20260324_153000                          # 重新生成报告
   %(prog)s baseline --cases bug_fix                                 # 预跑基线缓存
         """,
@@ -453,8 +534,8 @@ def main():
     p_run = subparsers.add_parser("run", help="完整流水线: 运行 Agent → 评分 → 报告")
     p_run.add_argument("--profile", required=True,
                        help="Profile 名称，对应 profiles/<name>.yaml（如 bug_fix_enhanced）")
-    p_run.add_argument("--cases", required=True,
-                       help="测试场景名称，对应 test_cases/<scenario>/ 目录（如 bug_fix）")
+    p_run.add_argument("--cases", default=None,
+                       help="测试场景名称（可选），覆盖 Profile 中的 scenarios 配置")
     p_run.add_argument("--run-id", default=None,
                        help="运行 ID，用于标识本次运行（默认按时间戳自动生成）")
     p_run.add_argument("--dry-run", action="store_true",
@@ -465,7 +546,7 @@ def main():
     p_agents = subparsers.add_parser("run-agents",
                                      help="仅运行 Agent，不评分不出报告（⚠️ 未完整实现）")
     p_agents.add_argument("--profile", required=True, help="Profile 名称")
-    p_agents.add_argument("--cases", required=True, help="测试场景名称")
+    p_agents.add_argument("--cases", default=None, help="测试场景名称（可选），覆盖 Profile 中的 scenarios")
     p_agents.add_argument("--run-id", default=None, help="运行 ID")
     p_agents.add_argument("--dry-run", action="store_true", help="干跑模式")
     p_agents.set_defaults(func=cmd_run_agents)
@@ -487,7 +568,7 @@ def main():
     # ── baseline: 预跑基线并缓存
     p_base = subparsers.add_parser("baseline",
                                    help="预跑基线结果到缓存（⚠️ 未完整实现）")
-    p_base.add_argument("--cases", required=True, help="测试场景名称")
+    p_base.add_argument("--cases", default=None, help="测试场景名称")
     p_base.add_argument("--run-id", default=None, help="运行 ID")
     p_base.add_argument("--dry-run", action="store_true", help="干跑模式")
     p_base.set_defaults(func=cmd_baseline)
