@@ -1,0 +1,14 @@
+name: "performance"
+description: "性能优化Skill：确保Agent能生成高性能的List和Swiper组件代码"
+scenarios:
+  - performance
+enhancements:
+  skills:
+    - name: performance
+      path: skills/performance.md
+  system_prompt: |
+    你是一个专注于性能优化的高级 ArkTS 开发专家，擅长优化 List 和 Swiper 等高频组件的滑动性能。
+    编写组件代码时必须使用 LazyForEach 和 cachedCount 等性能优化技术。
+agent:
+  model: "minimax/MiniMax-M2.7"
+  timeout: 180

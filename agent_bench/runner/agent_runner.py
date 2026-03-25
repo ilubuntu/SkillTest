@@ -1,20 +1,24 @@
 # -*- coding: utf-8 -*-
 """Agent Runner - 驱动 Agent 执行
 
-支持 sandbox 模式（opencode run）和 fallback 模式（claude -p）。
-当前 MVP 使用 claude -p fallback，后续切换到 opencode run。
+支持三种驱动模式：
+1. HTTP API 模式（默认）：通过 HTTP API 调用 OpenCode 服务
+2. opencode run CLI 模式：通过 opencode run 命令行
+3. claude -p fallback 模式：通过 claude -p 命令行（Windows 不兼容时备用）
+
+HTTP API 模式通过 opencode serve 启动的常驻实例控制会话，
+复用 MCP Server 连接，避免冷启动开销。
 """
 
 import json
 import os
 import subprocess
 import sys
-
-# TODO: 切换到 opencode run 作为默认 Agent 驱动方式
-#   opencode run 支持 sandbox 隔离、opencode.json 配置、AGENTS.md 注入
-#   当前使用 claude -p 作为 fallback
+import urllib.request
+import urllib.error
 
 TIMEOUT = 120
+DEFAULT_API_BASE = "http://localhost:4096"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -99,36 +103,47 @@ def create_sandbox(run_id: str, case_id: str, profile: dict) -> str:
     return sandbox_dir
 
 
-def run_agent(sandbox_dir: str, prompt: str) -> str:
-    """在 sandbox 中运行 Agent
+def run_agent(sandbox_dir: str, prompt: str, model: str = "minimax/MiniMax-M2.7") -> str:
+    """在 sandbox 中运行 Agent（优先使用 HTTP API）"""
+    if sys.platform == "win32":
+        return run_agent_http(prompt, model=model)
+    return _run_opencode_cli(prompt, sandbox_dir, model)
 
-    TODO: 切换到 opencode run
-        cmd = ["opencode", "run", "--format", "json", "--quiet", prompt]
-        subprocess.run(cmd, cwd=sandbox_dir, ...)
 
-    当前 fallback 到 claude -p
+def run_baseline(prompt: str, code: str, work_dir: str = ".",
+                 model: str = "minimax/MiniMax-M2.7",
+                 use_http: bool = True) -> str:
+    """基线运行 - 纯 Agent 无增强
+    
+    Args:
+        prompt: 用例的任务描述
+        code: 待处理的代码
+        work_dir: 工作目录
+        model: 使用的模型
+        use_http: 是否优先使用 HTTP API
     """
-    return _run_claude(prompt, sandbox_dir)
-
-
-def run_baseline(prompt: str, code: str, work_dir: str = ".") -> str:
-    """基线运行 - 纯 Agent 无增强"""
     full_prompt = BASELINE_PROMPT.format(prompt=prompt, code=code)
+    if use_http:
+        return _run_http_api(full_prompt, model=model)
     return _run_claude(full_prompt, work_dir)
 
 
 def run_enhanced(prompt: str, code: str, profile: dict,
-                 sandbox_dir: str = None) -> str:
+                 sandbox_dir: str = None,
+                 use_http: bool = True) -> str:
     """增强运行 - 根据 profile 构建增强 prompt
-
+    
     Args:
         prompt: 用例的任务描述
         code: 待处理的代码
         profile: Agent profile 配置
         sandbox_dir: sandbox 目录（如果已创建）
+        use_http: 是否优先使用 HTTP API（Windows 下默认为 True）
     """
     enhancements = profile.get("enhancements", {})
     skills = enhancements.get("skills", [])
+    agent_config = profile.get("agent", {})
+    model = agent_config.get("model", "minimax/MiniMax-M2.7")
 
     # 加载 skill 内容
     skill_content = ""
@@ -148,19 +163,150 @@ def run_enhanced(prompt: str, code: str, profile: dict,
         # 没有 skill，回退到基线 prompt
         full_prompt = BASELINE_PROMPT.format(prompt=prompt, code=code)
 
+    if use_http or sys.platform == "win32":
+        return _run_http_api(full_prompt, model=model)
+    
     work_dir = sandbox_dir or "."
-
-    # TODO: 切换到 opencode run
-    #   return run_agent(work_dir, full_prompt)
-    return _run_claude(full_prompt, work_dir)
+    return _run_opencode_cli(full_prompt, work_dir, model)
 
 
-def _run_claude(prompt: str, work_dir: str,
-                mcp_config: str = None, system_prompt: str = None) -> str:
-    """调用 claude -p（fallback 方式）
+def _parse_model(model_str: str) -> dict:
+    """解析模型字符串为 API 格式"""
+    if "/" in model_str:
+        provider, model_id = model_str.split("/", 1)
+        provider_map = {
+            "minimax": "minimax-cn-coding-plan",
+        }
+        provider_id = provider_map.get(provider, provider)
+        return {"providerID": provider_id, "modelID": model_id}
+    return {"providerID": "minimax-cn-coding-plan", "modelID": model_str}
 
-    TODO: 将此方法替换为 opencode run 调用
+
+def _run_http_api(prompt: str, api_base: str = DEFAULT_API_BASE,
+                   model: str = "minimax/MiniMax-M2.7", timeout: int = TIMEOUT) -> str:
+    """通过 HTTP API 调用 OpenCode 服务
+    
+    Args:
+        prompt: 用户输入的提示词
+        api_base: OpenCode API 服务地址
+        model: 使用的模型
+        timeout: 超时时间（秒）
+    
+    Returns:
+        Agent 输出的文本内容
     """
+    try:
+        create_req = urllib.request.Request(
+            f"{api_base}/session",
+            data=json.dumps({}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(create_req, timeout=10) as response:
+            session = json.loads(response.read().decode("utf-8"))
+            session_id = session.get("id")
+            if not session_id:
+                print(f"  [ERROR] Failed to create session", file=sys.stderr)
+                return ""
+        
+        message_payload = {
+            "model": _parse_model(model),
+            "parts": [{"type": "text", "text": prompt}]
+        }
+        data = json.dumps(message_payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{api_base}/session/{session_id}/message",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            parts = result.get("parts", [])
+            for part in parts:
+                if part.get("type") == "text":
+                    return part.get("text", "").strip()
+            return ""
+            
+    except urllib.error.HTTPError as e:
+        print(f"  [ERROR] HTTP API error: {e.code} - {e.reason}", file=sys.stderr)
+        try:
+            error_body = e.read().decode("utf-8")
+            print(f"  [ERROR] Response: {error_body[:200]}", file=sys.stderr)
+        except:
+            pass
+        return ""
+    except urllib.error.URLError as e:
+        print(f"  [ERROR] Cannot connect to OpenCode API at {api_base}", file=sys.stderr)
+        print(f"  [ERROR] {e.reason}", file=sys.stderr)
+        return ""
+    except TimeoutError:
+        print(f"  [ERROR] HTTP API timed out after {timeout}s", file=sys.stderr)
+        return ""
+
+
+def _run_opencode_cli(prompt: str, work_dir: str, model: str = "minimax/MiniMax-M2.7") -> str:
+    """通过 opencode run CLI 调用
+    
+    Args:
+        prompt: 用户输入的提示词
+        work_dir: 工作目录
+        model: 使用的模型
+    
+    Returns:
+        Agent 输出的文本内容
+    """
+    cmd = [
+        "opencode", "run",
+        "--format", "json",
+        "--quiet",
+        "--model", model,
+        prompt
+    ]
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT,
+            cwd=work_dir,
+        )
+        if result.returncode != 0:
+            print(f"  [WARN] opencode exit code: {result.returncode}", file=sys.stderr)
+            if result.stderr:
+                print(f"  [WARN] stderr: {result.stderr[:200]}", file=sys.stderr)
+        
+        output = result.stdout.strip()
+        try:
+            parsed = json.loads(output)
+            if "content" in parsed:
+                return parsed["content"]
+            elif "text" in parsed:
+                return parsed["text"]
+            return output
+        except json.JSONDecodeError:
+            return output
+    except subprocess.TimeoutExpired:
+        print(f"  [ERROR] opencode timed out after {TIMEOUT}s", file=sys.stderr)
+        return ""
+    except FileNotFoundError:
+        print("  [ERROR] opencode command not found, is OpenCode installed?",
+              file=sys.stderr)
+        return ""
+
+
+def _run_claude(prompt: str, work_dir: str = ".",
+                mcp_config: str = None, system_prompt: str = None) -> str:
+    """调用 claude -p（fallback 方式，仅 Linux/macOS）
+    
+    Windows 不支持此方式，会回退到 HTTP API 模式
+    """
+    if sys.platform == "win32":
+        print("  [WARN] claude -p not supported on Windows, using HTTP API fallback")
+        return _run_http_api(prompt)
+    
     cmd = ["claude", "-p", prompt]
     if mcp_config:
         cmd.extend(["--mcp-config", mcp_config])
@@ -187,3 +333,12 @@ def _run_claude(prompt: str, work_dir: str,
         print("  [ERROR] claude command not found, is Claude Code installed?",
               file=sys.stderr)
         return ""
+
+
+def run_agent_http(prompt: str, api_base: str = DEFAULT_API_BASE,
+                   model: str = "minimax/MiniMax-M2.7") -> str:
+    """通过 HTTP API 运行 Agent（主要驱动方式）
+    
+    优先使用 HTTP API 方式，这是 Windows 兼容的方式
+    """
+    return _run_http_api(prompt, api_base, model)

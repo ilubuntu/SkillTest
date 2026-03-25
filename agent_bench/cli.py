@@ -1,52 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Agent Bench 评测系统 - CLI 入口
+"""Skill 评测 CLI - 可独立执行的评测工具
 
-本脚本是整个评测系统的唯一入口，提供 5 个子命令，对应三阶段流水线的不同执行方式。
+本脚本用于评测三种 Skill 的能力：
+1. 工程生成 Skill (project_gen)
+2. 可编译 Skill (compilable)
+3. 性能优化 Skill (performance)
 
 用法:
-    # ── 完整流水线（最常用）──────────────────────────────────────
-    # 一次性完成：Agent 运行 → 规则评分 → LLM 评分 → 生成报告
     # 自动从 Profile 的 scenarios 字段读取要跑的场景
-    python cli.py run --profile <profile_name>
+    python cli.py --profile project_gen
 
-    # 示例：用 bug_fix_enhanced 配置，自动跑 Profile 中定义的场景
-    python cli.py run --profile bug_fix_enhanced
+    # 可选：通过 --cases 覆盖，只跑指定场景
+    python cli.py --profile project_gen --cases project_gen
 
-    # 可选：通过 --cases 覆盖，只跑指定场景（忽略 Profile 中的 scenarios）
-    python cli.py run --profile bug_fix_enhanced --cases bug_fix
+    # 跑所有场景
+    python cli.py --profile all --cases all
 
-    # 干跑模式：不调用 Agent 和 LLM，用模拟数据走完流程，用于验证流水线配置
-    python cli.py run --profile bug_fix_enhanced --dry-run
-
-    # 指定 run-id（默认自动按时间戳生成，如 20260324_153000）
-    python cli.py run --profile bug_fix_enhanced --cases bug_fix --run-id my_test_001
-
-    # ── 分阶段运行（用于断点续跑 / 单独重跑某阶段）────────────────
-    # 仅运行 Agent，不评分不出报告（⚠️ 当前为空实现）
-    python cli.py run-agents --profile <profile_name> --cases <scenario>
-
-    # 仅对已有结果评分（需先通过 run 或 run-agents 生成结果）（⚠️ 当前为空实现）
-    python cli.py evaluate --run-id <run_id>
-
-    # 仅生成报告（需先有评分结果）
-    python cli.py report --run-id <run_id>
-
-    # ── 基线管理 ────────────────────────────────────────────────
-    # 单独跑基线并缓存（⚠️ 当前为空实现）
-    python cli.py baseline --cases <scenario>
-
-参数说明:
-    --profile   Profile 名称，对应 profiles/<name>.yaml 文件
-                Profile 定义了 Agent 的增强配置（Skill、MCP Tool、System Prompt）
-    --cases     测试场景名称，对应 test_cases/<scenario>/ 目录
-                如 bug_fix、requirement、refactor 等
-    --run-id    运行 ID，用于标识和定位本次运行的所有结果
-                默认按时间戳自动生成（格式：YYYYMMDD_HHMMSS）
-    --dry-run   干跑模式，跳过 Agent 调用和 LLM 评分，使用模拟数据
-                适用于调试流水线、验证配置、检查报告格式
-
-依赖: pip install pyyaml
+    # 干跑模式
+    python cli.py --profile project_gen --dry-run
 """
 
 import argparse
@@ -55,138 +27,560 @@ import json
 import os
 import sys
 import threading
+from typing import Optional
 import time
+import re
+import urllib.request
+import urllib.error
 from datetime import datetime
 
-import yaml
-
-# 将当前脚本所在目录加入模块搜索路径，确保子模块可正常导入
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# 三阶段流水线的核心模块：
-# - runner:    阶段1，驱动 Agent 执行用例（创建沙箱、调用 opencode run）
-# - evaluator: 阶段2，对 Agent 输出评分（规则匹配 + LLM-as-Judge）
-# - report:    阶段3，汇总评分结果生成增益报告
-from runner.agent_runner import create_sandbox, run_agent, run_baseline, run_enhanced
-from evaluator.rule_checker import check as rule_check
-from evaluator.llm_judge import judge as llm_judge
-from report.reporter import generate as generate_report
-
-# 项目根目录，所有相对路径（profiles/、test_cases/、results/）均基于此目录解析
+DEFAULT_API_BASE = "http://localhost:4096"
+TIMEOUT = 180
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def load_config() -> dict:
-    """加载全局配置 config.yaml
+class AgentRunner:
+    """Agent 运行器 - 支持 HTTP API 方式"""
 
-    全局配置包含：
-    - concurrency: 并发控制（agent_runs、llm_judge 并发数）
-    - scoring: 评分权重（rule_weight、llm_weight）
-    - judge: LLM Judge 模型配置（provider、model、temperature）
-    """
-    config_path = os.path.join(BASE_DIR, "config.yaml")
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    def __init__(self, api_base: str = DEFAULT_API_BASE, model: str = "minimax/MiniMax-M2.7"):
+        self.api_base = api_base
+        self.model = model
+
+    def _parse_model(self, model_str: str) -> dict:
+        """解析模型字符串为 API 格式"""
+        if "/" in model_str:
+            provider, model_id = model_str.split("/", 1)
+            provider_map = {
+                "minimax": "minimax-cn-coding-plan",
+            }
+            provider_id = provider_map.get(provider, provider)
+            return {"providerID": provider_id, "modelID": model_id}
+        return {"providerID": "minimax-cn-coding-plan", "modelID": model_str}
+
+    def run_http_api(self, prompt: str, timeout: int = TIMEOUT) -> str:
+        """通过 HTTP API 调用 OpenCode 服务"""
+        try:
+            create_req = urllib.request.Request(
+                f"{self.api_base}/session",
+                data=json.dumps({}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(create_req, timeout=10) as response:
+                session = json.loads(response.read().decode("utf-8"))
+                session_id = session.get("id")
+                if not session_id:
+                    print(f"  [ERROR] Failed to create session", file=sys.stderr)
+                    return ""
+
+            message_payload = {
+                "model": self._parse_model(self.model),
+                "parts": [{"type": "text", "text": prompt}]
+            }
+            data = json.dumps(message_payload).encode("utf-8")
+            req = urllib.request.Request(
+                f"{self.api_base}/session/{session_id}/message",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                parts = result.get("parts", [])
+                for part in parts:
+                    if part.get("type") == "text":
+                        return part.get("text", "").strip()
+                return ""
+
+        except urllib.error.HTTPError as e:
+            print(f"  [ERROR] HTTP API error: {e.code} - {e.reason}", file=sys.stderr)
+            try:
+                error_body = e.read().decode("utf-8")
+                print(f"  [ERROR] Response: {error_body[:200]}", file=sys.stderr)
+            except:
+                pass
+            return ""
+        except urllib.error.URLError as e:
+            print(f"  [ERROR] Cannot connect to OpenCode API at {self.api_base}", file=sys.stderr)
+            print(f"  [ERROR] {e.reason}", file=sys.stderr)
+            return ""
+        except TimeoutError:
+            print(f"  [ERROR] HTTP API timed out after {timeout}s", file=sys.stderr)
+            return ""
+
+    def run_baseline(self, prompt: str, code: str) -> str:
+        """基线运行 - 纯 Agent 无增强"""
+        full_prompt = f"""你是一个ArkTS开发者。请完成以下任务。
+
+## 任务
+{prompt}
+
+## 代码
+```typescript
+{code}
+```
+
+## 要求
+- 只输出完整的代码
+- 不要解释过程
+"""
+        return self.run_http_api(full_prompt)
+
+    def run_enhanced(self, prompt: str, code: str, skill_content: str) -> str:
+        """增强运行 - 根据 skill 构建增强 prompt"""
+        full_prompt = f"""你是一个ArkTS开发者。请参考以下最佳实践完成任务。
+
+## 最佳实践参考
+{skill_content}
+
+## 任务
+{prompt}
+
+## 代码
+```typescript
+{code}
+```
+
+## 要求
+- 只输出完整的代码
+- 不要解释过程
+"""
+        return self.run_http_api(full_prompt)
 
 
-def load_profile(profile_name: str) -> dict:
-    """加载 Agent 配置 Profile
+class RuleChecker:
+    """规则检查器"""
 
-    Profile 文件位于 profiles/<profile_name>.yaml，定义了：
-    - name: Profile 名称
-    - description: 描述
-    - scenarios: 归属场景列表（决定跑哪些场景用例）
-    - enhancements: 增强配置（skills、mcp_servers、system_prompt）
-    - agent: Agent 运行参数（model、timeout）
-    """
-    profile_path = os.path.join(BASE_DIR, "profiles", f"{profile_name}.yaml")
-    if not os.path.exists(profile_path):
-        print(f"[ERROR] Profile not found: {profile_path}", file=sys.stderr)
+    @staticmethod
+    def check(output: str, expected: dict) -> dict:
+        details = []
+        must_contain = expected.get("must_contain", [])
+        must_not_contain = expected.get("must_not_contain", [])
+
+        for keyword in must_contain:
+            passed = keyword in output
+            details.append({"rule": f"must_contain: {keyword}", "pass": passed})
+
+        for keyword in must_not_contain:
+            passed = keyword not in output
+            details.append({"rule": f"must_not_contain: {keyword}", "pass": passed})
+
+        total = len(details)
+        if total == 0:
+            return {"rule_score": 100.0, "details": details}
+
+        passed_count = sum(1 for d in details if d["pass"])
+        score = (passed_count / total) * 100
+
+        return {"rule_score": score, "details": details}
+
+
+class LLMJudge:
+    """LLM 评分器"""
+
+    DEFAULT_SCORE = 50
+
+    def __init__(self, api_base: str = DEFAULT_API_BASE, model: str = "minimax/MiniMax-M2.7"):
+        self.api_base = api_base
+        self.model = model
+
+    def _parse_model(self, model_str: str) -> dict:
+        """解析模型字符串为 API 格式"""
+        if "/" in model_str:
+            provider, model_id = model_str.split("/", 1)
+            provider_map = {
+                "minimax": "minimax-cn-coding-plan",
+            }
+            provider_id = provider_map.get(provider, provider)
+            return {"providerID": provider_id, "modelID": model_id}
+        return {"providerID": "minimax-cn-coding-plan", "modelID": model_str}
+
+    def judge(self, input_code: str, output_code: str, reference_code: str, rubric: list) -> dict:
+        """对 Agent 输出进行 LLM 评分"""
+        if not output_code.strip():
+            return {
+                "scores": [{"name": r["name"], "score": 0, "reason": "Agent无输出"} for r in rubric]
+            }
+
+        rubric_text = "\n".join(
+            f"- {r['name']}（权重{r['weight']}%: {r['criteria']}）"
+            for r in rubric
+        )
+
+        judge_prompt = f"""你是一个严格的代码评审专家，请评估以下ArkTS代码的修复质量。
+
+## 原始代码（有bug）
+```typescript
+{input_code}
+```
+
+## 参考答案
+```typescript
+{reference_code}
+```
+
+## 待评估代码
+```typescript
+{output_code}
+```
+
+## 评分维度
+{rubric_text}
+
+请对每个维度打分（0-100），返回严格的JSON格式，不要包含其他内容：
+{{"scores": [{{"name": "维度名", "score": 分数, "reason": "评分理由"}}]}}
+"""
+
+        try:
+            result = self._call_api(judge_prompt)
+            return self._parse_scores(result, rubric)
+        except Exception as e:
+            print(f"  [ERROR] LLM judge failed: {e}", file=sys.stderr)
+            return {
+                "scores": [{"name": r["name"], "score": self.DEFAULT_SCORE, "reason": "评分失败"} for r in rubric]
+            }
+
+    def _call_api(self, prompt: str) -> str:
+        """调用 HTTP API"""
+        try:
+            create_req = urllib.request.Request(
+                f"{self.api_base}/session",
+                data=json.dumps({}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(create_req, timeout=10) as response:
+                session = json.loads(response.read().decode("utf-8"))
+                session_id = session.get("id")
+                if not session_id:
+                    return ""
+
+            message_payload = {
+                "model": self._parse_model(self.model),
+                "parts": [{"type": "text", "text": prompt}]
+            }
+            data = json.dumps(message_payload).encode("utf-8")
+            req = urllib.request.Request(
+                f"{self.api_base}/session/{session_id}/message",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                parts = result.get("parts", [])
+                for part in parts:
+                    if part.get("type") == "text":
+                        return part.get("text", "").strip()
+                return ""
+        except Exception as e:
+            raise e
+
+    def _parse_scores(self, raw_output: str, rubric: list) -> dict:
+        """解析 LLM 输出的 JSON 评分"""
+        try:
+            match = re.search(r'\{[\s\S]*"scores"[\s\S]*\}', raw_output)
+            if match:
+                data = json.loads(match.group())
+                if "scores" in data:
+                    return data
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        print(f"  [WARN] Failed to parse judge output, using default scores", file=sys.stderr)
+        return {
+            "scores": [{"name": r["name"], "score": self.DEFAULT_SCORE, "reason": "解析失败"} for r in rubric]
+        }
+
+
+class Reporter:
+    """报告生成器"""
+
+    @staticmethod
+    def generate(results: list, output_dir: str, profile_name: str, scenario: str):
+        """生成 JSON + Markdown 报告"""
+        os.makedirs(output_dir, exist_ok=True)
+
+        summary = Reporter._compute_summary(results)
+
+        report_json = {
+            "generated_at": datetime.now().isoformat(),
+            "profile": profile_name,
+            "scenario": scenario,
+            "summary": summary,
+            "cases": results,
+        }
+
+        json_path = os.path.join(output_dir, "report.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(report_json, f, ensure_ascii=False, indent=2)
+
+        md_path = os.path.join(output_dir, "report.md")
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(Reporter._render_markdown(report_json))
+
+        return json_path, md_path
+
+    @staticmethod
+    def _compute_summary(results: list) -> dict:
+        """计算整体汇总"""
+        if not results:
+            return {}
+
+        baseline_scores = [r["baseline_total"] for r in results]
+        enhanced_scores = [r["enhanced_total"] for r in results]
+
+        baseline_avg = sum(baseline_scores) / len(baseline_scores)
+        enhanced_avg = sum(enhanced_scores) / len(enhanced_scores)
+
+        pass_threshold = 60
+        baseline_pass = sum(1 for s in baseline_scores if s >= pass_threshold)
+        enhanced_pass = sum(1 for s in enhanced_scores if s >= pass_threshold)
+
+        dimensions = {}
+        for r in results:
+            for dim_name, scores in r.get("dimension_scores", {}).items():
+                if dim_name not in dimensions:
+                    dimensions[dim_name] = {"baseline": [], "enhanced": []}
+                dimensions[dim_name]["baseline"].append(scores["baseline"])
+                dimensions[dim_name]["enhanced"].append(scores["enhanced"])
+
+        dim_summary = {}
+        for dim_name, vals in dimensions.items():
+            b_avg = sum(vals["baseline"]) / len(vals["baseline"])
+            e_avg = sum(vals["enhanced"]) / len(vals["enhanced"])
+            dim_summary[dim_name] = {
+                "baseline_avg": round(b_avg, 1),
+                "enhanced_avg": round(e_avg, 1),
+                "gain": round(e_avg - b_avg, 1),
+            }
+
+        return {
+            "total_cases": len(results),
+            "baseline_avg": round(baseline_avg, 1),
+            "enhanced_avg": round(enhanced_avg, 1),
+            "gain": round(enhanced_avg - baseline_avg, 1),
+            "baseline_pass_rate": f"{baseline_pass}/{len(results)}",
+            "enhanced_pass_rate": f"{enhanced_pass}/{len(results)}",
+            "dimensions": dim_summary,
+        }
+
+    @staticmethod
+    def _render_markdown(report: dict) -> str:
+        """渲染 Markdown 格式报告"""
+        s = report["summary"]
+        if not s:
+            return "# Skill 评测报告\n\n无数据\n"
+
+        lines = [
+            f"# Skill 评测报告",
+            f"",
+            f"- **生成时间**: {report['generated_at']}",
+            f"- **Profile**: {report['profile']}",
+            f"- **场景**: {report['scenario']}",
+            f"",
+            f"## 总览",
+            f"",
+            f"| 指标 | 基线 | 增强 | 增益 |",
+            f"|------|------|------|------|",
+            f"| 平均得分 | {s['baseline_avg']} | {s['enhanced_avg']} | +{s['gain']} |",
+            f"| 通过率 (>=60) | {s['baseline_pass_rate']} | {s['enhanced_pass_rate']} | - |",
+            f"",
+        ]
+
+        if s.get("dimensions"):
+            lines.append("## 各维度对比")
+            lines.append("")
+            lines.append("| 维度 | 基线均分 | 增强均分 | 增益 |")
+            lines.append("|------|---------|---------|------|")
+            for dim_name, dim in s["dimensions"].items():
+                lines.append(f"| {dim_name} | {dim['baseline_avg']} "
+                             f"| {dim['enhanced_avg']} | +{dim['gain']} |")
+            lines.append("")
+
+        lines.append("## 用例明细")
+        lines.append("")
+        for r in report["cases"]:
+            gain = r["enhanced_total"] - r["baseline_total"]
+            flag = "+" if gain >= 0 else ""
+            lines.append(f"### {r['case_id']}: {r['title']}")
+            lines.append("")
+            lines.append(f"| | 基线 | 增强 | 增益 |")
+            lines.append(f"|--|------|------|------|")
+            lines.append(f"| 规则得分 | {r['baseline_rule']} | {r['enhanced_rule']} "
+                         f"| {flag}{round(r['enhanced_rule'] - r['baseline_rule'], 1)} |")
+
+            for dim_name, scores in r.get("dimension_scores", {}).items():
+                d_gain = scores["enhanced"] - scores["baseline"]
+                d_flag = "+" if d_gain >= 0 else ""
+                lines.append(f"| {dim_name} | {scores['baseline']} "
+                             f"| {scores['enhanced']} | {d_flag}{d_gain} |")
+
+            lines.append(f"| **总分** | **{r['baseline_total']}** "
+                         f"| **{r['enhanced_total']}** | **{flag}{round(gain, 1)}** |")
+            lines.append("")
+
+        return "\n".join(lines)
+
+
+def _check_api_available(api_base: str) -> bool:
+    """检查 OpenCode API 是否可用"""
+    try:
+        req = urllib.request.Request(
+            f"{api_base}/global/health",
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=3) as response:
+            raw = response.read().decode("utf-8")
+            result = json.loads(raw)
+            return result.get("healthy", False)
+    except Exception:
+        return False
+
+
+def _find_opencode_port() -> Optional[str]:
+    """查找当前运行的 OpenCode server 端口"""
+    import socket
+
+    common_ports = ["4096", "36903", "8080", "3000", "18792", "8000", "5000"]
+
+    for port in common_ports:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        try:
+            result = sock.connect_ex(("localhost", int(port)))
+            sock.close()
+            if result == 0:
+                if _check_api_available(f"http://localhost:{port}"):
+                    return port
+        except:
+            pass
+
+    return None
+
+
+def _ensure_opencode_server(timeout: int = 30):
+    """确保 OpenCode API 服务可用，必要时自动启动"""
+    import subprocess
+    import platform
+
+    print("[INFO] Searching for OpenCode server...")
+    port = _find_opencode_port()
+    if port:
+        api_base = f"http://localhost:{port}"
+        print(f"[INFO] Found OpenCode API at {api_base}")
+        return api_base
+
+    print("[INFO] No valid OpenCode server found, starting new server on port 4096...")
+
+    system = platform.system()
+
+    try:
+        if system == "Windows":
+            cmd = 'start /b cmd /c "opencode serve --port 4096"'
+            print(f"[DEBUG] Running: {cmd}")
+            os.system(cmd)
+        else:
+            subprocess.Popen(
+                ["nohup", "opencode", "serve", "--port", "4096", "&"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL
+            )
+
+        print(f"[INFO] Server starting, waiting {timeout}s...")
+        for i in range(timeout):
+            time.sleep(1)
+            if _check_api_available("http://localhost:4096"):
+                print(f"[INFO] OpenCode server started at http://localhost:4096")
+                return "http://localhost:4096"
+            print(f"[INFO] Waiting... ({i+1}/{timeout})")
+
+        print(f"[WARN] Server may not have started, continuing anyway...")
+
+    except FileNotFoundError:
+        print("[ERROR] opencode command not found. Please install opencode first.")
+        print("[ERROR] Download from: https://opencode.ai")
         sys.exit(1)
-    with open(profile_path, "r", encoding="utf-8") as f:
+    except Exception as e:
+        print(f"[WARN] Failed to start opencode server: {e}")
+
+    return "http://localhost:8080"
+
+
+def load_yaml(file_path: str) -> dict:
+    """加载 YAML 文件"""
+    import yaml
+    with open(file_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def load_file(relative_path: str) -> str:
+    """加载测试用例关联的代码文件"""
+    path = os.path.join(BASE_DIR, relative_path)
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
 
 def load_test_cases(scenario: str) -> list:
-    """加载指定场景目录下的所有测试用例
-
-    扫描 test_cases/<scenario>/ 目录下的 .yaml/.yml 文件，按文件名排序加载。
-    注意：只扫描一级目录，不递归子目录。用例的关联代码文件通过 code_file 字段引用。
-    """
+    """加载指定场景目录下的所有测试用例"""
     cases_dir = os.path.join(BASE_DIR, "test_cases", scenario)
     if not os.path.isdir(cases_dir):
-        print(f"[ERROR] Test case directory not found: {cases_dir}", file=sys.stderr)
-        sys.exit(1)
+        print(f"[WARN] 场景目录不存在: {cases_dir}")
+        return []
 
     cases = []
     for f in sorted(os.listdir(cases_dir)):
         if f.endswith(".yaml") or f.endswith(".yml"):
             filepath = os.path.join(cases_dir, f)
-            with open(filepath, "r", encoding="utf-8") as fh:
-                case = yaml.safe_load(fh)
-                cases.append(case)
+            case = load_yaml(filepath)
+            cases.append(case)
     return cases
 
 
-def load_file(scenario: str, relative_path: str) -> str:
-    """加载测试用例关联的代码文件
-
-    Args:
-        scenario: 场景名称（如 bug_fix），对应 test_cases/ 下的子目录
-        relative_path: 用例 YAML 中 code_file / reference_file 指定的相对路径
-                       如 cases/bug_fix_001/input.ets
-    """
-    path = os.path.join(BASE_DIR, "test_cases", scenario, relative_path)
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-def generate_run_id() -> str:
-    """生成基于时间戳的 run_id，格式：YYYYMMDD_HHMMSS（如 20260324_153000）"""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def resolve_scenarios(profile: dict, cases_override: str = None) -> list:
+def resolve_scenarios(profile_name: str, cases_override: str = None,
+                      profile_map: dict = None) -> list:
     """解析要运行的场景列表
 
-    优先使用 --cases 覆盖参数，否则从 Profile 的 scenarios 字段读取。
-    如果两者都为空则报错退出。
-
-    Args:
-        profile: Profile 配置字典
-        cases_override: CLI 传入的 --cases 参数（可选）
-
-    Returns:
-        场景名称列表，如 ["bug_fix"] 或 ["bug_fix", "refactor"]
+    优先使用 --cases 覆盖参数；
+    如果 --cases 为 "all"，返回所有已知场景；
+    如果未指定 --cases，从 Profile YAML 的 scenarios 字段读取；
+    最终 fallback 到 profile_name 本身作为场景名。
     """
+    all_scenarios = list(profile_map.keys()) if profile_map else []
+
+    # --cases 显式指定
     if cases_override:
+        if cases_override == "all":
+            return all_scenarios
         return [cases_override]
 
-    scenarios = profile.get("scenarios", [])
-    if not scenarios:
-        print("[ERROR] Profile 未定义 scenarios，且未通过 --cases 指定场景", file=sys.stderr)
-        sys.exit(1)
+    # --profile all
+    if profile_name == "all":
+        return all_scenarios
 
-    return scenarios
+    # 尝试从 Profile YAML 读取 scenarios
+    profile_path = os.path.join(BASE_DIR, "profiles", f"{profile_name}.yaml")
+    if os.path.exists(profile_path):
+        profile_data = load_yaml(profile_path)
+        scenarios = profile_data.get("scenarios", [])
+        if scenarios:
+            return scenarios
+
+    # fallback: profile_name 即场景名
+    return [profile_name]
 
 
 def compute_total(rule_score: float, llm_scores: list, rubric: list,
-                  rule_weight: float, llm_weight: float) -> float:
-    """综合评分 = 规则分 × rule_weight + LLM加权均分 × llm_weight
-
-    计算过程：
-    1. LLM 分数按 rubric 中各维度的 weight 加权平均（如 correctness:40, completeness:30, code_quality:30）
-    2. 规则分（0-100）和 LLM 均分（0-100）再按 rule_weight / llm_weight 混合
-
-    ⚠️ 已知问题：如果 LLM Judge 漏返回某个维度的分数，默认给 50 分且无警告，
-    可能静默掩盖评分异常。后续应加日志告警。
-    """
+                  rule_weight: float = 0.3, llm_weight: float = 0.7) -> float:
+    """综合评分计算"""
     llm_weighted = 0
     total_weight = 0
     for rubric_item in rubric:
         name = rubric_item["name"]
         weight = rubric_item["weight"]
-        # TODO: 当 LLM 未返回某维度分数时，应记录警告而非静默使用默认值 50
         score = next((s["score"] for s in llm_scores if s["name"] == name), 50)
         llm_weighted += score * weight
         total_weight += weight
@@ -195,36 +589,18 @@ def compute_total(rule_score: float, llm_scores: list, rubric: list,
     return round(rule_weight * rule_score + llm_weight * llm_avg, 1)
 
 
-def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
-                    run_id: str, dry_run: bool = False) -> dict:
-    """执行单个测试用例的完整流程（线程安全）
-
-    流程：
-    1. 创建沙箱目录（sandbox/{run_id}/{case_id}/）
-    2. 基线运行：裸 Agent 执行用例，获取基线输出
-    3. 增强运行：加载 Profile 增强配置后执行同一用例
-    4. 规则评分：对基线和增强输出分别做 must_contain / must_not_contain 检查
-    5. LLM 评分：调用独立 Judge 模型按 rubric 维度打分
-    6. 汇总：计算综合分数和各维度对比
-
-    ⚠️ 当前实现中基线和增强是串行执行的，且没有使用基线缓存机制，
-    每次评测都会重跑基线，后续应接入 baselines/ 缓存。
-    """
+def run_single_case(case: dict, scenario: str, skill_content: str,
+                    agent_runner: AgentRunner, llm_judge_inst: LLMJudge,
+                    dry_run: bool = False) -> dict:
+    """执行单个测试用例（线程安全，日志收集后统一打印）"""
     case_id = case["id"]
     title = case["title"]
     prompt = case["input"]["prompt"]
-    input_code = load_file(scenario, case["input"]["code_file"])
-    reference_code = load_file(scenario, case["expected"]["reference_file"])
+    input_code = load_file(os.path.join("test_cases", scenario, case["input"]["code_file"]))
+    reference_code = load_file(os.path.join("test_cases", scenario, case["expected"]["reference_file"]))
     rubric = case["expected"]["rubric"]
 
-    scoring = config.get("scoring", {})
-    rule_weight = scoring.get("rule_weight", 0.3)
-    llm_weight = scoring.get("llm_weight", 0.7)
-
     logs = []
-
-    # 创建 sandbox 目录
-    sandbox_dir = create_sandbox(run_id, case_id, profile)
 
     # 基线运行
     if dry_run:
@@ -232,22 +608,21 @@ def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
         logs.append("  -> 基线运行... 跳过 (dry-run)")
     else:
         t0 = time.time()
-        baseline_output = run_baseline(prompt, input_code)
+        baseline_output = agent_runner.run_baseline(prompt, input_code)
         logs.append(f"  -> 基线运行... 完成 ({time.time() - t0:.0f}s)")
 
     # 增强运行
-    profile_name = profile.get("name", "unknown")
     if dry_run:
         enhanced_output = reference_code
-        logs.append(f"  -> 增强运行 (profile: {profile_name})... 跳过 (dry-run, 使用参考答案)")
+        logs.append("  -> 增强运行... 跳过 (dry-run, 使用参考答案)")
     else:
         t0 = time.time()
-        enhanced_output = run_enhanced(prompt, input_code, profile, sandbox_dir)
-        logs.append(f"  -> 增强运行 (profile: {profile_name})... 完成 ({time.time() - t0:.0f}s)")
+        enhanced_output = agent_runner.run_enhanced(prompt, input_code, skill_content)
+        logs.append(f"  -> 增强运行... 完成 ({time.time() - t0:.0f}s)")
 
     # 规则评分
-    baseline_rule = rule_check(baseline_output, case["expected"])
-    enhanced_rule = rule_check(enhanced_output, case["expected"])
+    baseline_rule = RuleChecker.check(baseline_output, case["expected"])
+    enhanced_rule = RuleChecker.check(enhanced_output, case["expected"])
     logs.append(f"  -> 规则检查... 基线={baseline_rule['rule_score']}, 增强={enhanced_rule['rule_score']}")
 
     # LLM 评分
@@ -256,15 +631,13 @@ def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
         enhanced_llm = {"scores": [{"name": r["name"], "score": 85, "reason": "dry-run"} for r in rubric]}
         logs.append("  -> LLM 评分... 跳过 (dry-run)")
     else:
-        baseline_llm = llm_judge(input_code, baseline_output, reference_code, rubric)
-        enhanced_llm = llm_judge(input_code, enhanced_output, reference_code, rubric)
+        baseline_llm = llm_judge_inst.judge(input_code, baseline_output, reference_code, rubric)
+        enhanced_llm = llm_judge_inst.judge(input_code, enhanced_output, reference_code, rubric)
         logs.append("  -> LLM 评分... 完成")
 
     # 汇总
-    baseline_total = compute_total(baseline_rule["rule_score"], baseline_llm["scores"],
-                                   rubric, rule_weight, llm_weight)
-    enhanced_total = compute_total(enhanced_rule["rule_score"], enhanced_llm["scores"],
-                                   rubric, rule_weight, llm_weight)
+    baseline_total = compute_total(baseline_rule["rule_score"], baseline_llm["scores"], rubric)
+    enhanced_total = compute_total(enhanced_rule["rule_score"], enhanced_llm["scores"], rubric)
 
     dimension_scores = {}
     for r_item in rubric:
@@ -281,7 +654,6 @@ def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
         "case_id": case_id,
         "title": title,
         "scenario": case.get("scenario", scenario),
-        "category": case.get("category", "specialized"),
         "baseline_rule": baseline_rule["rule_score"],
         "enhanced_rule": enhanced_rule["rule_score"],
         "baseline_total": baseline_total,
@@ -289,40 +661,6 @@ def run_single_case(case: dict, scenario: str, profile: dict, config: dict,
         "dimension_scores": dimension_scores,
         "_logs": logs,
     }
-
-
-def persist_results(results: list, run_id: str, scenario: str, profile_name: str):
-    """将运行结果持久化到 results/{run_id}/results.json
-
-    持久化数据包含本次运行的元信息和所有用例的评分结果，
-    供后续 evaluate / report 子命令读取使用，实现断点续跑。
-    """
-    results_dir = os.path.join(BASE_DIR, "results", run_id)
-    os.makedirs(results_dir, exist_ok=True)
-
-    data = {
-        "run_id": run_id,
-        "timestamp": datetime.now().isoformat(),
-        "scenario": scenario,
-        "profile": profile_name,
-        "cases": results,
-    }
-
-    results_path = os.path.join(results_dir, "results.json")
-    with open(results_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-    return results_path
-
-
-def load_results(run_id: str) -> dict:
-    """从 results/{run_id}/results.json 加载已有的运行结果，供 evaluate / report 子命令使用"""
-    results_path = os.path.join(BASE_DIR, "results", run_id, "results.json")
-    if not os.path.exists(results_path):
-        print(f"[ERROR] Results not found: {results_path}", file=sys.stderr)
-        sys.exit(1)
-    with open(results_path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 # 线程安全的打印锁，并行执行时防止输出交错
@@ -337,41 +675,97 @@ def _print_case_result(case_id: str, title: str, index: str, logs: list):
             print(line)
 
 
-# ── 子命令实现 ──────────────────────────────────────────────
-# 每个 cmd_* 函数对应一个 CLI 子命令，通过 argparse 的 set_defaults(func=...) 分发调用
+def main():
+    parser = argparse.ArgumentParser(
+        description="Skill 评测系统 - 评测工程生成/可编译/性能优化 Skill",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  %(prog)s --profile project_gen                              # 自动读取 Profile 中的 scenarios
+  %(prog)s --profile project_gen --cases project_gen           # 覆盖：只跑指定场景
+  %(prog)s --profile all --cases all                           # 跑所有
+  %(prog)s --profile project_gen --dry-run                     # 干跑验证
+        """,
+    )
+    parser.add_argument("--profile", required=True,
+                        help="Profile 名称: project_gen, compilable, performance, all")
+    parser.add_argument("--cases", default=None,
+                        help="测试场景（可选），覆盖 Profile 中的 scenarios 配置。支持 all")
+    parser.add_argument("--api-base", default=DEFAULT_API_BASE,
+                        help="OpenCode API 服务地址")
+    parser.add_argument("--model", default="minimax/MiniMax-M2.7",
+                        help="使用的模型")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="干跑模式：跳过 Agent 调用")
+    parser.add_argument("--output-dir", default=None,
+                        help="输出目录 (默认: results/<run_id>)")
+    parser.add_argument("--run-id", default=None,
+                        help="运行 ID (默认: 时间戳)")
+    parser.add_argument("--max-workers", type=int, default=3,
+                        help="场景内用例并行数 (默认: 3)")
 
+    args = parser.parse_args()
 
-def cmd_run(args):
-    """完整流水线：Runner → Evaluator → Reporter 一次跑完
+    api_base = args.api_base
+    if not args.dry_run:
+        api_base = _ensure_opencode_server()
 
-    场景内用例并行执行，并发数由 config.yaml 的 concurrency.agent_runs 控制。
-    场景列表优先从 --cases 读取，未指定时自动从 Profile 的 scenarios 字段获取。
-    结果持久化到 results/{run_id}/，同时生成 JSON + Markdown 报告。
-    """
-    config = load_config()
-    profile = load_profile(args.profile)
-    run_id = args.run_id or generate_run_id()
-    profile_name = profile.get("name", args.profile)
-    scenarios = resolve_scenarios(profile, args.cases)
-    max_workers = config.get("concurrency", {}).get("agent_runs", 3)
+    run_id = args.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = args.output_dir or os.path.join(BASE_DIR, "results", run_id)
+    max_workers = args.max_workers
+
+    profile_map = {
+        "project_gen": "skills/create-harmony-project.md",
+        "compilable": "skills/compilable.md",
+        "performance": "skills/performance.md",
+        "bug_fix": "skills/bug_fix.md",
+    }
+
+    # 解析要运行的场景列表
+    scenarios_to_run = resolve_scenarios(args.profile, args.cases, profile_map)
+
+    os.makedirs(os.path.join(output_dir, "cases"), exist_ok=True)
+
+    agent_runner = AgentRunner(api_base=api_base, model=args.model)
+    llm_judge_inst = LLMJudge(api_base=api_base, model=args.model)
+
+    all_results = []
 
     print("=" * 50)
-    print("  Agent Bench 评测系统")
+    print("  Skill 评测系统")
     print(f"  Run ID:   {run_id}")
-    print(f"  Profile:  {profile_name}")
-    print(f"  Scenarios: {', '.join(scenarios)}")
+    print(f"  API Base: {api_base}")
+    print(f"  Model:    {args.model}")
+    print(f"  Scenarios: {', '.join(scenarios_to_run)}")
     print(f"  Parallel: {max_workers} workers")
     print(f"  Mode:     {'dry-run' if args.dry_run else '正式运行'}")
     print("=" * 50)
 
-    all_results = []
+    for scenario in scenarios_to_run:
+        skill_rel = profile_map.get(scenario)
+        if skill_rel:
+            skill_path = os.path.join(BASE_DIR, skill_rel)
+        else:
+            skill_path = None
 
-    for scenario in scenarios:
+        if not skill_path or not os.path.isfile(skill_path):
+            if skill_path:
+                print(f"[WARN] Skill 文件不存在: {skill_path}")
+            skill_content = ""
+        else:
+            with open(skill_path, "r", encoding="utf-8") as f:
+                skill_content = f.read()
+
         cases = load_test_cases(scenario)
-        print(f"\n场景 [{scenario}] 加载了 {len(cases)} 个测试用例")
+
+        print(f"\n{'='*50}")
+        print(f"  场景: {scenario}")
+        print(f"  Skill: {profile_map.get(scenario, 'N/A')}")
+        print(f"  用例数: {len(cases)}")
+        print(f"{'='*50}")
 
         if not cases:
-            print(f"场景 [{scenario}] 没有匹配的测试用例，跳过")
+            print(f"没有找到测试用例，跳过")
             continue
 
         # 场景内用例并行执行
@@ -379,7 +773,8 @@ def cmd_run(args):
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             for i, case in enumerate(cases):
                 future = executor.submit(
-                    run_single_case, case, scenario, profile, config, run_id,
+                    run_single_case, case, scenario, skill_content,
+                    agent_runner, llm_judge_inst,
                     dry_run=args.dry_run,
                 )
                 futures[future] = (i, case)
@@ -392,194 +787,36 @@ def cmd_run(args):
                     _print_case_result(result["case_id"], result["title"],
                                        index, result.pop("_logs", []))
                     all_results.append(result)
+
+                    # 持久化单个用例结果
+                    case_output_dir = os.path.join(output_dir, "cases", result["case_id"])
+                    os.makedirs(case_output_dir, exist_ok=True)
+                    with open(os.path.join(case_output_dir, "result.json"), "w", encoding="utf-8") as f:
+                        json.dump(result, f, ensure_ascii=False, indent=2)
+
                 except Exception as e:
                     print(f"\n[ERROR] {case['id']} 执行失败: {e}", file=sys.stderr)
 
-    if not all_results:
-        print("\n没有匹配的测试用例，退出")
-        return
+    if all_results:
+        scenarios_str = ",".join(scenarios_to_run)
+        json_path, md_path = Reporter.generate(all_results, output_dir,
+                                               args.profile, scenarios_str)
 
-    # 持久化结果
-    scenarios_str = ",".join(scenarios)
-    results_path = persist_results(all_results, run_id, scenarios_str, profile_name)
-    print(f"\n结果已保存: {results_path}")
+        print("\n" + "=" * 50)
+        print("  评测完成!")
+        print(f"  Run ID:        {run_id}")
+        print(f"  JSON 报告:     {json_path}")
+        print(f"  Markdown 报告: {md_path}")
+        print("=" * 50)
 
-    # 生成报告
-    output_dir = os.path.join(BASE_DIR, "results", run_id)
-    json_path, md_path = generate_report(all_results, scenarios_str, profile_name, output_dir)
-
-    print("\n" + "=" * 50)
-    print("  评测完成!")
-    print(f"  JSON 报告: {json_path}")
-    print(f"  Markdown 报告: {md_path}")
-    print("=" * 50)
-
-
-def cmd_run_agents(args):
-    """仅运行 Agent 阶段（阶段1），不评分、不生成报告
-
-    用途：当只需要重新采集 Agent 输出时（如更换了 Profile 配置），
-    可以单独跑此阶段，然后用 evaluate + report 补全后续阶段。
-
-    ⚠️ 当前为空实现，需要：
-    - 独立持久化 Agent 输出（agent_output.ets + agent_log.json）
-    - 支持并发控制（config.yaml 中的 concurrency.agent_runs）
-    - 支持断点续跑（跳过已有输出的用例）
-    """
-    config = load_config()
-    profile = load_profile(args.profile)
-    run_id = args.run_id or generate_run_id()
-    scenarios = resolve_scenarios(profile, args.cases)
-
-    total_cases = 0
-    for scenario in scenarios:
-        cases = load_test_cases(scenario)
-        total_cases += len(cases)
-
-    print(f"[run-agents] Run ID: {run_id}, Profile: {profile.get('name')}, "
-          f"Scenarios: {', '.join(scenarios)}, Cases: {total_cases}")
-    print("[run-agents] Agent 运行尚未实现独立持久化，请使用 `run` 子命令")
-    # TODO: 实现独立的 Agent 运行 + 结果持久化
-
-
-def cmd_evaluate(args):
-    """仅运行评分阶段（阶段2），基于已有的 Agent 输出进行评分
-
-    用途：当调整了评分规则（rubric）或更换了 Judge 模型时，
-    可以单独重跑评分，无需重新调用 Agent。
-
-    ⚠️ 当前为空实现，需要：
-    - 从 results/{run_id}/cases/ 读取 Agent 输出
-    - 重新执行规则评分 + LLM 评分
-    - 覆盖写入评分结果
-    """
-    run_id = args.run_id
-    data = load_results(run_id)
-    print(f"[evaluate] 加载了 run {run_id} 的 {len(data['cases'])} 条结果")
-    print("[evaluate] 独立评分尚未实现，请使用 `run` 子命令")
-    # TODO: 实现基于持久化结果的独立评分
-
-
-def cmd_report(args):
-    """仅运行报告阶段（阶段3），基于已有的评分结果生成增益报告
-
-    这是唯一已完整实现的独立阶段命令。
-    读取 results/{run_id}/results.json，输出 JSON + Markdown 报告。
-    """
-    run_id = args.run_id
-    data = load_results(run_id)
-
-    output_dir = os.path.join(BASE_DIR, "results", run_id)
-    profile_name = data.get("profile", "unknown")
-    scenario = data.get("scenario", "unknown")
-
-    json_path, md_path = generate_report(data["cases"], scenario, profile_name, output_dir)
-    print(f"[report] JSON: {json_path}")
-    print(f"[report] Markdown: {md_path}")
-
-
-def cmd_baseline(args):
-    """单独运行基线并缓存结果
-
-    用途：预跑基线结果到 baselines/ 目录，后续评测直接读取缓存，
-    避免每次评测都重跑基线（时间减半）。
-
-    基线缓存失效条件：Agent 版本或模型版本变更时需重跑。
-
-    ⚠️ 当前为空实现，需要：
-    - 用裸 Agent（无增强配置）跑所有用例
-    - 结果写入 baselines/{baseline_id}/cases/{case_id}/
-    - 记录 meta.json（agent_version、model_version、timestamp）
-    - cmd_run 中检查缓存有效性，有效则跳过基线运行
-    """
-    config = load_config()
-    run_id = args.run_id or generate_run_id()
-    scenarios = [args.cases] if args.cases else []
-
-    if not scenarios:
-        print("[ERROR] baseline 命令需要通过 --cases 指定场景", file=sys.stderr)
-        sys.exit(1)
-
-    total_cases = 0
-    for scenario in scenarios:
-        cases = load_test_cases(scenario)
-        total_cases += len(cases)
-
-    print(f"[baseline] Run ID: {run_id}, Scenarios: {', '.join(scenarios)}, Cases: {total_cases}")
-    print("[baseline] 独立基线运行尚未实现，请使用 `run --profile baseline` 代替")
-    # TODO: 实现独立的基线运行
-
-
-# ── CLI 定义 ────────────────────────────────────────────────
-# 使用 argparse 的子命令模式，每个子命令对应一个 cmd_* 函数。
-# 子命令设计遵循"阶段解耦"原则：可以单独运行某个阶段，也可以一次跑完。
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Agent Bench - Agent 能力评测系统",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  %(prog)s run --profile bug_fix_enhanced                           # 自动读取 Profile 中的 scenarios
-  %(prog)s run --profile bug_fix_enhanced --cases bug_fix           # 覆盖：只跑指定场景
-  %(prog)s run --profile bug_fix_enhanced --dry-run                 # 干跑验证
-  %(prog)s report --run-id 20260324_153000                          # 重新生成报告
-  %(prog)s baseline --cases bug_fix                                 # 预跑基线缓存
-        """,
-    )
-    subparsers = parser.add_subparsers(dest="command", help="子命令")
-
-    # ── run: 完整流水线（Runner → Evaluator → Reporter）
-    p_run = subparsers.add_parser("run", help="完整流水线: 运行 Agent → 评分 → 报告")
-    p_run.add_argument("--profile", required=True,
-                       help="Profile 名称，对应 profiles/<name>.yaml（如 bug_fix_enhanced）")
-    p_run.add_argument("--cases", default=None,
-                       help="测试场景名称（可选），覆盖 Profile 中的 scenarios 配置")
-    p_run.add_argument("--run-id", default=None,
-                       help="运行 ID，用于标识本次运行（默认按时间戳自动生成）")
-    p_run.add_argument("--dry-run", action="store_true",
-                       help="干跑模式：跳过 Agent 调用和 LLM 评分，用模拟数据验证流水线")
-    p_run.set_defaults(func=cmd_run)
-
-    # ── run-agents: 仅运行 Agent（阶段1）
-    p_agents = subparsers.add_parser("run-agents",
-                                     help="仅运行 Agent，不评分不出报告（⚠️ 未完整实现）")
-    p_agents.add_argument("--profile", required=True, help="Profile 名称")
-    p_agents.add_argument("--cases", default=None, help="测试场景名称（可选），覆盖 Profile 中的 scenarios")
-    p_agents.add_argument("--run-id", default=None, help="运行 ID")
-    p_agents.add_argument("--dry-run", action="store_true", help="干跑模式")
-    p_agents.set_defaults(func=cmd_run_agents)
-
-    # ── evaluate: 仅评分（阶段2）
-    p_eval = subparsers.add_parser("evaluate",
-                                   help="仅对已有结果评分（⚠️ 未完整实现）")
-    p_eval.add_argument("--run-id", required=True,
-                        help="运行 ID，需已有 results/<run_id>/results.json")
-    p_eval.set_defaults(func=cmd_evaluate)
-
-    # ── report: 仅生成报告（阶段3）
-    p_report = subparsers.add_parser("report",
-                                     help="仅生成报告（需已有评分结果）")
-    p_report.add_argument("--run-id", required=True,
-                          help="运行 ID，需已有 results/<run_id>/results.json")
-    p_report.set_defaults(func=cmd_report)
-
-    # ── baseline: 预跑基线并缓存
-    p_base = subparsers.add_parser("baseline",
-                                   help="预跑基线结果到缓存（⚠️ 未完整实现）")
-    p_base.add_argument("--cases", default=None, help="测试场景名称")
-    p_base.add_argument("--run-id", default=None, help="运行 ID")
-    p_base.add_argument("--dry-run", action="store_true", help="干跑模式")
-    p_base.set_defaults(func=cmd_baseline)
-
-    args = parser.parse_args()
-
-    if not args.command:
-        parser.print_help()
-        sys.exit(1)
-
-    args.func(args)
+        summary = Reporter._compute_summary(all_results)
+        print(f"\n总结:")
+        print(f"  总用例数: {summary['total_cases']}")
+        print(f"  基线均分: {summary['baseline_avg']}")
+        print(f"  增强均分: {summary['enhanced_avg']}")
+        print(f"  增益:     +{summary['gain']}")
+    else:
+        print("\n没有运行任何测试用例")
 
 
 if __name__ == "__main__":
