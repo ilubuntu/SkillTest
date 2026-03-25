@@ -6,18 +6,24 @@ concurrency:
   agent_runs: 3
   llm_judge: 5
 
-# Agent 配置
+# Agent 配置（被测 Agent）
 agent:
   command: "opencode"
   args: ["run"]
   format: "json"
   quiet: true
   timeout: 120
+  # 模型配置（留空则使用 OpenCode 默认配置）
+  # 格式: "provider/model" 如 "opencode/mimo-v2-pro-free"
+  model: null
 
-# LLM Judge 配置（独立于被测 Agent）
+# LLM Judge 配置（评分用的 LLM）
+# 当前 Judge 与 Agent 共用同一个 OpenCode API 和默认模型。
+# 注意：同一模型既生成代码又评分，可能导致评分不够客观（倾向给自己高分）。
+# 理想方案是 Judge 使用独立的、更强的模型（如 Claude/GPT-4），
+# 需要配置独立的 API key 后在此指定不同模型。
 judge:
-  provider: anthropic
-  model: claude-sonnet-4-6
+  model: null
   temperature: 0
   timeout: 60
 
