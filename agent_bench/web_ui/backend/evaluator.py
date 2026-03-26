@@ -1,17 +1,24 @@
+# -*- coding: utf-8 -*-
+"""评测任务管理器
+
+直接调用 pipeline.run_pipeline()，通过回调接收进度，
+不再通过 subprocess 调用 cli.py。
+"""
+
 import os
 import sys
-import subprocess
 import threading
 import queue
 import json
-import time
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.parent.parent
+BASE_DIR = Path(__file__).parent.parent.parent  # agent_bench/
+REPO_DIR = BASE_DIR.parent                      # agent_bench 的父目录
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(BASE_DIR))
+sys.path.insert(0, str(REPO_DIR))
 
 from backend.models import (
     EvaluationStatus, LogEntry, CaseResult, EvaluationResult,
@@ -35,10 +42,11 @@ class EvaluatorManager:
         if self._initialized:
             return
         self._initialized = True
-        
-        self._process: Optional[subprocess.Popen] = None
+
         self._status = EvaluationStatus.IDLE
         self._progress = 0
+        self._total_cases = 0
+        self._done_cases = 0
         self._current_case: Optional[str] = None
         self._current_profile: Optional[str] = None
         self._current_scenario: Optional[str] = None
@@ -47,9 +55,7 @@ class EvaluatorManager:
         self._log_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
         self._max_logs = 500
-        self._max_queue_size = 500
-        self._reader_thread: Optional[threading.Thread] = None
-        self._monitor_thread: Optional[threading.Thread] = None
+        self._worker_thread: Optional[threading.Thread] = None
 
     def _add_log(self, level: str, message: str, detail: Optional[str] = None):
         entry = LogEntry(
@@ -61,105 +67,117 @@ class EvaluatorManager:
         if len(self._logs) >= self._max_logs:
             self._logs = self._logs[-self._max_logs:]
         self._logs.append(entry)
-        while self._log_queue.qsize() >= self._max_queue_size:
-            try:
-                self._log_queue.get_nowait()
-            except queue.Empty:
-                break
-        self._log_queue.put(entry)
+        try:
+            self._log_queue.put_nowait(entry)
+        except queue.Full:
+            pass
 
-    def _parse_progress_from_log(self, line: str) -> tuple:
-        msg = line.strip()
-        progress = self._progress
-        current_case = self._current_case
-        current_profile = self._current_profile
-        current_scenario = self._current_scenario
+    # ── Pipeline 回调 ────────────────────────────────────────
 
-        if not msg:
-            return progress, current_case
+    def _pipeline_callback(self, event: str, data: dict):
+        """pipeline 进度回调 — 在工作线程中被调用"""
+        # 检查是否需要中止
+        if self._stop_event.is_set():
+            raise InterruptedError("评测已被用户中止")
 
-        self._add_log("DEBUG", msg)
+        if event == "pipeline_start":
+            self._current_profile = data.get("profile")
+            self._add_log("INFO", f"评测启动: profile={data['profile']}, "
+                          f"scenarios={','.join(data['scenarios'])}")
 
-        if "基线运行" in msg:
-            self._add_log("INFO", "开始基线运行", current_case)
-        elif "增强运行" in msg:
-            self._add_log("INFO", "开始增强运行", current_case)
-        elif "] " in msg and "-" in msg:
-            parts = msg.split("] ", 1)
-            if len(parts) > 1:
-                case_info = parts[1].split(" - ")
-                if len(case_info) > 1:
-                    current_case = case_info[0].strip()
-                    self._current_case = current_case
-                    self._add_log("INFO", f"开始评测用例: {case_info[1].strip() if len(case_info) > 1 else ''}", current_case)
-        
-        if "[INFO]" in msg or "[DEBUG]" in msg:
-            if "OpenCode" in msg or "Server" in msg:
-                self._add_log("INFO", "正在连接 OpenCode Server...")
-            elif "评测系统" in msg:
-                self._add_log("INFO", "评测系统初始化中...")
-            elif "启动命令" in msg:
-                self._add_log("INFO", "评测命令已启动")
-            elif "加载了" in msg:
-                self._add_log("INFO", msg.split("INFO")[1].strip() if "INFO" in msg else msg)
-            elif "等待" in msg or "starting" in msg.lower():
-                self._add_log("INFO", "正在启动 Agent，请稍后...")
-            elif "准备" in msg or "init" in msg.lower():
-                self._add_log("INFO", "正在准备环境...")
-            elif "执行" in msg or "running" in msg.lower():
-                self._add_log("INFO", "正在执行任务...")
-        
-        if "完成" in msg and "s)" in msg:
-            self._progress += 2
-            progress = min(self._progress, 100)
-            if "基线" in msg:
-                self._add_log("INFO", f"基线运行完成 {self._current_case or ''}")
-            elif "增强" in msg:
-                self._add_log("INFO", f"增强运行完成 {self._current_case or ''}")
+        elif event == "scenario_start":
+            self._current_scenario = data["scenario"]
+            self._total_cases += data["case_count"]
+            self._add_log("INFO", f"场景: {data['scenario']} ({data['case_count']} 用例)")
+
+        elif event == "stage_done":
+            stage = data["stage"]
+            case_id = data.get("case_id", "")
+            if data.get("skipped"):
+                self._add_log("DEBUG", f"[{case_id}] {stage} 跳过")
             else:
-                self._add_log("INFO", f"评测步骤完成 {msg.split('完成')[0].split('...')[-1].strip() if '...' in msg else ''}")
+                elapsed = data.get("elapsed", 0)
+                self._add_log("INFO", f"[{case_id}] {stage} 完成 ({elapsed:.0f}s)")
 
-        if "[ERROR]" in msg:
-            self._add_log("ERROR", msg.split("[ERROR]")[1].strip() if "[ERROR]" in msg else msg)
-        elif "[WARN]" in msg:
-            self._add_log("WARN", msg.split("[WARN]")[1].strip() if "[WARN]" in msg else msg)
+        elif event == "case_done":
+            self._done_cases += 1
+            self._current_case = data["case_id"]
+            if self._total_cases > 0:
+                self._progress = int(self._done_cases / self._total_cases * 100)
+            gain = data["gain"]
+            sign = "+" if gain >= 0 else ""
+            self._add_log("INFO",
+                          f"用例完成: {data['case_id']} - {data['title']} "
+                          f"(基线={data['baseline_total']}, 增强={data['enhanced_total']}, "
+                          f"增益={sign}{gain:.1f})")
 
-        return progress, current_case
+        elif event == "scenario_done":
+            self._add_log("INFO", f"场景完成: {data['scenario']} ({data['case_count']} 用例)")
 
-    def _read_process_output(self, stdout, stderr):
+        elif event == "pipeline_done":
+            self._add_log("INFO", f"评测完成: 共 {data['total_cases']} 用例")
+
+        elif event == "error":
+            case_id = data.get("case_id", "")
+            prefix = f"[{case_id}] " if case_id else ""
+            self._add_log("ERROR", f"{prefix}{data['message']}")
+
+    # ── 工作线程 ─────────────────────────────────────────────
+
+    def _run_pipeline_thread(self, profiles, scenarios, skip_baseline):
         try:
-            for line in iter(stdout.readline, ''):
-                if self._stop_event.is_set():
-                    break
-                if line:
-                    progress, current_case = self._parse_progress_from_log(line)
-                    self._progress = progress
-        except Exception as e:
-            self._add_log("ERROR", f"读取stdout异常: {str(e)}")
-        
-        try:
-            for line in iter(stderr.readline, ''):
-                if self._stop_event.is_set():
-                    break
-                if line and ("[ERROR]" in line or "[WARN]" in line):
-                    self._add_log("WARN", line.strip())
-        except Exception as e:
-            self._add_log("ERROR", f"读取stderr异常: {str(e)}")
+            from agent_bench.runner.agent_runner import ensure_opencode_server
+            from agent_bench.pipeline.engine import run_pipeline
 
-    def _load_results(self, run_id: str) -> Optional[EvaluationResult]:
-        result_path = BASE_DIR / "results" / run_id / "report.json"
-        if not result_path.exists():
+            # 服务发现
+            self._add_log("INFO", "正在连接 OpenCode Server...")
+            api_base = ensure_opencode_server()
+            self._add_log("INFO", f"OpenCode Server: {api_base}")
+
+            profile_arg = "all" if "all" in profiles else ",".join(profiles)
+            scenario_arg = "all" if "all" in scenarios else ",".join(scenarios)
+
+            result = run_pipeline(
+                profile=profile_arg,
+                cases_override=scenario_arg,
+                api_base=api_base,
+                dry_run=False,
+                skip_baseline=skip_baseline,
+                on_progress=self._pipeline_callback,
+            )
+
+            if self._stop_event.is_set():
+                self._status = EvaluationStatus.STOPPED
+                self._add_log("INFO", "评测任务已停止")
+                return
+
+            # 构建结果
+            self._result = self._build_result(result)
+            self._status = EvaluationStatus.COMPLETED
+            self._progress = 100
+            self._add_log("INFO", "评测任务已完成")
+
+        except InterruptedError:
+            self._status = EvaluationStatus.STOPPED
+            self._add_log("INFO", "评测任务已停止")
+        except Exception as e:
+            self._status = EvaluationStatus.ERROR
+            self._add_log("ERROR", f"评测失败: {str(e)}")
+
+    def _build_result(self, pipeline_result: dict) -> Optional[EvaluationResult]:
+        """从 pipeline 返回值构建 EvaluationResult"""
+        json_path = pipeline_result.get("json_path")
+        if not json_path or not os.path.exists(json_path):
             return None
-        
+
         try:
-            with open(result_path, "r", encoding="utf-8") as f:
+            with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            
+
             summary = data.get("summary", {})
             cases = []
             for c in data.get("cases", []):
                 gain = c.get("enhanced_total", 0) - c.get("baseline_total", 0)
-                dim_scores = c.get("dimension_scores", {})
                 cases.append(CaseResult(
                     case_id=c.get("case_id", ""),
                     title=c.get("title", ""),
@@ -169,9 +187,9 @@ class EvaluatorManager:
                     baseline_total=c.get("baseline_total", 0),
                     enhanced_total=c.get("enhanced_total", 0),
                     gain=gain,
-                    dimension_scores=dim_scores
+                    dimension_scores=c.get("dimension_scores", {})
                 ))
-            
+
             summary_obj = EvaluationSummary(
                 total_cases=summary.get("total_cases", 0),
                 baseline_avg=summary.get("baseline_avg", 0),
@@ -181,9 +199,9 @@ class EvaluatorManager:
                 enhanced_pass_rate=summary.get("enhanced_pass_rate", "0/0"),
                 dimensions=summary.get("dimensions", {})
             )
-            
+
             return EvaluationResult(
-                run_id=run_id,
+                run_id=pipeline_result["run_id"],
                 profile=data.get("profile", ""),
                 scenario=data.get("scenario", ""),
                 summary=summary_obj,
@@ -193,126 +211,44 @@ class EvaluatorManager:
             self._add_log("ERROR", f"加载结果失败: {str(e)}")
             return None
 
-    def start_evaluation(self, profiles: List[str], scenarios: List[str], skip_baseline: bool = False):
+    # ── 公开接口 ─────────────────────────────────────────────
+
+    def start_evaluation(self, profiles: List[str], scenarios: List[str],
+                         skip_baseline: bool = False):
         if self._status == EvaluationStatus.RUNNING:
             return False, "评测正在进行中"
-        
+
         self._stop_event.clear()
         self._status = EvaluationStatus.RUNNING
         self._progress = 0
+        self._total_cases = 0
+        self._done_cases = 0
         self._logs = []
         self._result = None
         self._current_case = None
+        self._current_profile = None
+        self._current_scenario = None
         while not self._log_queue.empty():
             try:
                 self._log_queue.get_nowait()
             except queue.Empty:
                 break
-        
+
         self._add_log("INFO", "评测任务开始")
-        
-        profile_arg = "all" if "all" in profiles else ",".join(profiles)
-        scenario_arg = "all" if "all" in scenarios else ",".join(scenarios)
-        
-        cli_path = BASE_DIR / "cli.py"
-        cmd = [
-            sys.executable,
-            str(cli_path),
-            "--profile", profile_arg,
-            "--cases", scenario_arg
-        ]
-        if skip_baseline:
-            cmd.append("--skip-baseline")
-        
-        self._add_log("INFO", f"启动命令: {' '.join(cmd)}")
-        
-        try:
-            self._process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                cwd=str(BASE_DIR)
-            )
-            
-            self._reader_thread = threading.Thread(
-                target=self._read_process_output,
-                args=(self._process.stdout, self._process.stderr),
-                daemon=True
-            )
-            self._reader_thread.start()
-            
-            self._monitor_thread = threading.Thread(
-                target=self._monitor_process,
-                daemon=True
-            )
-            self._monitor_thread.start()
-            
-            return True, "评测已启动"
-        except Exception as e:
-            self._status = EvaluationStatus.ERROR
-            self._add_log("ERROR", f"启动失败: {str(e)}")
-            return False, str(e)
 
-    def _monitor_process(self):
-        while not self._stop_event.is_set():
-            if self._process and self._process.poll() is not None:
-                break
-            time.sleep(0.5)
-        
-        if self._process and self._process.poll() is not None:
-            return_code = self._process.wait()
-            
-            if self._stop_event.is_set():
-                self._status = EvaluationStatus.STOPPED
-                self._add_log("INFO", "评测任务已停止")
-            elif return_code == 0:
-                self._status = EvaluationStatus.COMPLETED
-                self._progress = 100
-                self._add_log("INFO", "评测任务已完成")
-                
-                run_id = self._find_latest_run_id()
-                if run_id:
-                    self._result = self._load_results(run_id)
-            else:
-                self._status = EvaluationStatus.ERROR
-                self._add_log("ERROR", f"评测失败，退出码: {return_code}")
-        
-        if self._reader_thread:
-            self._reader_thread.join(timeout=2)
-            self._reader_thread = None
-
-    def _find_latest_run_id(self) -> Optional[str]:
-        results_dir = BASE_DIR / "results"
-        if not results_dir.exists():
-            return None
-        
-        run_ids = []
-        for d in results_dir.iterdir():
-            if d.is_dir() and (d / "report.json").exists():
-                run_ids.append((d.name, d.stat().st_mtime))
-        
-        if not run_ids:
-            return None
-        
-        run_ids.sort(key=lambda x: x[1], reverse=True)
-        return run_ids[0][0]
+        self._worker_thread = threading.Thread(
+            target=self._run_pipeline_thread,
+            args=(profiles, scenarios, skip_baseline),
+            daemon=True,
+        )
+        self._worker_thread.start()
+        return True, "评测已启动"
 
     def stop_evaluation(self):
         if self._status != EvaluationStatus.RUNNING:
             return False, "没有正在运行的评测任务"
-        
+
         self._stop_event.set()
-        
-        if self._process:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait()
-        
         self._status = EvaluationStatus.STOPPED
         self._add_log("INFO", "评测任务已停止")
         return True, "评测任务已停止"
