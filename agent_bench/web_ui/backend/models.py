@@ -79,3 +79,4 @@ class EvaluationProgress(BaseModel):
     current_scenario: Optional[str] = None
     logs: List[LogEntry]
     result: Optional[EvaluationResult] = None
+    results: List[EvaluationResult] = []

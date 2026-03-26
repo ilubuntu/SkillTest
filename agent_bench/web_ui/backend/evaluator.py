@@ -44,12 +44,14 @@ class EvaluatorManager:
         self._current_scenario: Optional[str] = None
         self._logs: List[LogEntry] = []
         self._result: Optional[EvaluationResult] = None
+        self._results: List[EvaluationResult] = []
         self._log_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
         self._max_logs = 500
         self._max_queue_size = 500
         self._reader_thread: Optional[threading.Thread] = None
         self._monitor_thread: Optional[threading.Thread] = None
+        self._task_start_time: Optional[float] = None
 
     def _add_log(self, level: str, message: str, detail: Optional[str] = None):
         entry = LogEntry(
@@ -202,6 +204,7 @@ class EvaluatorManager:
         self._progress = 0
         self._logs = []
         self._result = None
+        self._results = []
         self._current_case = None
         while not self._log_queue.empty():
             try:
@@ -211,15 +214,46 @@ class EvaluatorManager:
         
         self._add_log("INFO", "评测任务开始")
         
-        profile_arg = "all" if "all" in profiles else ",".join(profiles)
-        scenario_arg = "all" if "all" in scenarios else ",".join(scenarios)
+        self._evaluation_tasks = []
+        if len(profiles) == len(scenarios):
+            for profile, scenario in zip(profiles, scenarios):
+                self._evaluation_tasks.append((profile, scenario))
+        else:
+            for scenario in scenarios:
+                for profile in profiles:
+                    self._evaluation_tasks.append((profile, scenario))
+        
+        self._current_task_index = 0
+        self._total_tasks = len(self._evaluation_tasks)
+        self._add_log("INFO", f"共 {self._total_tasks} 个评测任务")
+        
+        self._run_next_task()
+        
+        return True, "评测已启动"
+
+    def _run_next_task(self):
+        if self._stop_event.is_set():
+            return
+            
+        if self._current_task_index >= self._total_tasks:
+            self._status = EvaluationStatus.COMPLETED
+            self._progress = 100
+            self._add_log("INFO", "所有评测任务已完成")
+            self._result = self._results[0] if self._results else None
+            return
+        
+        self._task_start_time = time.time()
+        profile, scenario = self._evaluation_tasks[self._current_task_index]
+        self._current_profile = profile
+        self._current_scenario = scenario
+        self._add_log("INFO", f"开始任务 {self._current_task_index + 1}/{self._total_tasks}: {scenario} + {profile}")
         
         cli_path = BASE_DIR / "cli.py"
         cmd = [
             sys.executable,
             str(cli_path),
-            "--profile", profile_arg,
-            "--cases", scenario_arg
+            "--profile", profile,
+            "--cases", scenario
         ]
         
         self._add_log("INFO", f"启动命令: {' '.join(cmd)}")
@@ -242,16 +276,54 @@ class EvaluatorManager:
             self._reader_thread.start()
             
             self._monitor_thread = threading.Thread(
-                target=self._monitor_process,
+                target=self._monitor_single_task,
                 daemon=True
             )
             self._monitor_thread.start()
             
-            return True, "评测已启动"
         except Exception as e:
-            self._status = EvaluationStatus.ERROR
             self._add_log("ERROR", f"启动失败: {str(e)}")
-            return False, str(e)
+            self._status = EvaluationStatus.ERROR
+
+    def _monitor_single_task(self):
+        while not self._stop_event.is_set():
+            if self._process and self._process.poll() is not None:
+                break
+            time.sleep(0.5)
+        
+        if self._stop_event.is_set():
+            self._status = EvaluationStatus.STOPPED
+            self._add_log("INFO", "评测任务已停止")
+            return
+        
+        if self._process and self._process.poll() is not None:
+            return_code = self._process.wait()
+            
+            if return_code == 0:
+                self._progress = int((self._current_task_index + 1) / self._total_tasks * 100)
+                
+                profile, scenario = self._evaluation_tasks[self._current_task_index]
+                run_id = self._find_run_id_for_task(profile, scenario)
+                if run_id:
+                    result = self._load_results(run_id)
+                    if result:
+                        self._results.append(result)
+                
+                self._current_task_index += 1
+                self._add_log("INFO", f"任务 {self._current_task_index}/{self._total_tasks} 完成")
+                
+                if self._reader_thread:
+                    self._reader_thread.join(timeout=2)
+                    self._reader_thread = None
+                
+                self._run_next_task()
+            else:
+                self._status = EvaluationStatus.ERROR
+                self._add_log("ERROR", f"评测失败，退出码: {return_code}")
+        
+        if self._reader_thread:
+            self._reader_thread.join(timeout=2)
+            self._reader_thread = None
 
     def _monitor_process(self):
         while not self._stop_event.is_set():
@@ -297,6 +369,27 @@ class EvaluatorManager:
         run_ids.sort(key=lambda x: x[1], reverse=True)
         return run_ids[0][0]
 
+    def _find_run_id_for_task(self, profile: str, scenario: str) -> Optional[str]:
+        results_dir = BASE_DIR / "results"
+        if not results_dir.exists():
+            return None
+        
+        start_time = self._task_start_time
+        if start_time is None:
+            start_time = 0
+        candidate = None
+        
+        for d in results_dir.iterdir():
+            if not d.is_dir() or not (d / "report.json").exists():
+                continue
+            if d.stat().st_mtime < start_time:
+                continue
+            if profile in d.name and scenario in d.name:
+                if candidate is None or d.stat().st_mtime > candidate[1]:
+                    candidate = (d.name, d.stat().st_mtime)
+        
+        return candidate[0] if candidate else None
+
     def stop_evaluation(self):
         if self._status != EvaluationStatus.RUNNING:
             return False, "没有正在运行的评测任务"
@@ -323,7 +416,8 @@ class EvaluatorManager:
             current_profile=self._current_profile,
             current_scenario=self._current_scenario,
             logs=self._logs.copy(),
-            result=self._result
+            result=self._result,
+            results=self._results.copy()
         )
 
     def get_log_queue(self) -> queue.Queue:

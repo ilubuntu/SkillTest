@@ -2,17 +2,24 @@
   <div class="card">
     <div class="card-title">评测结果</div>
     <template v-if="result">
+      <div v-if="results.length > 1" class="scenario-selector">
+        <el-radio-group v-model="selectedResultIndex" size="default">
+          <el-radio-button v-for="(r, idx) in results" :key="idx" :value="idx">
+            {{ r.scenario }} ({{ r.profile }})
+          </el-radio-button>
+        </el-radio-group>
+      </div>
       <div class="summary-grid">
         <div class="summary-item">
-          <div class="summary-value">{{ result.summary.total_cases }}</div>
+          <div class="summary-value">{{ currentResult.summary.total_cases }}</div>
           <div class="summary-label">用例总数</div>
         </div>
         <div class="summary-item">
-          <div class="summary-value">{{ result.summary.baseline_avg.toFixed(1) }}</div>
+          <div class="summary-value">{{ currentResult.summary.baseline_avg.toFixed(1) }}</div>
           <div class="summary-label">基线均分</div>
         </div>
         <div class="summary-item">
-          <div class="summary-value">{{ result.summary.enhanced_avg.toFixed(1) }}</div>
+          <div class="summary-value">{{ currentResult.summary.enhanced_avg.toFixed(1) }}</div>
           <div class="summary-label">增强均分</div>
         </div>
         <div class="summary-item">
@@ -25,7 +32,7 @@
 
       <el-tabs :model-value="activeResultTab" @update:model-value="val => emit('update:activeResultTab', val)" class="result-tabs">
         <el-tab-pane label="用例明细" name="cases">
-          <el-table :data="result.cases" stripe style="width: 100%" max-height="400">
+          <el-table :data="currentResult.cases" stripe style="width: 100%" max-height="400">
             <el-table-column prop="case_id" label="用例ID" width="120" />
             <el-table-column prop="title" label="用例名称" min-width="150" />
             <el-table-column prop="baseline_total" label="基线得分" width="100" sortable>
@@ -72,11 +79,11 @@
         <el-tab-pane label="通过率" name="passrate">
           <div class="summary-grid" style="flex-wrap: wrap;">
             <div class="summary-item">
-              <div class="summary-value">{{ result.summary.baseline_pass_rate }}</div>
+              <div class="summary-value">{{ currentResult.summary.baseline_pass_rate }}</div>
               <div class="summary-label">基线通过数 (≥60分)</div>
             </div>
             <div class="summary-item">
-              <div class="summary-value">{{ result.summary.enhanced_pass_rate }}</div>
+              <div class="summary-value">{{ currentResult.summary.enhanced_pass_rate }}</div>
               <div class="summary-label">增强通过数 (≥60分)</div>
             </div>
           </div>
@@ -90,12 +97,16 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   result: {
     type: Object,
     default: null
+  },
+  results: {
+    type: Array,
+    default: () => []
   },
   activeResultTab: {
     type: String,
@@ -109,14 +120,29 @@ const props = defineProps({
 
 const emit = defineEmits(['update:activeResultTab'])
 
+const selectedResultIndex = ref(0)
+
+const currentResult = computed(() => {
+  if (props.results && props.results.length > 0) {
+    return props.results[selectedResultIndex.value] || props.results[0]
+  }
+  return props.result
+})
+
+watch(() => props.results, (newResults) => {
+  if (newResults && newResults.length > 0) {
+    selectedResultIndex.value = 0
+  }
+})
+
 const gainClass = computed(() => {
-  if (!props.result) return ''
-  return props.result.summary.gain >= 0 ? 'gain-positive' : 'gain-negative'
+  if (!currentResult.value) return ''
+  return currentResult.value.summary.gain >= 0 ? 'gain-positive' : 'gain-negative'
 })
 
 const gainText = computed(() => {
-  if (!props.result) return '--'
-  const gain = props.result.summary.gain
+  if (!currentResult.value) return '--'
+  const gain = currentResult.value.summary.gain
   return (gain >= 0 ? '+' : '') + gain.toFixed(1)
 })
 </script>
@@ -152,6 +178,10 @@ const gainText = computed(() => {
 
 .result-tabs {
   margin-top: 16px;
+}
+
+.scenario-selector {
+  margin-bottom: 16px;
 }
 
 .empty-state {
