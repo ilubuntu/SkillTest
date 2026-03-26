@@ -59,6 +59,9 @@ def main():
     except ImportError:
         print("[ERROR] 缺少依赖库，正在安装...")
         os.system(f"{sys.executable} -m pip install -r \"{BACKEND_DIR / 'requirements.txt'}\"")
+        import fastapi
+        import uvicorn
+        import sse_starlette
 
     if not build_frontend():
         print("[ERROR] 前端构建失败，无法启动服务")

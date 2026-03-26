@@ -3,15 +3,17 @@
     <div class="card-title">评测配置</div>
     <div class="config-bar">
       <div class="config-item">
-        <span class="config-label">选择场景及Profile</span>
+        <span class="config-label">选择场景及用例</span>
         <el-cascader
           :model-value="selectedOptions"
           :options="cascaderOptions"
-          :props="{ checkStrictly: false, emitPath: false }"
-          placeholder="请选择场景和Profile"
-          style="width: 320px;"
+          :props="{ checkStrictly: false, emitPath: true, multiple: true }"
+          placeholder="请选择场景和用例"
+          style="width: 400px;"
           :disabled="isRunning"
           @update:model-value="handleChange"
+          collapse-tags
+          collapse-tags-tooltip
         />
       </div>
       <div class="action-bar">

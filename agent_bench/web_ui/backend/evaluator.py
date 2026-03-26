@@ -46,6 +46,10 @@ class EvaluatorManager:
         self._result: Optional[EvaluationResult] = None
         self._log_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
+        self._max_logs = 500
+        self._max_queue_size = 500
+        self._reader_thread: Optional[threading.Thread] = None
+        self._monitor_thread: Optional[threading.Thread] = None
 
     def _add_log(self, level: str, message: str, detail: Optional[str] = None):
         entry = LogEntry(
@@ -54,7 +58,14 @@ class EvaluatorManager:
             message=message,
             detail=detail
         )
+        if len(self._logs) >= self._max_logs:
+            self._logs = self._logs[-self._max_logs:]
         self._logs.append(entry)
+        while self._log_queue.qsize() >= self._max_queue_size:
+            try:
+                self._log_queue.get_nowait()
+            except queue.Empty:
+                break
         self._log_queue.put(entry)
 
     def _parse_progress_from_log(self, line: str) -> tuple:
@@ -64,10 +75,15 @@ class EvaluatorManager:
         current_profile = self._current_profile
         current_scenario = self._current_scenario
 
+        if not msg:
+            return progress, current_case
+
+        self._add_log("DEBUG", msg)
+
         if "基线运行" in msg:
-            self._add_log("INFO", "基线评测任务启动", current_case)
+            self._add_log("INFO", "开始基线运行", current_case)
         elif "增强运行" in msg:
-            self._add_log("INFO", "增强评测任务启动", current_case)
+            self._add_log("INFO", "开始增强运行", current_case)
         elif "] " in msg and "-" in msg:
             parts = msg.split("] ", 1)
             if len(parts) > 1:
@@ -75,16 +91,38 @@ class EvaluatorManager:
                 if len(case_info) > 1:
                     current_case = case_info[0].strip()
                     self._current_case = current_case
+                    self._add_log("INFO", f"开始评测用例: {case_info[1].strip() if len(case_info) > 1 else ''}", current_case)
         
         if "[INFO]" in msg or "[DEBUG]" in msg:
             if "OpenCode" in msg or "Server" in msg:
-                self._add_log("INFO", "OpenCode Server 启动")
+                self._add_log("INFO", "正在连接 OpenCode Server...")
             elif "评测系统" in msg:
-                self._add_log("INFO", "评测系统初始化完成")
+                self._add_log("INFO", "评测系统初始化中...")
+            elif "启动命令" in msg:
+                self._add_log("INFO", "评测命令已启动")
+            elif "加载了" in msg:
+                self._add_log("INFO", msg.split("INFO")[1].strip() if "INFO" in msg else msg)
+            elif "等待" in msg or "starting" in msg.lower():
+                self._add_log("INFO", "正在启动 Agent，请稍后...")
+            elif "准备" in msg or "init" in msg.lower():
+                self._add_log("INFO", "正在准备环境...")
+            elif "执行" in msg or "running" in msg.lower():
+                self._add_log("INFO", "正在执行任务...")
         
         if "完成" in msg and "s)" in msg:
             self._progress += 2
             progress = min(self._progress, 100)
+            if "基线" in msg:
+                self._add_log("INFO", f"基线运行完成 {self._current_case or ''}")
+            elif "增强" in msg:
+                self._add_log("INFO", f"增强运行完成 {self._current_case or ''}")
+            else:
+                self._add_log("INFO", f"评测步骤完成 {msg.split('完成')[0].split('...')[-1].strip() if '...' in msg else ''}")
+
+        if "[ERROR]" in msg:
+            self._add_log("ERROR", msg.split("[ERROR]")[1].strip() if "[ERROR]" in msg else msg)
+        elif "[WARN]" in msg:
+            self._add_log("WARN", msg.split("[WARN]")[1].strip() if "[WARN]" in msg else msg)
 
         return progress, current_case
 
@@ -165,6 +203,11 @@ class EvaluatorManager:
         self._logs = []
         self._result = None
         self._current_case = None
+        while not self._log_queue.empty():
+            try:
+                self._log_queue.get_nowait()
+            except queue.Empty:
+                break
         
         self._add_log("INFO", "评测任务开始")
         
@@ -233,6 +276,10 @@ class EvaluatorManager:
             else:
                 self._status = EvaluationStatus.ERROR
                 self._add_log("ERROR", f"评测失败，退出码: {return_code}")
+        
+        if self._reader_thread:
+            self._reader_thread.join(timeout=2)
+            self._reader_thread = None
 
     def _find_latest_run_id(self) -> Optional[str]:
         results_dir = BASE_DIR / "results"
