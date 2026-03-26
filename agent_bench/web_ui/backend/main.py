@@ -142,7 +142,8 @@ async def start_evaluation(config: EvaluationConfig):
     
     success, message = evaluator_manager.start_evaluation(
         config.profiles,
-        config.scenarios
+        config.scenarios,
+        skip_baseline=config.skip_baseline
     )
     
     if not success:
