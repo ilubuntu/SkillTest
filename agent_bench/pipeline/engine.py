@@ -227,6 +227,8 @@ def run_single_case(case: dict, scenario: str, skill_content: str,
     rubric = case["expected"]["rubric"]
 
     os.makedirs(case_dir, exist_ok=True)
+    _notify(on_progress, "log", {"level": "INFO",
+        "message": f"[{case_id}] 开始处理用例: {title}"})
 
     # ── Runner 阶段 ──
     if "runner" in stages:
@@ -236,31 +238,51 @@ def run_single_case(case: dict, scenario: str, skill_content: str,
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": 0, "skipped": True})
         elif skip_baseline:
             baseline_output = ""
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 跳过基线运行 (skip_baseline)"})
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": 0, "skipped": True})
         else:
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始基线运行..."})
+            _notify(on_progress, "log", {"level": "DEBUG",
+                "message": f"[{case_id}] Prompt长度={len(prompt)}, 输入代码={len(input_code)}字符"})
             t0 = time.time()
-            baseline_output = agent_runner.run_baseline(prompt, input_code)
-            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": time.time() - t0})
+            baseline_output = agent_runner.run_baseline(prompt, input_code, case_id=case_id)
+            elapsed = time.time() - t0
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"[{case_id}] 基线运行完成, 输出={len(baseline_output)}字符, 耗时={elapsed:.1f}s"})
+            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": elapsed})
 
         # 增强运行
         if dry_run:
             enhanced_output = reference_code
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": 0, "skipped": True})
         else:
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始增强运行..."})
+            _notify(on_progress, "log", {"level": "DEBUG",
+                "message": f"[{case_id}] Skill内容={len(skill_content)}字符"})
             t0 = time.time()
-            enhanced_output = agent_runner.run_enhanced(prompt, input_code, skill_content)
-            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": time.time() - t0})
+            enhanced_output = agent_runner.run_enhanced(prompt, input_code, skill_content, case_id=case_id)
+            elapsed = time.time() - t0
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"[{case_id}] 增强运行完成, 输出={len(enhanced_output)}字符, 耗时={elapsed:.1f}s"})
+            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": elapsed})
 
+        _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Runner 产物..."})
         _save_runner_artifacts(case_dir, baseline_output, enhanced_output)
     else:
         # 从磁盘加载上次 Runner 的结果
+        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Runner 产物..."})
         baseline_output, enhanced_output = _load_runner_artifacts(case_dir)
+        _notify(on_progress, "log", {"level": "DEBUG",
+            "message": f"[{case_id}] 已加载: 基线={len(baseline_output)}字符, 增强={len(enhanced_output)}字符"})
 
     # ── Evaluator 阶段 ──
     if "evaluator" in stages:
         # 规则评分
+        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始规则检查..."})
         baseline_rule = rule_check(baseline_output, case["expected"])
         enhanced_rule = rule_check(enhanced_output, case["expected"])
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"[{case_id}] 规则检查完成: 基线={baseline_rule['rule_score']}, 增强={enhanced_rule['rule_score']}"})
         _notify(on_progress, "stage_done", {
             "case_id": case_id, "stage": "规则检查",
             "baseline_rule": baseline_rule["rule_score"],
@@ -273,14 +295,20 @@ def run_single_case(case: dict, scenario: str, skill_content: str,
                 "baseline": [{"name": r["name"], "score": 30, "reason": "dry-run"} for r in rubric],
                 "enhanced": [{"name": r["name"], "score": 85, "reason": "dry-run"} for r in rubric],
             }
+            _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] LLM评分跳过 (dry-run)"})
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "elapsed": 0, "skipped": True})
         else:
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"[{case_id}] 开始 LLM 评分 ({len(rubric)} 个维度)..."})
             t0 = time.time()
             judge_result = llm_judge.judge(
                 input_code, baseline_output, enhanced_output,
-                reference_code, rubric
+                reference_code, rubric, case_id=case_id
             )
-            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "elapsed": time.time() - t0})
+            elapsed = time.time() - t0
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"[{case_id}] LLM 评分完成, 耗时={elapsed:.1f}s"})
+            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "elapsed": elapsed})
 
         baseline_llm_scores = judge_result["baseline"]
         enhanced_llm_scores = judge_result["enhanced"]
@@ -289,12 +317,19 @@ def run_single_case(case: dict, scenario: str, skill_content: str,
         baseline_total = compute_total(baseline_rule["rule_score"], baseline_llm_scores, rubric)
         enhanced_total = compute_total(enhanced_rule["rule_score"], enhanced_llm_scores, rubric)
 
+        # 打印每个维度的得分
         dimension_scores = {}
         for r_item in rubric:
             name = r_item["name"]
             b_score = next((s["score"] for s in baseline_llm_scores if s["name"] == name), 50)
             e_score = next((s["score"] for s in enhanced_llm_scores if s["name"] == name), 50)
             dimension_scores[name] = {"baseline": b_score, "enhanced": e_score}
+            _notify(on_progress, "log", {"level": "DEBUG",
+                "message": f"[{case_id}]   维度 [{name}]: 基线={b_score}, 增强={e_score}"})
+
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"[{case_id}] 综合评分: 基线={baseline_total}, 增强={enhanced_total}, "
+                       f"增益={'+' if enhanced_total >= baseline_total else ''}{enhanced_total - baseline_total:.1f}"})
 
         result = {
             "case_id": case_id,
@@ -307,6 +342,7 @@ def run_single_case(case: dict, scenario: str, skill_content: str,
             "dimension_scores": dimension_scores,
         }
 
+        _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Evaluator 产物..."})
         _save_evaluator_artifacts(
             case_dir,
             {"baseline": baseline_rule, "enhanced": enhanced_rule},
@@ -315,6 +351,7 @@ def run_single_case(case: dict, scenario: str, skill_content: str,
         )
     else:
         # 从磁盘加载上次 Evaluator 的结果
+        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Evaluator 产物..."})
         result = _load_evaluator_result(case_dir)
 
     return result
@@ -338,11 +375,22 @@ def run_scenario(scenario: str,
         用例结果列表
     """
     stages = stages or ["runner", "evaluator"]
+    _notify(on_progress, "log", {"level": "DEBUG", "message": f"加载场景 [{scenario}] 的 Skill 文件..."})
     skill_content = load_skill_content(scenario)
+    if skill_content:
+        _notify(on_progress, "log", {"level": "DEBUG",
+            "message": f"Skill 文件已加载 ({len(skill_content)} 字符)"})
+    else:
+        _notify(on_progress, "log", {"level": "WARN", "message": f"场景 [{scenario}] 无 Skill 文件"})
+
     cases = load_test_cases(scenario)
+    _notify(on_progress, "log", {"level": "INFO",
+        "message": f"场景 [{scenario}] 加载了 {len(cases)} 个测试用例"})
 
     if case_id_filter:
         cases = [c for c in cases if c["id"] == case_id_filter]
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"过滤后保留 {len(cases)} 个用例 (filter={case_id_filter})"})
 
     _notify(on_progress, "scenario_start", {
         "scenario": scenario,
@@ -442,6 +490,7 @@ def run_pipeline(profile: str,
     stages = stages or ALL_STAGES
 
     # 加载配置
+    _notify(on_progress, "log", {"level": "DEBUG", "message": "加载全局配置..."})
     config = load_config()
     concurrency_conf = config.get("concurrency", {})
     if max_workers is None:
@@ -453,6 +502,10 @@ def run_pipeline(profile: str,
     if judge_model is None:
         judge_model = config.get("judge", {}).get("model")
 
+    _notify(on_progress, "log", {"level": "INFO",
+        "message": f"配置: 并行数={max_workers}, Agent模型={agent_model or '默认'}, "
+                   f"Judge模型={judge_model or '默认'}"})
+
     # 生成 run_id 和 output_dir
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if run_id is None:
@@ -460,18 +513,32 @@ def run_pipeline(profile: str,
     if output_dir is None:
         output_dir = os.path.join(BASE_DIR, "results", run_id)
 
+    _notify(on_progress, "log", {"level": "INFO", "message": f"Run ID: {run_id}"})
+    _notify(on_progress, "log", {"level": "DEBUG", "message": f"输出目录: {output_dir}"})
+
     # 解析场景
     scenarios_to_run = resolve_scenarios(profile, cases_override)
+    _notify(on_progress, "log", {"level": "INFO",
+        "message": f"待评测场景: {', '.join(scenarios_to_run)} (共{len(scenarios_to_run)}个)"})
 
     os.makedirs(os.path.join(output_dir, "cases"), exist_ok=True)
 
     # 初始化 Runner 和 Judge（仅在需要时）
     need_runner_or_evaluator = "runner" in stages or "evaluator" in stages
-    agent_runner = AgentRunner(api_base=api_base, model=agent_model) if need_runner_or_evaluator else None
-    llm_judge = LLMJudge(api_base=api_base, model=judge_model) if need_runner_or_evaluator else None
+    if need_runner_or_evaluator:
+        _notify(on_progress, "log", {"level": "INFO", "message": f"初始化 AgentRunner (API: {api_base})..."})
+        agent_runner = AgentRunner(api_base=api_base, model=agent_model, on_progress=on_progress)
+        _notify(on_progress, "log", {"level": "INFO", "message": "初始化 LLMJudge..."})
+        llm_judge = LLMJudge(api_base=api_base, model=judge_model, on_progress=on_progress)
+    else:
+        agent_runner = None
+        llm_judge = None
 
     # 只传给 run_scenario 的阶段（不含 reporter）
     case_stages = [s for s in stages if s in ("runner", "evaluator")]
+
+    _notify(on_progress, "log", {"level": "INFO",
+        "message": f"执行阶段: {' → '.join(stages)}"})
 
     _notify(on_progress, "pipeline_start", {
         "run_id": run_id,
@@ -513,10 +580,28 @@ def run_pipeline(profile: str,
     json_path = None
     md_path = None
     if "reporter" in stages and all_results:
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"开始生成报告 ({len(all_results)} 个用例结果)..."})
         scenarios_str = ",".join(scenarios_to_run)
         json_path, md_path = generate_report(
             all_results, scenarios_str, profile, output_dir
         )
+        if json_path:
+            _notify(on_progress, "log", {"level": "INFO", "message": f"JSON 报告: {json_path}"})
+        if md_path:
+            _notify(on_progress, "log", {"level": "INFO", "message": f"Markdown 报告: {md_path}"})
+    elif "reporter" in stages and not all_results:
+        _notify(on_progress, "log", {"level": "WARN", "message": "无用例结果，跳过报告生成"})
+
+    # 汇总统计
+    if all_results:
+        baseline_avg = sum(r["baseline_total"] for r in all_results) / len(all_results)
+        enhanced_avg = sum(r["enhanced_total"] for r in all_results) / len(all_results)
+        gain = enhanced_avg - baseline_avg
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"评测汇总: 用例数={len(all_results)}, "
+                       f"基线均分={baseline_avg:.1f}, 增强均分={enhanced_avg:.1f}, "
+                       f"平均增益={'+' if gain >= 0 else ''}{gain:.1f}"})
 
     _notify(on_progress, "pipeline_done", {
         "run_id": run_id,

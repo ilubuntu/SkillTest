@@ -55,7 +55,7 @@ class EvaluatorManager:
         self._results: List[EvaluationResult] = []
         self._log_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
-        self._max_logs = 500
+        self._max_logs = 1000
         self._worker_thread: Optional[threading.Thread] = None
 
     def _add_log(self, level: str, message: str, detail: Optional[str] = None):
@@ -118,6 +118,11 @@ class EvaluatorManager:
         elif event == "pipeline_done":
             self._add_log("INFO", f"评测完成: 共 {data['total_cases']} 用例")
 
+        elif event == "log":
+            level = data.get("level", "INFO")
+            message = data.get("message", "")
+            self._add_log(level, message)
+
         elif event == "error":
             case_id = data.get("case_id", "")
             prefix = f"[{case_id}] " if case_id else ""
@@ -133,10 +138,13 @@ class EvaluatorManager:
             # 服务发现
             self._add_log("INFO", "正在连接 OpenCode Server...")
             api_base = ensure_opencode_server()
-            self._add_log("INFO", f"OpenCode Server: {api_base}")
+            self._add_log("INFO", f"OpenCode Server 已连接: {api_base}")
 
             profile_arg = "all" if "all" in profiles else ",".join(profiles)
             scenario_arg = "all" if "all" in scenarios else ",".join(scenarios)
+
+            self._add_log("INFO", f"评测参数: profiles={profile_arg}, scenarios={scenario_arg}, "
+                          f"skip_baseline={skip_baseline}")
 
             result = run_pipeline(
                 profile=profile_arg,

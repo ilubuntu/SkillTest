@@ -88,7 +88,9 @@ def parse_model(model_str: str) -> dict:
 
 def call_http_api(prompt: str, api_base: str = DEFAULT_API_BASE,
                   model: str = None,
-                  timeout: int = TIMEOUT) -> str:
+                  timeout: int = TIMEOUT,
+                  on_progress: "Callable" = None,
+                  tag: str = "") -> str:
     """通过 HTTP API 调用 OpenCode 服务
 
     这是底层通信函数，AgentRunner 和 LLMJudge 都通过此函数与 LLM 交互。
@@ -98,12 +100,22 @@ def call_http_api(prompt: str, api_base: str = DEFAULT_API_BASE,
         api_base: OpenCode API 服务地址
         model: 使用的模型（None 则使用 OpenCode 默认配置）
         timeout: 超时时间（秒）
+        on_progress: 进度回调 (event, data)
+        tag: 日志前缀标识
 
     Returns:
         LLM 输出的文本内容，失败返回空字符串
     """
+    def _log(level, msg):
+        if on_progress:
+            on_progress("log", {"level": level, "message": f"{tag}{msg}"})
+        if level == "ERROR":
+            print(f"  [ERROR] {tag}{msg}", file=sys.stderr)
+
     try:
         # 创建 session
+        _log("DEBUG", f"创建 Session ({api_base})...")
+        t0 = time.time()
         create_req = urllib.request.Request(
             f"{api_base}/session",
             data=json.dumps({}).encode("utf-8"),
@@ -114,8 +126,9 @@ def call_http_api(prompt: str, api_base: str = DEFAULT_API_BASE,
             session = json.loads(response.read().decode("utf-8"))
             session_id = session.get("id")
             if not session_id:
-                print("  [ERROR] Failed to create session", file=sys.stderr)
+                _log("ERROR", "创建 Session 失败: 无 session_id")
                 return ""
+        _log("DEBUG", f"Session 已创建: {session_id[:12]}... ({time.time()-t0:.1f}s)")
 
         # 发送消息
         message_payload = {
@@ -124,6 +137,11 @@ def call_http_api(prompt: str, api_base: str = DEFAULT_API_BASE,
         if model:
             message_payload["model"] = parse_model(model)
         data = json.dumps(message_payload).encode("utf-8")
+
+        prompt_kb = len(data) / 1024
+        _log("INFO", f"发送请求: Prompt={prompt_kb:.1f}KB, 超时={timeout}s")
+
+        t0 = time.time()
         req = urllib.request.Request(
             f"{api_base}/session/{session_id}/message",
             data=data,
@@ -132,28 +150,31 @@ def call_http_api(prompt: str, api_base: str = DEFAULT_API_BASE,
         )
 
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode("utf-8"))
+            result_data = response.read().decode("utf-8")
+            elapsed = time.time() - t0
+            result = json.loads(result_data)
             parts = result.get("parts", [])
             for part in parts:
                 if part.get("type") == "text":
-                    return part.get("text", "").strip()
+                    text = part.get("text", "").strip()
+                    _log("INFO", f"收到响应: {len(text)}字符, 耗时={elapsed:.1f}s")
+                    return text
+            _log("WARN", f"响应中无 text 部分, parts数={len(parts)}, 耗时={elapsed:.1f}s")
             return ""
 
     except urllib.error.HTTPError as e:
-        print(f"  [ERROR] HTTP API error: {e.code} - {e.reason}", file=sys.stderr)
+        _log("ERROR", f"HTTP 错误: {e.code} {e.reason}")
         try:
             error_body = e.read().decode("utf-8")
-            print(f"  [ERROR] Response: {error_body[:200]}", file=sys.stderr)
+            _log("ERROR", f"错误详情: {error_body[:200]}")
         except Exception:
             pass
         return ""
     except urllib.error.URLError as e:
-        print(f"  [ERROR] Cannot connect to OpenCode API at {api_base}",
-              file=sys.stderr)
-        print(f"  [ERROR] {e.reason}", file=sys.stderr)
+        _log("ERROR", f"无法连接 OpenCode API ({api_base}): {e.reason}")
         return ""
     except TimeoutError:
-        print(f"  [ERROR] HTTP API timed out after {timeout}s", file=sys.stderr)
+        _log("ERROR", f"请求超时 ({timeout}s)")
         return ""
 
 
@@ -167,21 +188,27 @@ class AgentRunner:
     """
 
     def __init__(self, api_base: str = DEFAULT_API_BASE,
-                 model: str = None):
+                 model: str = None, on_progress=None):
         self.api_base = api_base
         self.model = model
+        self.on_progress = on_progress
 
-    def run_baseline(self, prompt: str, code: str) -> str:
+    def run_baseline(self, prompt: str, code: str, case_id: str = "") -> str:
         """基线运行 - 纯 Agent 无增强"""
+        tag = f"[{case_id}][基线] " if case_id else "[基线] "
         full_prompt = BASELINE_PROMPT.format(prompt=prompt, code=code)
-        return call_http_api(full_prompt, self.api_base, self.model)
+        return call_http_api(full_prompt, self.api_base, self.model,
+                             on_progress=self.on_progress, tag=tag)
 
-    def run_enhanced(self, prompt: str, code: str, skill_content: str) -> str:
+    def run_enhanced(self, prompt: str, code: str, skill_content: str,
+                     case_id: str = "") -> str:
         """增强运行 - 注入 Skill 最佳实践"""
+        tag = f"[{case_id}][增强] " if case_id else "[增强] "
         full_prompt = ENHANCED_PROMPT.format(
             skill_content=skill_content, prompt=prompt, code=code
         )
-        return call_http_api(full_prompt, self.api_base, self.model)
+        return call_http_api(full_prompt, self.api_base, self.model,
+                             on_progress=self.on_progress, tag=tag)
 
 
 # ── 服务发现与启动 ───────────────────────────────────────────

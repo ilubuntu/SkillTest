@@ -95,6 +95,16 @@ def cli_progress_callback(event: str, data: dict):
                 print(f"  Markdown 报告: {data['md_path']}")
             print("=" * 50)
 
+        elif event == "log":
+            level = data.get("level", "INFO")
+            message = data.get("message", "")
+            if level == "DEBUG":
+                print(f"  [DEBUG] {message}")
+            elif level == "WARN":
+                print(f"  [WARN]  {message}")
+            else:
+                print(f"  {message}")
+
         elif event == "error":
             case_id = data.get("case_id", "")
             prefix = f"[{case_id}] " if case_id else ""
