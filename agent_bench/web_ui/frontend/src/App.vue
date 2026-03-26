@@ -51,7 +51,9 @@ const pollInterval = ref(null)
 const isRunning = computed(() => status.value === 'running')
 
 const canStart = computed(() => {
-  return (selectedProfile.value || selectedScenario.value) && !isRunning.value
+  const hasScenarios = Array.isArray(selectedScenario.value) && selectedScenario.value.length > 0
+  const hasProfiles = Array.isArray(selectedProfile.value) && selectedProfile.value.length > 0
+  return (hasScenarios || hasProfiles) && !isRunning.value
 })
 
 const statusType = computed(() => {
@@ -90,23 +92,32 @@ const loadCascaderOptions = async () => {
   try {
     const res = await axios.get('/api/cascader-options')
     cascaderOptions.value = res.data
-    if (res.data.length > 0 && res.data[0].children?.length > 0) {
-      selectedOptions.value = [res.data[0].value, res.data[0].children[0].value]
-      handleCascaderChange(selectedOptions.value)
-    }
   } catch (e) {
     console.error('Failed to load cascader options:', e)
   }
 }
 
 const handleCascaderChange = (value) => {
-  if (value && Array.isArray(value) && value.length >= 2) {
-    selectedScenario.value = value[0]
-    selectedProfile.value = value[1]
-  } else if (value) {
-    selectedScenario.value = Array.isArray(value) ? value[0] : value
-    selectedProfile.value = ''
+  if (!value || !Array.isArray(value)) {
+    selectedScenario.value = []
+    selectedProfile.value = []
+    return
   }
+  
+  const scenarios = []
+  const profiles = []
+  
+  for (const item of value) {
+    if (Array.isArray(item) && item.length >= 2) {
+      scenarios.push(item[0])
+      profiles.push(item[1])
+    } else if (typeof item === 'string') {
+      scenarios.push(item)
+    }
+  }
+  
+  selectedScenario.value = scenarios
+  selectedProfile.value = profiles
 }
 
 const fetchStatus = async () => {
@@ -136,10 +147,18 @@ const fetchStatus = async () => {
 
 const startEvaluation = async () => {
   try {
+    const profiles = Array.isArray(selectedProfile.value) ? selectedProfile.value : []
+    const scenarios = Array.isArray(selectedScenario.value) ? selectedScenario.value : []
+    
     await axios.post('/api/evaluation/start', {
+<<<<<<< HEAD
       profiles: selectedProfile.value ? [selectedProfile.value] : [],
       scenarios: selectedScenario.value ? [selectedScenario.value] : [],
       skip_baseline: true
+=======
+      profiles: profiles,
+      scenarios: scenarios
+>>>>>>> 240191538bfba96aa346ebf1f8f032ef0fb8b3ec
     })
 
     status.value = 'running'

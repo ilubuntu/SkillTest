@@ -2,16 +2,15 @@
   <div class="card">
     <div class="card-title">评测进度</div>
     <div class="progress-section">
-      <div class="progress-info">
-        <span>整体进度</span>
-        <span>{{ progress }}%</span>
-      </div>
       <el-progress
         :percentage="progress"
         :stroke-width="12"
         :show-text="true"
         :status="progressStatus"
       />
+      <div v-if="showProgressHint" class="progress-hint">
+        {{ progressHintText }}
+      </div>
     </div>
     <div class="card-title" style="margin-top: 20px;">评测日志</div>
     <div class="log-container" ref="logContainerRef">
@@ -28,7 +27,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 
 const props = defineProps({
   progress: {
@@ -50,6 +49,9 @@ const props = defineProps({
 })
 
 const logContainerRef = ref(null)
+const lastProgressUpdate = ref(Date.now())
+const hintTimer = ref(null)
+const showHint = ref(false)
 
 const progressStatus = computed(() => {
   if (props.status === 'completed') return 'success'
@@ -58,10 +60,47 @@ const progressStatus = computed(() => {
   return null
 })
 
+const showProgressHint = computed(() => {
+  return props.status === 'running' && showHint.value
+})
+
+const progressHintText = computed(() => {
+  return '努力评测中，请稍后...'
+})
+
+watch(() => props.progress, (newVal, oldVal) => {
+  if (newVal !== oldVal) {
+    lastProgressUpdate.value = Date.now()
+  }
+})
+
+watch(() => props.status, (newVal) => {
+  if (newVal === 'running') {
+    hintTimer.value = setInterval(() => {
+      const elapsed = Date.now() - lastProgressUpdate.value
+      if (elapsed > 8000 && props.status === 'running') {
+        showHint.value = true
+      }
+    }, 2000)
+  } else {
+    showHint.value = false
+    if (hintTimer.value) {
+      clearInterval(hintTimer.value)
+      hintTimer.value = null
+    }
+  }
+})
+
 watch(() => props.logs.length, async () => {
   await nextTick()
   if (logContainerRef.value) {
     logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
+  }
+})
+
+onUnmounted(() => {
+  if (hintTimer.value) {
+    clearInterval(hintTimer.value)
   }
 })
 </script>
@@ -71,12 +110,17 @@ watch(() => props.logs.length, async () => {
   margin-bottom: 16px;
 }
 
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  color: #666;
-  font-size: 14px;
+.progress-hint {
+  text-align: center;
+  color: #909399;
+  font-size: 13px;
+  margin-top: 8px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .log-container {
@@ -119,6 +163,10 @@ watch(() => props.logs.length, async () => {
 
 .log-level.ERROR {
   color: #ef5350;
+}
+
+.log-level.DEBUG {
+  color: #9e9e9e;
 }
 
 .log-message {
