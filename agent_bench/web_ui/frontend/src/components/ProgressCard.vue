@@ -2,10 +2,6 @@
   <div class="card">
     <div class="card-title">评测进度</div>
     <div class="progress-section">
-      <div class="progress-info">
-        <span>整体进度</span>
-        <span>{{ progress }}%</span>
-      </div>
       <el-progress
         :percentage="progress"
         :stroke-width="12"
@@ -69,14 +65,6 @@ watch(() => props.logs.length, async () => {
 <style scoped>
 .progress-section {
   margin-bottom: 16px;
-}
-
-.progress-info {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  color: #666;
-  font-size: 14px;
 }
 
 .log-container {
