@@ -32,6 +32,7 @@ class EvaluationStatus(str, Enum):
 class EvaluationConfig(BaseModel):
     profiles: List[str]
     scenarios: List[str]
+    skip_baseline: bool = False
 
 
 class LogEntry(BaseModel):

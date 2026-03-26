@@ -152,7 +152,7 @@ def compute_total(rule_score: float, llm_scores: list, rubric: list,
 
 def run_single_case(case: dict, scenario: str, skill_content: str,
                     agent_runner: AgentRunner, llm_judge: LLMJudge,
-                    dry_run: bool = False) -> dict:
+                    dry_run: bool = False, skip_baseline: bool = False) -> dict:
     """执行单个测试用例，返回结果 dict（含 _logs 供打印）"""
     case_id = case["id"]
     title = case["title"]
@@ -171,6 +171,9 @@ def run_single_case(case: dict, scenario: str, skill_content: str,
     if dry_run:
         baseline_output = "// dry run - no output"
         logs.append("  -> 基线运行... 跳过 (dry-run)")
+    elif skip_baseline:
+        baseline_output = ""
+        logs.append("  -> 基线运行... 跳过 (skip-baseline)")
     else:
         t0 = time.time()
         baseline_output = agent_runner.run_baseline(prompt, input_code)
@@ -302,6 +305,8 @@ def main():
                         help="使用的模型（默认使用 OpenCode 配置）")
     parser.add_argument("--dry-run", action="store_true",
                         help="干跑模式：跳过 Agent 调用")
+    parser.add_argument("--skip-baseline", action="store_true",
+                        help="跳过基线运行，只跑增强配置")
     parser.add_argument("--output-dir", default=None,
                         help="输出目录 (默认: results/<run_id>)")
     parser.add_argument("--run-id", default=None,
@@ -384,6 +389,7 @@ def main():
                     run_single_case, case, scenario, skill_content,
                     agent_runner, llm_judge,
                     dry_run=args.dry_run,
+                    skip_baseline=args.skip_baseline,
                 )
                 futures[future] = (i, case)
 

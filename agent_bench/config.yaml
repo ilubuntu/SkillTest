@@ -3,8 +3,8 @@
 
 # 并发控制
 concurrency:
-  agent_runs: 3
-  llm_judge: 5
+  agent_runs: 1
+  llm_judge: 1
 
 # Agent 配置（被测 Agent）
 agent:

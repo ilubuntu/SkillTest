@@ -195,7 +195,7 @@ class EvaluatorManager:
             self._add_log("ERROR", f"加载结果失败: {str(e)}")
             return None
 
-    def start_evaluation(self, profiles: List[str], scenarios: List[str]):
+    def start_evaluation(self, profiles: List[str], scenarios: List[str], skip_baseline: bool = False):
         if self._status == EvaluationStatus.RUNNING:
             return False, "评测正在进行中"
         
@@ -255,6 +255,8 @@ class EvaluatorManager:
             "--profile", profile,
             "--cases", scenario
         ]
+        if skip_baseline:
+            cmd.append("--skip-baseline")
         
         self._add_log("INFO", f"启动命令: {' '.join(cmd)}")
         

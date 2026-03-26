@@ -158,7 +158,8 @@ const startEvaluation = async () => {
     
     await axios.post('/api/evaluation/start', {
       profiles: profiles,
-      scenarios: scenarios
+      scenarios: scenarios,
+      skip_baseline: true
     })
 
     status.value = 'running'
