@@ -20,6 +20,7 @@
     />
     <ResultCard
       :result="result"
+      :results="results"
       :active-result-tab="activeResultTab"
       :dimension-data="dimensionData"
       @update:active-result-tab="val => activeResultTab = val"
@@ -44,6 +45,7 @@ const status = ref('idle')
 const progress = ref(0)
 const logs = ref([])
 const result = ref(null)
+const results = ref([])
 const logContainer = ref(null)
 const activeResultTab = ref('cases')
 const pollInterval = ref(null)
@@ -136,6 +138,10 @@ const fetchStatus = async () => {
       result.value = data.result
     }
 
+    if (data.results && data.results.length > 0) {
+      results.value = data.results
+    }
+
     if (['completed', 'stopped', 'error'].includes(status.value)) {
       clearInterval(pollInterval.value)
       pollInterval.value = null
@@ -159,6 +165,7 @@ const startEvaluation = async () => {
     status.value = 'running'
     logs.value = []
     result.value = null
+    results.value = []
 
     pollInterval.value = setInterval(fetchStatus, 1000)
   } catch (e) {

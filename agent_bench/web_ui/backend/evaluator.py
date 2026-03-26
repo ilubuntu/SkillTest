@@ -52,6 +52,7 @@ class EvaluatorManager:
         self._current_scenario: Optional[str] = None
         self._logs: List[LogEntry] = []
         self._result: Optional[EvaluationResult] = None
+        self._results: List[EvaluationResult] = []
         self._log_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
         self._max_logs = 500
@@ -200,13 +201,15 @@ class EvaluatorManager:
                 dimensions=summary.get("dimensions", {})
             )
 
-            return EvaluationResult(
+            eval_result = EvaluationResult(
                 run_id=pipeline_result["run_id"],
                 profile=data.get("profile", ""),
                 scenario=data.get("scenario", ""),
                 summary=summary_obj,
                 cases=cases
             )
+            self._results.append(eval_result)
+            return eval_result
         except Exception as e:
             self._add_log("ERROR", f"加载结果失败: {str(e)}")
             return None
@@ -225,6 +228,7 @@ class EvaluatorManager:
         self._done_cases = 0
         self._logs = []
         self._result = None
+        self._results = []
         self._current_case = None
         self._current_profile = None
         self._current_scenario = None
@@ -261,7 +265,8 @@ class EvaluatorManager:
             current_profile=self._current_profile,
             current_scenario=self._current_scenario,
             logs=self._logs.copy(),
-            result=self._result
+            result=self._result,
+            results=self._results.copy()
         )
 
     def get_log_queue(self) -> queue.Queue:
