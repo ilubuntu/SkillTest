@@ -2,6 +2,3 @@ name: "baseline"
 description: "裸Agent，无任何增强配置"
 scenarios: []
 enhancements: {}
-agent:
-  model: "anthropic/claude-sonnet-4-6"
-  timeout: 120
