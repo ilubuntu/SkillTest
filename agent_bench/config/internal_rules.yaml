@@ -1,0 +1,65 @@
+# ArkTS 内部评分体系
+# 格式说明：规则名称|规则级别|描述|匹配规则|是否通过
+# 规则级别: HIGH(高)、MEDIUM(中)、LOW(低)
+# 是否通过: true(匹配到规则为通过)/false(匹配到规则为不通过)
+# 匹配规则: 支持Python正则表达式语法
+
+# ==================== 兼容性 ====================
+compatibility:
+  - name: 导入规范
+    level: HIGH
+    description: import语句应放在文件顶部
+    pattern: "^import\\s+"
+    pass_on_match: true
+
+  - name: 类型注解
+    level: MEDIUM
+    description: 建议添加类型注解，避免使用any
+    pattern: ": any\\b"
+    pass_on_match: false
+
+# ==================== 生态规则符合度 ====================
+ecosystem:
+  - name: 日志规范
+    level: HIGH
+    description: 应使用hilog替代console.log
+    pattern: "console\\.log\\("
+    pass_on_match: false
+
+  - name: 资源管理
+    level: HIGH
+    description: 资源使用后应及时释放
+    pattern: "\\.close\\(\\)|\\.release\\(\\)|\\.dispose\\(\\)"
+    pass_on_match: true
+
+# ==================== 代码质量 ====================
+code_quality:
+  - name: 空值检查
+    level: HIGH
+    description: 应使用可选链和空值合并运算符
+    pattern: "\\?\\.|\\?\\?|\\?\\?\\="
+    pass_on_match: true
+
+  - name: 注释规范
+    level: MEDIUM
+    description: 公共API应添加注释
+    pattern: "\\/\\*\\*"
+    pass_on_match: true
+
+  - name: 代码重复
+    level: LOW
+    description: 避免重复代码块
+    pattern: "\\bfunction\\b|\\bconst\\b"
+    pass_on_match: true
+
+  - name: 命名规范
+    level: HIGH
+    description: ArkTS变量命名应使用小驼峰或大驼峰
+    pattern: "^[a-z][a-zA-Z0-9]*$|^[A-Z][a-zA-Z0-9]*$"
+    pass_on_match: true
+
+  - name: 行宽不超过120个字符
+    level: HIGH
+    description: "^.{121,}$"
+    pattern: "^[a-z][a-zA-Z0-9]*$|^[A-Z][a-zA-Z0-9]*$"
+    pass_on_match: true
