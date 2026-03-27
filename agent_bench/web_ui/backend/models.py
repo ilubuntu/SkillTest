@@ -42,16 +42,26 @@ class LogEntry(BaseModel):
     detail: Optional[str] = None
 
 
+class InternalRuleResult(BaseModel):
+    compatibility: Optional[Dict[str, Any]] = None
+    ecosystem: Optional[Dict[str, Any]] = None
+    code_quality: Optional[Dict[str, Any]] = None
+
+
 class CaseResult(BaseModel):
     case_id: str
     title: str
     scenario: str
     baseline_rule: float
     enhanced_rule: float
+    baseline_internal: float = 0.0
+    enhanced_internal: float = 0.0
     baseline_total: float
     enhanced_total: float
     gain: float
     dimension_scores: Dict[str, Dict[str, float]]
+    baseline_internal_detail: Optional[InternalRuleResult] = None
+    enhanced_internal_detail: Optional[InternalRuleResult] = None
 
 
 class EvaluationSummary(BaseModel):

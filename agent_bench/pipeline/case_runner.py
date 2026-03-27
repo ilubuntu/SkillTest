@@ -15,9 +15,11 @@ import os
 import time
 from typing import Callable
 
+import yaml
 from agent_bench.runner.adapter import AgentAdapter
 from agent_bench.evaluator.rule_checker import check as rule_check
 from agent_bench.evaluator.llm_judge import LLMJudge
+from agent_bench.evaluator.internal_rule_checker import InternalRuleChecker
 
 from agent_bench.pipeline.loader import (
     load_file, load_test_cases, load_enhancements,
@@ -187,19 +189,25 @@ def _run_evaluator_stage(case_id, title, scenario, case,
                          llm_judge, case_dir,
                          dry_run, on_progress):
     """执行 Evaluator 阶段，返回结果 dict"""
-    # 规则评分
-    _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始规则检查..."})
-    baseline_rule = rule_check(baseline_output, case["expected"])
-    enhanced_rule = rule_check(enhanced_output, case["expected"])
-    _notify(on_progress, "log", {"level": "INFO",
-        "message": f"[{case_id}] 规则检查完成: 基线={baseline_rule['rule_score']}, 增强={enhanced_rule['rule_score']}"})
-    _notify(on_progress, "stage_done", {
-        "case_id": case_id, "stage": "规则检查",
-        "baseline_rule": baseline_rule["rule_score"],
-        "enhanced_rule": enhanced_rule["rule_score"],
-    })
+    internal_checker = InternalRuleChecker()
 
-    # LLM 评分
+    baseline_internal = {}
+    enhanced_internal = {}
+    baseline_internal_score = 100.0
+    enhanced_internal_score = 100.0
+
+    if not dry_run:
+        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始内部规则检查..."})
+        baseline_internal = internal_checker.check_code(baseline_output or "") if baseline_output else {}
+        enhanced_internal = internal_checker.check_code(enhanced_output or "") if enhanced_output else {}
+        baseline_internal_score = internal_checker.get_level_weighted_score(baseline_internal) if baseline_internal else 100.0
+        enhanced_internal_score = internal_checker.get_level_weighted_score(enhanced_internal) if enhanced_internal else 100.0
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"[{case_id}] 内部规则检查完成: 基线={baseline_internal_score}, 增强={enhanced_internal_score}"})
+
+    baseline_rule = {"rule_score": 0}
+    enhanced_rule = {"rule_score": 0}
+
     if dry_run:
         judge_result = {
             "baseline": [{"name": r["name"], "score": 30, "reason": "dry-run"} for r in rubric],
@@ -212,7 +220,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
             "message": f"[{case_id}] 开始 LLM 评分 ({len(rubric)} 个维度)..."})
         t0 = time.time()
         judge_result = llm_judge.judge(
-            input_code, baseline_output, enhanced_output,
+            input_code, baseline_output or "", enhanced_output or "",
             reference_code, rubric, case_id=case_id
         )
         elapsed = time.time() - t0
@@ -223,11 +231,9 @@ def _run_evaluator_stage(case_id, title, scenario, case,
     baseline_llm_scores = judge_result["baseline"]
     enhanced_llm_scores = judge_result["enhanced"]
 
-    # 汇总评分
-    baseline_total = compute_total(baseline_rule["rule_score"], baseline_llm_scores, rubric)
-    enhanced_total = compute_total(enhanced_rule["rule_score"], enhanced_llm_scores, rubric)
+    baseline_total = compute_total(baseline_llm_scores, rubric, baseline_internal)
+    enhanced_total = compute_total(enhanced_llm_scores, rubric, enhanced_internal)
 
-    # 维度得分明细
     dimension_scores = {}
     for r_item in rubric:
         name = r_item["name"]
@@ -247,9 +253,13 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         "scenario": case.get("scenario", scenario),
         "baseline_rule": baseline_rule["rule_score"],
         "enhanced_rule": enhanced_rule["rule_score"],
+        "baseline_internal": baseline_internal_score,
+        "enhanced_internal": enhanced_internal_score,
         "baseline_total": baseline_total,
         "enhanced_total": enhanced_total,
         "dimension_scores": dimension_scores,
+        "_baseline_internal_detail": baseline_internal,
+        "_enhanced_internal_detail": enhanced_internal,
     }
 
     _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Evaluator 产物..."})
@@ -259,6 +269,21 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         judge_result,
         result,
     )
+
+    internal_result = {
+        "case_id": case_id,
+        "baseline": {
+            "results": baseline_internal,
+            "summary": {"total_score": baseline_internal_score}
+        },
+        "enhanced": {
+            "results": enhanced_internal,
+            "summary": {"total_score": enhanced_internal_score}
+        }
+    }
+    internal_path = os.path.join(case_dir, "internal_rules.yaml")
+    with open(internal_path, "w", encoding="utf-8") as f:
+        yaml.dump(internal_result, f, allow_unicode=True, default_flow_style=False)
 
     return result
 

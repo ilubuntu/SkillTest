@@ -173,6 +173,22 @@ class EvaluatorManager:
             self._status = EvaluationStatus.ERROR
             self._add_log("ERROR", f"评测失败: {str(e)}")
 
+    def _load_internal_rules(self, run_id: str, case_id: str) -> tuple:
+        """加载单个用例的内部评分结果"""
+        import yaml
+        internal_path = BASE_DIR / "results" / run_id / "cases" / case_id / "internal_rules.yaml"
+        if not internal_path.exists():
+            return {}, {}
+        
+        try:
+            with open(internal_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            baseline = data.get("baseline", {}).get("results", {})
+            enhanced = data.get("enhanced", {}).get("results", {})
+            return baseline, enhanced
+        except Exception:
+            return {}, {}
+
     def _build_result(self, pipeline_result: dict) -> Optional[EvaluationResult]:
         """从 pipeline 返回值构建 EvaluationResult"""
         json_path = pipeline_result.get("json_path")
@@ -185,18 +201,24 @@ class EvaluatorManager:
 
             summary = data.get("summary", {})
             cases = []
+            run_id = pipeline_result.get("run_id", "")
             for c in data.get("cases", []):
                 gain = c.get("enhanced_total", 0) - c.get("baseline_total", 0)
+                baseline_internal_detail, enhanced_internal_detail = self._load_internal_rules(run_id, c.get("case_id", ""))
                 cases.append(CaseResult(
                     case_id=c.get("case_id", ""),
                     title=c.get("title", ""),
                     scenario=c.get("scenario", ""),
                     baseline_rule=c.get("baseline_rule", 0),
                     enhanced_rule=c.get("enhanced_rule", 0),
+                    baseline_internal=c.get("baseline_internal", 0),
+                    enhanced_internal=c.get("enhanced_internal", 0),
                     baseline_total=c.get("baseline_total", 0),
                     enhanced_total=c.get("enhanced_total", 0),
                     gain=gain,
-                    dimension_scores=c.get("dimension_scores", {})
+                    dimension_scores=c.get("dimension_scores", {}),
+                    baseline_internal_detail=baseline_internal_detail,
+                    enhanced_internal_detail=enhanced_internal_detail
                 ))
 
             summary_obj = EvaluationSummary(

@@ -88,6 +88,50 @@
             </div>
           </div>
         </el-tab-pane>
+        <el-tab-pane label="内部评分-基线" name="internalBaseline">
+          <div v-for="(cat, idx) in internalCategories" :key="'baseline-' + idx" class="internal-category">
+            <div class="category-header">{{ cat.label }}</div>
+            <el-table :data="getBaselineRulesByCategory(cat.key)" stripe style="width: 100%">
+              <el-table-column prop="ruleName" label="规则名称" min-width="150" />
+              <el-table-column prop="level" label="规则级别" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="levelTagType(row.level)" size="small">{{ row.level }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="描述" min-width="200" />
+              <el-table-column prop="pattern" label="匹配规则" min-width="200" />
+              <el-table-column prop="passed" label="是否通过" width="100" align="center">
+                <template #default="{ row }">
+                  <span :class="row.passed ? 'pass' : 'fail'">
+                    {{ row.passed ? '✓ 通过' : '✗ 不通过' }}
+                  </span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="内部评分-增强" name="internalEnhanced">
+          <div v-for="(cat, idx) in internalCategories" :key="'enhanced-' + idx" class="internal-category">
+            <div class="category-header">{{ cat.label }}</div>
+            <el-table :data="getEnhancedRulesByCategory(cat.key)" stripe style="width: 100%">
+              <el-table-column prop="ruleName" label="规则名称" min-width="150" />
+              <el-table-column prop="level" label="规则级别" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="levelTagType(row.level)" size="small">{{ row.level }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="描述" min-width="200" />
+              <el-table-column prop="pattern" label="匹配规则" min-width="200" />
+              <el-table-column prop="passed" label="是否通过" width="100" align="center">
+                <template #default="{ row }">
+                  <span :class="row.passed ? 'pass' : 'fail'">
+                    {{ row.passed ? '✓ 通过' : '✗ 不通过' }}
+                  </span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </template>
     <div v-else class="empty-state">
@@ -145,6 +189,67 @@ const gainText = computed(() => {
   const gain = currentResult.value.summary.gain
   return (gain >= 0 ? '+' : '') + gain.toFixed(1)
 })
+
+const internalCategories = [
+  { key: 'code_quality', label: '代码质量' },
+  { key: 'ecosystem', label: '生态' },
+  { key: 'compatibility', label: '兼容性' }
+]
+
+const getBaselineRulesByCategory = (category) => {
+  if (!currentResult.value || !currentResult.value.cases) return []
+  
+  const tableData = []
+  const firstCase = currentResult.value.cases[0]
+  if (!firstCase) return []
+  
+  const detail = firstCase.baseline_internal_detail || {}
+  const rules = detail[category]?.rules || []
+  
+  for (const rule of rules) {
+    tableData.push({
+      ruleName: rule.name || '-',
+      level: rule.level || '-',
+      description: rule.description || '',
+      pattern: rule.pattern || '-',
+      passed: rule.passed || false
+    })
+  }
+  
+  return tableData
+}
+
+const getEnhancedRulesByCategory = (category) => {
+  if (!currentResult.value || !currentResult.value.cases) return []
+  
+  const tableData = []
+  const firstCase = currentResult.value.cases[0]
+  if (!firstCase) return []
+  
+  const detail = firstCase.enhanced_internal_detail || {}
+  const rules = detail[category]?.rules || []
+  
+  for (const rule of rules) {
+    tableData.push({
+      ruleName: rule.name || '-',
+      level: rule.level || '-',
+      description: rule.description || '',
+      pattern: rule.pattern || '-',
+      passed: rule.passed || false
+    })
+  }
+  
+  return tableData
+}
+
+const levelTagType = (level) => {
+  const types = {
+    'HIGH': 'danger',
+    'MEDIUM': 'warning',
+    'LOW': 'info'
+  }
+  return types[level] || 'info'
+}
 </script>
 
 <style scoped>
@@ -188,5 +293,28 @@ const gainText = computed(() => {
   text-align: center;
   padding: 60px 20px;
   color: #999;
+}
+
+.pass {
+  color: #67c23a;
+  font-weight: bold;
+}
+
+.fail {
+  color: #ef5350;
+  font-weight: bold;
+}
+
+.internal-category {
+  margin-bottom: 20px;
+}
+
+.category-header {
+  background: linear-gradient(135deg, #667eea22, #764ba222);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #667eea;
 }
 </style>
