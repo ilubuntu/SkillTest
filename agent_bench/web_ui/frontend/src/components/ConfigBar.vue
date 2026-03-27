@@ -1,6 +1,9 @@
 <template>
   <div class="card">
     <div class="card-title">评测配置</div>
+    <div class="skip-baseline-option" style="margin-bottom: 12px;">
+      <el-checkbox v-model="skipBaseline">跳过基线运行（仅运行增强配置）</el-checkbox>
+    </div>
     <div class="config-bar">
       <div class="config-item">
         <span class="config-label">选择场景及用例</span>
@@ -34,6 +37,8 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
+
 defineProps({
   cascaderOptions: {
     type: Array,
@@ -62,6 +67,8 @@ defineProps({
 })
 
 const emit = defineEmits(['update:selectedOptions', 'start', 'stop'])
+
+const skipBaseline = ref(true)
 
 const handleChange = (value) => {
   emit('update:selectedOptions', value)

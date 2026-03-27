@@ -15,8 +15,7 @@ import os
 from datetime import datetime
 from typing import Callable
 
-from agent_bench.runner.agent_runner import DEFAULT_API_BASE
-from agent_bench.runner.opencode_adapter import OpenCodeAdapter
+from agent_bench.runner.opencode_adapter import OpenCodeAdapter, DEFAULT_API_BASE
 from agent_bench.evaluator.llm_judge import LLMJudge
 from agent_bench.report.reporter import generate as generate_report
 
@@ -128,9 +127,18 @@ def run_pipeline(profile: str,
             on_progress=on_progress,
         )
 
-        # LLM Judge（独立的评分调用，不走 adapter）
+        # LLM Judge（评分用的 LLM 调用，通过 adapter 提供）
         _notify(on_progress, "log", {"level": "INFO", "message": "初始化 LLMJudge..."})
-        llm_judge = LLMJudge(api_base=api_base, model=judge_model, on_progress=on_progress)
+        judge_adapter = OpenCodeAdapter(
+            api_base=api_base,
+            model=judge_model,
+            timeout=config.get("judge", {}).get("timeout", 60),
+            on_progress=on_progress,
+        )
+        llm_judge = LLMJudge(
+            llm_fn=lambda prompt, tag: judge_adapter.execute(prompt, tag=tag),
+            on_progress=on_progress,
+        )
 
     case_stages = [s for s in stages if s in ("runner", "evaluator")]
 

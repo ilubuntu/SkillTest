@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """LLM-as-Judge 评分模块
 
-通过 runner.agent_runner.call_http_api 调用 LLM，
+通过 pipeline 注入的 llm_fn 调用 LLM，
 一次调用同时对 baseline 和 enhanced 输出进行对比评分。
+
+本模块不依赖 runner 层，LLM 调用能力由上层注入。
 """
 
 import json
 import re
 import sys
-
-from agent_bench.runner.agent_runner import call_http_api, DEFAULT_API_BASE
+from typing import Callable, Optional
 
 JUDGE_PROMPT = """你是一个严格的代码评审专家，请对比评估以下两份ArkTS代码的修复质量。
 
@@ -46,14 +47,18 @@ DEFAULT_SCORE = 50
 class LLMJudge:
     """LLM 评分器
 
-    复用 runner.agent_runner.call_http_api 与 LLM 通信，
+    通过注入的 llm_fn 与 LLM 通信，
     一次调用同时对比评分 baseline 和 enhanced 输出。
     """
 
-    def __init__(self, api_base: str = DEFAULT_API_BASE,
-                 model: str = None, on_progress=None):
-        self.api_base = api_base
-        self.model = model
+    def __init__(self, llm_fn: Callable[[str, str], str],
+                 on_progress=None):
+        """
+        Args:
+            llm_fn: LLM 调用函数，签名 (prompt: str, tag: str) -> str
+            on_progress: 进度回调
+        """
+        self.llm_fn = llm_fn
         self.on_progress = on_progress
 
     def _log(self, level, message):
@@ -112,10 +117,7 @@ class LLMJudge:
 
         try:
             api_tag = f"{tag}[评分] "
-            result = call_http_api(
-                prompt, self.api_base, self.model, timeout=60,
-                on_progress=self.on_progress, tag=api_tag
-            )
+            result = self.llm_fn(prompt, api_tag)
             if not result:
                 self._log("ERROR", f"{tag}[评分] LLM 返回空结果")
                 default_fallback = [

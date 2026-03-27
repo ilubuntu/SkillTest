@@ -20,7 +20,28 @@ import urllib.error
 from typing import Optional
 
 from agent_bench.runner.adapter import AgentAdapter
-from agent_bench.runner.agent_runner import parse_model, DEFAULT_API_BASE, TIMEOUT
+
+DEFAULT_API_BASE = "http://localhost:4096"
+TIMEOUT = 180
+
+
+def parse_model(model_str: str) -> dict:
+    """解析模型字符串为 API 格式
+
+    Args:
+        model_str: 如 "minimax/MiniMax-M2.7" 或 "MiniMax-M2.7"
+
+    Returns:
+        {"providerID": "...", "modelID": "..."}
+    """
+    if "/" in model_str:
+        provider, model_id = model_str.split("/", 1)
+        provider_map = {
+            "minimax": "minimax-cn-coding-plan",
+        }
+        provider_id = provider_map.get(provider, provider)
+        return {"providerID": provider_id, "modelID": model_id}
+    return {"providerID": "minimax-cn-coding-plan", "modelID": model_str}
 
 
 class OpenCodeAdapter(AgentAdapter):

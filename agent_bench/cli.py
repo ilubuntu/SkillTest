@@ -27,10 +27,8 @@ import threading
 # 将 agent_bench 的父目录加入 sys.path，使 agent_bench 可作为包导入
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agent_bench.runner.agent_runner import (
-    ensure_opencode_server,
-    DEFAULT_API_BASE,
-)
+from agent_bench.runner.discovery import ensure_opencode_server
+from agent_bench.runner.opencode_adapter import DEFAULT_API_BASE
 from agent_bench.pipeline.engine import run_pipeline, ALL_STAGES
 
 
