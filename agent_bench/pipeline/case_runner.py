@@ -16,17 +16,18 @@ import time
 from typing import Callable
 
 from agent_bench.runner.adapter import AgentAdapter
-from agent_bench.evaluator.rule_checker import check as rule_check
-from agent_bench.evaluator.llm_judge import LLMJudge
+from agent_bench.scoring.llm_judge import LLMJudge
+from agent_bench.scoring import internal_scorer, aggregator
+from dataclasses import asdict
 
 from agent_bench.pipeline.loader import (
     load_file, load_test_cases, load_enhancements,
+    load_internal_rules, load_rubric,
 )
 from agent_bench.pipeline.artifacts import (
     save_runner_artifacts, load_runner_artifacts,
     save_evaluator_artifacts, load_evaluator_result,
 )
-from agent_bench.pipeline.scoring import compute_total
 
 
 # ── 任务 Prompt 模板 ─────────────────────────────────────────
@@ -61,7 +62,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                     stages: list = None,
                     dry_run: bool = False,
                     skip_baseline: bool = False,
-                    on_progress: Callable = None) -> dict:
+                    on_progress: Callable = None,
+                    phase_weights: dict = None) -> dict:
     """执行单个测试用例的指定阶段
 
     Args:
@@ -89,7 +91,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     reference_code = load_file(
         os.path.join("test_cases", scenario, case["expected"]["reference_file"])
     )
-    rubric = case["expected"]["rubric"]
+    # rubric 从 scoring_standards.json 按场景加载，不再依赖 case YAML
+    rubric = load_rubric(scenario)
 
     # 构建纯任务 prompt（不含 skill，skill 由 adapter 通过 system 字段注入）
     task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
@@ -122,6 +125,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             baseline_output, enhanced_output,
             llm_judge, case_dir,
             dry_run=dry_run, on_progress=on_progress,
+            phase_weights=phase_weights,
         )
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Evaluator 产物..."})
@@ -185,80 +189,132 @@ def _run_evaluator_stage(case_id, title, scenario, case,
                          input_code, reference_code, rubric,
                          baseline_output, enhanced_output,
                          llm_judge, case_dir,
-                         dry_run, on_progress):
-    """执行 Evaluator 阶段，返回结果 dict"""
-    # 规则评分
+                         dry_run, on_progress,
+                         phase_weights=None):
+    """执行 Evaluator 阶段，返回结果 dict
+
+    流程：内部评分（全局规则）→ LLM 评分 → 聚合
+    """
+    all_dim_names = [r["name"] for r in rubric]
+
+    # ── 内部评分（全局规则库）──────────────────────────────────
     _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始规则检查..."})
-    baseline_rule = rule_check(baseline_output, case["expected"])
-    enhanced_rule = rule_check(enhanced_output, case["expected"])
+    rules_config = load_internal_rules()
+    baseline_internal = internal_scorer.score(baseline_output, rules_config)
+    enhanced_internal = internal_scorer.score(enhanced_output, rules_config)
     _notify(on_progress, "log", {"level": "INFO",
-        "message": f"[{case_id}] 规则检查完成: 基线={baseline_rule['rule_score']}, 增强={enhanced_rule['rule_score']}"})
+        "message": f"[{case_id}] 规则检查完成: 基线={baseline_internal.total:.1f}/30, "
+                   f"增强={enhanced_internal.total:.1f}/30"})
     _notify(on_progress, "stage_done", {
         "case_id": case_id, "stage": "规则检查",
-        "baseline_rule": baseline_rule["rule_score"],
-        "enhanced_rule": enhanced_rule["rule_score"],
+        "baseline_rule": baseline_internal.total,
+        "enhanced_rule": enhanced_internal.total,
     })
 
-    # LLM 评分
+    # ── LLM 评分 ──────────────────────────────────────────────
     if dry_run:
-        judge_result = {
+        from agent_bench.scoring.models import LLMDimensionScore, LLMScoringResult
+        def _mock_llm_result(score_val):
+            dims = [LLMDimensionScore(name=r["name"], score=score_val,
+                                     weight=r["weight"], reason="dry-run")
+                    for r in rubric]
+            return LLMScoringResult(dimensions=dims, weighted_avg=float(score_val))
+        baseline_llm = _mock_llm_result(30)
+        enhanced_llm = _mock_llm_result(85)
+        judge_raw = {
             "baseline": [{"name": r["name"], "score": 30, "reason": "dry-run"} for r in rubric],
             "enhanced": [{"name": r["name"], "score": 85, "reason": "dry-run"} for r in rubric],
         }
-        _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] LLM评分跳过 (dry-run)"})
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "elapsed": 0, "skipped": True})
     else:
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] 开始 LLM 评分 ({len(rubric)} 个维度)..."})
         t0 = time.time()
-        judge_result = llm_judge.judge(
+        judge_scores = llm_judge.judge(
             input_code, baseline_output, enhanced_output,
-            reference_code, rubric, case_id=case_id
+            reference_code, rubric, case_id=case_id,
         )
         elapsed = time.time() - t0
+        baseline_llm = judge_scores["baseline"]
+        enhanced_llm = judge_scores["enhanced"]
+        judge_raw = {
+            "baseline": [{"name": d.name, "score": d.score, "reason": d.reason}
+                         for d in baseline_llm.dimensions],
+            "enhanced": [{"name": d.name, "score": d.score, "reason": d.reason}
+                         for d in enhanced_llm.dimensions],
+        }
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] LLM 评分完成, 耗时={elapsed:.1f}s"})
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "elapsed": elapsed})
 
-    baseline_llm_scores = judge_result["baseline"]
-    enhanced_llm_scores = judge_result["enhanced"]
+    # ── 聚合最终分数 ───────────────────────────────────────────
+    baseline_total = aggregator.compute(baseline_internal, baseline_llm, all_dim_names, phase_weights)
+    enhanced_total = aggregator.compute(enhanced_internal, enhanced_llm, all_dim_names, phase_weights)
 
-    # 汇总评分
-    baseline_total = compute_total(baseline_rule["rule_score"], baseline_llm_scores, rubric)
-    enhanced_total = compute_total(enhanced_rule["rule_score"], enhanced_llm_scores, rubric)
-
-    # 维度得分明细
+    # 维度得分明细（同时包含 LLM 和内部评分）
     dimension_scores = {}
+    llm_b_map = {d.name: d.score for d in baseline_llm.dimensions}
+    llm_e_map = {d.name: d.score for d in enhanced_llm.dimensions}
+    internal_b_map = {k: v.score for k, v in baseline_internal.dimensions.items()}
+    internal_e_map = {k: v.score for k, v in enhanced_internal.dimensions.items()}
     for r_item in rubric:
         name = r_item["name"]
-        b_score = next((s["score"] for s in baseline_llm_scores if s["name"] == name), 50)
-        e_score = next((s["score"] for s in enhanced_llm_scores if s["name"] == name), 50)
-        dimension_scores[name] = {"baseline": b_score, "enhanced": e_score}
+        dim_id = r_item.get("dimension_id", name)
+        llm_b = llm_b_map.get(name, 50)
+        llm_e = llm_e_map.get(name, 50)
+        internal_b = internal_b_map.get(dim_id, 100)  # 内部评分归一化后是0-100
+        internal_e = internal_e_map.get(dim_id, 100)
+        dimension_scores[dim_id] = {
+            "name": name,
+            "baseline": {"llm": llm_b, "internal": internal_b},
+            "enhanced": {"llm": llm_e, "internal": internal_e},
+        }
         _notify(on_progress, "log", {"level": "DEBUG",
-            "message": f"[{case_id}]   维度 [{name}]: 基线={b_score}, 增强={e_score}"})
+            "message": f"[{case_id}]   维度 [{name}]: 基线(LLM={llm_b},内部={internal_b}), 增强(LLM={llm_e},内部={internal_e})"})
 
+    gain = enhanced_total - baseline_total
     _notify(on_progress, "log", {"level": "INFO",
-        "message": f"[{case_id}] 综合评分: 基线={baseline_total}, 增强={enhanced_total}, "
-                   f"增益={'+' if enhanced_total >= baseline_total else ''}{enhanced_total - baseline_total:.1f}"})
+        "message": f"[{case_id}] 综合评分: 基线={baseline_total:.1f}, 增强={enhanced_total:.1f}, "
+                   f"增益={'+' if gain >= 0 else ''}{gain:.1f}"})
+
+    # ── 序列化内部评分结果 ─────────────────────────────────────
+    def _serialize_internal(r):
+        return {
+            "total": r.total,
+            "dimensions": {
+                k: {
+                    "score": v.score,
+                    "raw_score": v.raw_score,
+                    "max_score": v.max_score,
+                    "rules": [
+                        {"name": rule.name, "level": rule.level,
+                         "passed": rule.passed, "matched": rule.matched,
+                         "description": rule.description}
+                        for rule in v.rules
+                    ],
+                }
+                for k, v in r.dimensions.items()
+            },
+        }
+
+    internal_artifact = {
+        "baseline": _serialize_internal(baseline_internal),
+        "enhanced": _serialize_internal(enhanced_internal),
+    }
 
     result = {
         "case_id": case_id,
         "title": title,
         "scenario": case.get("scenario", scenario),
-        "baseline_rule": baseline_rule["rule_score"],
-        "enhanced_rule": enhanced_rule["rule_score"],
+        "baseline_rule": baseline_internal.total,
+        "enhanced_rule": enhanced_internal.total,
         "baseline_total": baseline_total,
         "enhanced_total": enhanced_total,
         "dimension_scores": dimension_scores,
     }
 
     _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Evaluator 产物..."})
-    save_evaluator_artifacts(
-        case_dir,
-        {"baseline": baseline_rule, "enhanced": enhanced_rule},
-        judge_result,
-        result,
-    )
+    save_evaluator_artifacts(case_dir, internal_artifact, judge_raw, result)
 
     return result
 
@@ -275,7 +331,8 @@ def run_scenario(scenario: str,
                  dry_run: bool = False,
                  skip_baseline: bool = False,
                  case_id_filter: str = None,
-                 on_progress: Callable = None) -> list:
+                 on_progress: Callable = None,
+                 phase_weights: dict = None) -> list:
     """执行单个场景下的所有用例
 
     Returns:
@@ -330,6 +387,7 @@ def run_scenario(scenario: str,
                 stages=stages, dry_run=dry_run,
                 skip_baseline=skip_baseline,
                 on_progress=on_progress,
+                phase_weights=phase_weights,
             )
             futures[future] = (i, case)
 

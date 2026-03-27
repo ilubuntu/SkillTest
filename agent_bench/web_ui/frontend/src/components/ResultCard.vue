@@ -56,18 +56,28 @@
         </el-tab-pane>
         <el-tab-pane label="维度分析" name="dimensions">
           <el-table :data="dimensionData" stripe style="width: 100%">
-            <el-table-column prop="name" label="维度" width="150" />
-            <el-table-column prop="baseline_avg" label="基线均分" width="120" sortable>
+            <el-table-column prop="name" label="维度" width="140" />
+            <el-table-column label="基线(LLM)" width="100" sortable>
               <template #default="{ row }">
-                {{ row.baseline_avg.toFixed(1) }}
+                {{ row.baseline_llm != null ? row.baseline_llm.toFixed(1) : '-' }}
               </template>
             </el-table-column>
-            <el-table-column prop="enhanced_avg" label="增强均分" width="120" sortable>
+            <el-table-column label="基线(内部)" width="100">
               <template #default="{ row }">
-                {{ row.enhanced_avg.toFixed(1) }}
+                {{ row.baseline_internal != null ? row.baseline_internal.toFixed(1) : '-' }}
               </template>
             </el-table-column>
-            <el-table-column prop="gain" label="增益" sortable>
+            <el-table-column label="增强(LLM)" width="100" sortable>
+              <template #default="{ row }">
+                {{ row.enhanced_llm != null ? row.enhanced_llm.toFixed(1) : '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="增强(内部)" width="100">
+              <template #default="{ row }">
+                {{ row.enhanced_internal != null ? row.enhanced_internal.toFixed(1) : '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="gain" label="增益(LLM)" sortable>
               <template #default="{ row }">
                 <span :class="row.gain >= 0 ? 'gain-positive' : 'gain-negative'">
                   {{ row.gain >= 0 ? '+' : '' }}{{ row.gain.toFixed(1) }}

@@ -318,8 +318,14 @@ const fullscreenFilteredLogs = computed(() =>
 )
 const dimensionData = computed(() => {
   if (!result.value?.summary?.dimensions) return []
-  return Object.entries(result.value.summary.dimensions).map(([name, data]) => ({
-    name, baseline_avg: data.baseline_avg, enhanced_avg: data.enhanced_avg, gain: data.gain,
+  return Object.entries(result.value.summary.dimensions).map(([dimId, data]) => ({
+    dimId,
+    name: data.name || dimId,
+    baseline_llm: data.baseline_llm_avg ?? data.baseline_avg,
+    baseline_internal: data.baseline_internal_avg,
+    enhanced_llm: data.enhanced_llm_avg ?? data.enhanced_avg,
+    enhanced_internal: data.enhanced_internal_avg,
+    gain: data.gain,
   }))
 })
 

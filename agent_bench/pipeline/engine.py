@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Callable
 
 from agent_bench.runner.opencode_adapter import OpenCodeAdapter, DEFAULT_API_BASE
-from agent_bench.evaluator.llm_judge import LLMJudge
+from agent_bench.scoring.llm_judge import LLMJudge
 from agent_bench.report.reporter import generate as generate_report
 
 from agent_bench.pipeline.loader import (
@@ -89,6 +89,11 @@ def run_pipeline(profile: str,
         judge_model = config.get("judge", {}).get("model")
 
     agent_timeout = config.get("agent", {}).get("timeout", 180)
+
+    # 评分阶段权重（从 config.yaml scoring.phase 读取）
+    scoring_conf = config.get("scoring", {})
+    phase = scoring_conf.get("phase", "current")
+    phase_weights = scoring_conf.get("phases", {}).get(phase)
 
     _notify(on_progress, "log", {"level": "INFO",
         "message": f"配置: 并行数={max_workers}, Agent模型={agent_model or '默认'}, "
@@ -167,6 +172,7 @@ def run_pipeline(profile: str,
                 dry_run=dry_run, skip_baseline=skip_baseline,
                 case_id_filter=case_id_filter,
                 on_progress=on_progress,
+                phase_weights=phase_weights,
             )
             all_results.extend(results)
         else:

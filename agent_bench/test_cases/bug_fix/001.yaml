@@ -7,20 +7,3 @@ input:
   code_file: cases/001/input.ets
 expected:
   reference_file: cases/001/expected.ets
-  must_contain:
-    - "LazyForEach"
-    - "cachedCount"
-    - "IDataSource"
-  must_not_contain:
-    - "ForEach(this.items"
-  compile_check: false
-  rubric:
-    - name: correctness
-      weight: 40
-      criteria: "是否将ForEach替换为LazyForEach并实现了IDataSource接口"
-    - name: completeness
-      weight: 30
-      criteria: "是否设置了cachedCount、处理了数据更新通知"
-    - name: code_quality
-      weight: 30
-      criteria: "代码结构清晰，符合ArkTS最佳实践"

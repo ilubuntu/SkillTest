@@ -7,18 +7,3 @@ input:
   code_file: cases/003/input.ets
 expected:
   reference_file: cases/003/expected.ets
-  must_contain:
-    - "clearInterval"
-    - "aboutToDisappear"
-  must_not_contain: []
-  compile_check: false
-  rubric:
-    - name: correctness
-      weight: 40
-      criteria: "是否在aboutToDisappear中调用clearInterval清除定时器"
-    - name: completeness
-      weight: 30
-      criteria: "是否保存了setInterval返回值，是否处理了组件销毁后的异步回调"
-    - name: code_quality
-      weight: 30
-      criteria: "代码结构合理，生命周期管理规范"

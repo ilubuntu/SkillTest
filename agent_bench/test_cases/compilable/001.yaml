@@ -1,28 +1,9 @@
 id: compilable_001
-skill_type: compilable
+category: specialized
+scenario: compilable
 title: "生成可编译的List组件代码"
-
 input:
   prompt: "请生成一个包含List组件的ArkTS页面，要求代码可以通过ArkTS编译器检查"
   code_file: cases/001/input.ets
-
 expected:
   reference_file: cases/001/input.ets
-  must_contain:
-    - "@Entry"
-    - "@Component"
-    - "List"
-    - "@State"
-  must_not_contain:
-    - "any"
-    - "var "
-  rubric:
-    - name: correctness
-      weight: 40
-      criteria: "代码是否正确实现了List组件，语法是否正确"
-    - name: completeness
-      weight: 30
-      criteria: "是否包含完整的数据定义和渲染逻辑"
-    - name: code_quality
-      weight: 30
-      criteria: "代码是否符合ArkTS类型系统要求，是否避免了常见编译错误"

@@ -68,20 +68,33 @@ def _compute_summary(results: list) -> dict:
 
     dimensions = {}
     for r in results:
-        for dim_name, scores in r.get("dimension_scores", {}).items():
-            if dim_name not in dimensions:
-                dimensions[dim_name] = {"baseline": [], "enhanced": []}
-            dimensions[dim_name]["baseline"].append(scores["baseline"])
-            dimensions[dim_name]["enhanced"].append(scores["enhanced"])
+        for dim_id, scores in r.get("dimension_scores", {}).items():
+            if dim_id not in dimensions:
+                dimensions[dim_id] = {
+                    "name": scores.get("name", dim_id),
+                    "baseline": {"llm": [], "internal": []},
+                    "enhanced": {"llm": [], "internal": []},
+                }
+            dimensions[dim_id]["baseline"]["llm"].append(scores["baseline"]["llm"])
+            dimensions[dim_id]["baseline"]["internal"].append(scores["baseline"]["internal"])
+            dimensions[dim_id]["enhanced"]["llm"].append(scores["enhanced"]["llm"])
+            dimensions[dim_id]["enhanced"]["internal"].append(scores["enhanced"]["internal"])
 
     dim_summary = {}
-    for dim_name, vals in dimensions.items():
-        b_avg = sum(vals["baseline"]) / len(vals["baseline"])
-        e_avg = sum(vals["enhanced"]) / len(vals["enhanced"])
-        dim_summary[dim_name] = {
-            "baseline_avg": round(b_avg, 1),
-            "enhanced_avg": round(e_avg, 1),
-            "gain": round(e_avg - b_avg, 1),
+    for dim_id, vals in dimensions.items():
+        llm_b_avg = sum(vals["baseline"]["llm"]) / len(vals["baseline"]["llm"])
+        llm_e_avg = sum(vals["enhanced"]["llm"]) / len(vals["enhanced"]["llm"])
+        internal_b_avg = sum(vals["baseline"]["internal"]) / len(vals["baseline"]["internal"])
+        internal_e_avg = sum(vals["enhanced"]["internal"]) / len(vals["enhanced"]["internal"])
+        dim_summary[dim_id] = {
+            "name": vals["name"],
+            "baseline_avg": round(llm_b_avg, 1),
+            "enhanced_avg": round(llm_e_avg, 1),
+            "baseline_llm_avg": round(llm_b_avg, 1),
+            "enhanced_llm_avg": round(llm_e_avg, 1),
+            "baseline_internal_avg": round(internal_b_avg, 1),
+            "enhanced_internal_avg": round(internal_e_avg, 1),
+            "gain": round(llm_e_avg - llm_b_avg, 1),
         }
 
     return {
@@ -185,11 +198,15 @@ def _render_markdown(report: dict) -> str:
     if s.get("dimensions"):
         lines.append("## 各维度对比")
         lines.append("")
-        lines.append("| 维度 | 基线均分 | 增强均分 | 增益 |")
-        lines.append("|------|---------|---------|------|")
-        for dim_name, dim in s["dimensions"].items():
-            lines.append(f"| {dim_name} | {dim['baseline_avg']} "
-                         f"| {dim['enhanced_avg']} | +{dim['gain']} |")
+        lines.append("| 维度 | 基线(LLM) | 基线(内部) | 增强(LLM) | 增强(内部) | 增益 |")
+        lines.append("|------|-----------|------------|-----------|------------|------|")
+        for dim_id, dim in s["dimensions"].items():
+            name = dim.get("name", dim_id)
+            lines.append(f"| {name} | {dim.get('baseline_llm_avg', dim.get('baseline_avg', 0))} "
+                         f"| {dim.get('baseline_internal_avg', 'N/A')} "
+                         f"| {dim.get('enhanced_llm_avg', dim.get('enhanced_avg', 0))} "
+                         f"| {dim.get('enhanced_internal_avg', 'N/A')} "
+                         f"| +{dim['gain']} |")
         lines.append("")
 
     # 用例明细
@@ -203,14 +220,17 @@ def _render_markdown(report: dict) -> str:
         lines.append("")
         lines.append(f"| | 基线 | 增强 | 增益 |")
         lines.append(f"|--|------|------|------|")
-        lines.append(f"| 规则得分 | {r['baseline_rule']} | {r['enhanced_rule']} "
+        lines.append(f"| 内部规则得分 | {r['baseline_rule']} | {r['enhanced_rule']} "
                      f"| {flag}{round(r['enhanced_rule'] - r['baseline_rule'], 1)} |")
 
-        for dim_name, scores in r.get("dimension_scores", {}).items():
-            d_gain = scores["enhanced"] - scores["baseline"]
+        for dim_id, scores in r.get("dimension_scores", {}).items():
+            name = scores.get("name", dim_id)
+            d_gain = scores["enhanced"]["llm"] - scores["baseline"]["llm"]
             d_flag = "+" if d_gain >= 0 else ""
-            lines.append(f"| {dim_name} | {scores['baseline']} "
-                         f"| {scores['enhanced']} | {d_flag}{d_gain} |")
+            lines.append(f"| {name}(LLM) | {scores['baseline']['llm']} "
+                         f"| {scores['enhanced']['llm']} | {d_flag}{d_gain:.1f} |")
+            lines.append(f"| {name}(内部) | {scores['baseline']['internal']} "
+                         f"| {scores['enhanced']['internal']} | - |")
 
         lines.append(f"| **总分** | **{r['baseline_total']}** "
                      f"| **{r['enhanced_total']}** | **{flag}{round(gain, 1)}** |")

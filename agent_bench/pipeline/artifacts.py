@@ -36,12 +36,21 @@ def load_runner_artifacts(case_dir: str) -> tuple:
     return baseline_output, enhanced_output
 
 
-def save_evaluator_artifacts(case_dir: str, rule_detail: dict,
-                             judge_result: dict, result: dict):
-    """保存 Evaluator 阶段产物"""
+def save_evaluator_artifacts(case_dir: str,
+                             internal_score: dict,
+                             judge_result: dict,
+                             result: dict):
+    """保存 Evaluator 阶段产物
+
+    Args:
+        case_dir: 产物目录
+        internal_score: 内部评分结果 (internal_score.json)
+        judge_result: LLM Judge 原始结果 (judge.json)
+        result: 最终汇总结果 (result.json)
+    """
     os.makedirs(case_dir, exist_ok=True)
-    with open(os.path.join(case_dir, "rule_check.json"), "w", encoding="utf-8") as f:
-        json.dump(rule_detail, f, ensure_ascii=False, indent=2)
+    with open(os.path.join(case_dir, "internal_score.json"), "w", encoding="utf-8") as f:
+        json.dump(internal_score, f, ensure_ascii=False, indent=2)
     with open(os.path.join(case_dir, "judge.json"), "w", encoding="utf-8") as f:
         json.dump(judge_result, f, ensure_ascii=False, indent=2)
     with open(os.path.join(case_dir, "result.json"), "w", encoding="utf-8") as f:

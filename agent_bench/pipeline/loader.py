@@ -15,6 +15,8 @@ from typing import List, Optional
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
 PROFILES_DIR = os.path.join(BASE_DIR, "profiles")
+INTERNAL_RULES_PATH = os.path.join(BASE_DIR, "config", "internal_rules.yaml")
+SCORING_STANDARDS_PATH = os.path.join(BASE_DIR, "scoring", "standard.yaml")
 
 
 # ── YAML / 文件读取 ─────────────────────────────────────────
@@ -118,6 +120,42 @@ def load_test_cases(scenario: str) -> list:
             case = load_yaml(filepath)
             cases.append(case)
     return cases
+
+
+# ── 内部规则库 & 评分标准 ────────────────────────────────────
+
+def load_internal_rules() -> dict:
+    """加载 config/internal_rules.yaml（全局确定性评分规则）"""
+    if os.path.exists(INTERNAL_RULES_PATH):
+        return load_yaml(INTERNAL_RULES_PATH) or {}
+    return {}
+
+
+def load_scoring_standards() -> dict:
+    """加载 scoring/standard.yaml（评分标准）"""
+    if os.path.exists(SCORING_STANDARDS_PATH):
+        return load_yaml(SCORING_STANDARDS_PATH) or {}
+    return {}
+
+
+def load_rubric(scenario: str = None) -> list:
+    """加载评分维度列表
+
+    Returns:
+        [{dimension_id, name, weight, criteria}, ...]
+    """
+    standards = load_scoring_standards()
+    dimensions = standards.get("dimensions", [])
+
+    return [
+        {
+            "dimension_id": d.get("dimension_id", ""),
+            "name": d.get("name", ""),
+            "weight": d.get("weight", 0),
+            "criteria": d.get("description", ""),
+        }
+        for d in dimensions
+    ]
 
 
 # ── Skill 文件 ───────────────────────────────────────────────

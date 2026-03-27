@@ -93,28 +93,42 @@
 
       <!-- 维度分析 -->
       <div class="card" v-if="hasDimensions">
-        <h3 class="section-title">维度分析</h3>
+        <h3 class="section-title">维度分析（LLM评分 / 内部评分）</h3>
         <div class="dimension-bars">
           <div
-            v-for="(data, name) in selectedReport.summary.dimensions"
-            :key="name"
+            v-for="(data, dimId) in selectedReport.summary.dimensions"
+            :key="dimId"
             class="dim-bar-group"
           >
-            <div class="dim-bar-label">{{ dimensionLabel(name) }}</div>
+            <div class="dim-bar-label">{{ data.name || dimensionLabel(dimId) }}</div>
             <div class="dim-bars">
               <div class="dim-bar-row">
-                <span class="bar-label">基线</span>
+                <span class="bar-label">基线LLM</span>
                 <div class="bar-track">
-                  <div class="bar-fill baseline" :style="{ width: data.baseline_avg + '%' }"></div>
+                  <div class="bar-fill baseline" :style="{ width: (data.baseline_llm_avg ?? 0) + '%' }"></div>
                 </div>
-                <span class="bar-value">{{ fmt(data.baseline_avg) }}</span>
+                <span class="bar-value">{{ fmt(data.baseline_llm_avg ?? data.baseline_avg) }}</span>
               </div>
               <div class="dim-bar-row">
-                <span class="bar-label">增强</span>
+                <span class="bar-label">基线内部</span>
                 <div class="bar-track">
-                  <div class="bar-fill enhanced" :style="{ width: data.enhanced_avg + '%' }"></div>
+                  <div class="bar-fill baseline-internal" :style="{ width: (data.baseline_internal_avg ?? 0) + '%' }"></div>
                 </div>
-                <span class="bar-value">{{ fmt(data.enhanced_avg) }}</span>
+                <span class="bar-value">{{ fmt(data.baseline_internal_avg) }}</span>
+              </div>
+              <div class="dim-bar-row">
+                <span class="bar-label">增强LLM</span>
+                <div class="bar-track">
+                  <div class="bar-fill enhanced" :style="{ width: (data.enhanced_llm_avg ?? 0) + '%' }"></div>
+                </div>
+                <span class="bar-value">{{ fmt(data.enhanced_llm_avg ?? data.enhanced_avg) }}</span>
+              </div>
+              <div class="dim-bar-row">
+                <span class="bar-label">增强内部</span>
+                <div class="bar-track">
+                  <div class="bar-fill enhanced-internal" :style="{ width: (data.enhanced_internal_avg ?? 0) + '%' }"></div>
+                </div>
+                <span class="bar-value">{{ fmt(data.enhanced_internal_avg) }}</span>
               </div>
             </div>
             <div class="dim-gain" :class="data.gain >= 0 ? 'gain-positive' : 'gain-negative'">
@@ -285,9 +299,10 @@ const generateMarkdown = (report) => {
 
   if (report.summary.dimensions) {
     md += `## 维度分析\n\n`
-    md += `| 维度 | 基线 | 增强 | 增益 |\n|------|------|------|------|\n`
-    for (const [name, data] of Object.entries(report.summary.dimensions)) {
-      md += `| ${dimensionLabel(name)} | ${fmt(data.baseline_avg)} | ${fmt(data.enhanced_avg)} | ${data.gain >= 0 ? '+' : ''}${fmt(data.gain)} |\n`
+    md += `| 维度 | 基线LLM | 基线内部 | 增强LLM | 增强内部 | 增益 |\n|------|---------|----------|---------|----------|------|\n`
+    for (const [dimId, data] of Object.entries(report.summary.dimensions)) {
+      const name = data.name || dimensionLabel(dimId)
+      md += `| ${name} | ${fmt(data.baseline_llm_avg ?? data.baseline_avg)} | ${fmt(data.baseline_internal_avg)} | ${fmt(data.enhanced_llm_avg ?? data.enhanced_avg)} | ${fmt(data.enhanced_internal_avg)} | ${data.gain >= 0 ? '+' : ''}${fmt(data.gain)} |\n`
     }
     md += '\n'
   }
@@ -449,8 +464,16 @@ onMounted(() => {
   background: linear-gradient(90deg, #bbb, #999);
 }
 
+.bar-fill.baseline-internal {
+  background: linear-gradient(90deg, #ddd, #bbb);
+}
+
 .bar-fill.enhanced {
   background: linear-gradient(90deg, #667eea, #764ba2);
+}
+
+.bar-fill.enhanced-internal {
+  background: linear-gradient(90deg, #99a3f0, #a78bcf);
 }
 
 .bar-value {

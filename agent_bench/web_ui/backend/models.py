@@ -51,7 +51,7 @@ class CaseResult(BaseModel):
     baseline_total: float
     enhanced_total: float
     gain: float
-    dimension_scores: Dict[str, Dict[str, float]]
+    dimension_scores: Dict[str, Any]  # {dimId: {name, baseline: {llm, internal}, enhanced: {llm, internal}}}
 
 
 class EvaluationSummary(BaseModel):
@@ -61,7 +61,7 @@ class EvaluationSummary(BaseModel):
     gain: float
     baseline_pass_rate: str
     enhanced_pass_rate: str
-    dimensions: Dict[str, Dict[str, float]]
+    dimensions: Dict[str, Any]  # {dimId: {name, baseline_llm_avg, baseline_internal_avg, enhanced_llm_avg, enhanced_internal_avg, gain}}
 
 
 class EvaluationResult(BaseModel):

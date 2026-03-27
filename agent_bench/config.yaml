@@ -26,9 +26,3 @@ judge:
   model: null
   temperature: 0
   timeout: 60
-
-# 评分权重
-scoring:
-  rule_weight: 0.3
-  llm_weight: 0.7
-  pass_threshold: 60
