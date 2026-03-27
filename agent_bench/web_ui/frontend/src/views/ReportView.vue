@@ -6,22 +6,23 @@
         <h3>评测报告</h3>
         <div class="report-actions">
           <el-select v-model="filterProfile" placeholder="全部 Profile" clearable style="width: 180px;">
-            <el-option label="bug_fix_enhanced" value="bug_fix_enhanced" />
-            <el-option label="project_gen" value="project_gen" />
-            <el-option label="performance" value="performance" />
-            <el-option label="compilable" value="compilable" />
+            <el-option v-for="p in profileOptions" :key="p" :label="p" :value="p" />
           </el-select>
+          <el-button :icon="Refresh" @click="loadReports" :loading="loading">刷新</el-button>
         </div>
       </div>
 
+      <el-empty v-if="!loading && reports.length === 0" description="暂无评测报告，请先在评测中心运行评测" />
+
       <el-table
+        v-else
         :data="filteredReports"
         stripe
         highlight-current-row
         @current-change="selectReport"
         style="width: 100%;"
       >
-        <el-table-column prop="run_id" label="Run ID" width="280">
+        <el-table-column prop="run_id" label="Run ID" width="300">
           <template #default="{ row }">
             <span class="run-id">{{ row.run_id }}</span>
           </template>
@@ -29,19 +30,23 @@
         <el-table-column prop="profile" label="Profile" width="160" />
         <el-table-column prop="scenario" label="场景" width="120" />
         <el-table-column prop="summary.total_cases" label="用例数" width="80" />
-        <el-table-column label="基线/增强" width="120">
+        <el-table-column label="基线 / 增强" width="130">
           <template #default="{ row }">
-            {{ row.summary.baseline_avg.toFixed(1) }} / {{ row.summary.enhanced_avg.toFixed(1) }}
+            {{ fmt(row.summary.baseline_avg) }} / {{ fmt(row.summary.enhanced_avg) }}
           </template>
         </el-table-column>
         <el-table-column prop="summary.gain" label="增益" width="80" sortable>
           <template #default="{ row }">
             <span :class="row.summary.gain >= 0 ? 'gain-positive' : 'gain-negative'">
-              {{ row.summary.gain >= 0 ? '+' : '' }}{{ row.summary.gain.toFixed(1) }}
+              {{ row.summary.gain >= 0 ? '+' : '' }}{{ fmt(row.summary.gain) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="created" label="时间" width="180" />
+        <el-table-column prop="generated_at" label="时间" width="180">
+          <template #default="{ row }">
+            {{ formatTime(row.generated_at) }}
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="140">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="exportJSON(row)">JSON</el-button>
@@ -55,23 +60,23 @@
     <template v-if="selectedReport">
       <!-- 增益概览 -->
       <div class="card">
-        <h3 class="section-title">增益概览</h3>
+        <h3 class="section-title">增益概览 — {{ selectedReport.profile }}</h3>
         <div class="overview-grid">
           <div class="overview-item">
             <div class="overview-value">{{ selectedReport.summary.total_cases }}</div>
             <div class="overview-label">用例总数</div>
           </div>
           <div class="overview-item">
-            <div class="overview-value">{{ selectedReport.summary.baseline_avg.toFixed(1) }}</div>
+            <div class="overview-value">{{ fmt(selectedReport.summary.baseline_avg) }}</div>
             <div class="overview-label">基线均分</div>
           </div>
           <div class="overview-item">
-            <div class="overview-value highlight">{{ selectedReport.summary.enhanced_avg.toFixed(1) }}</div>
+            <div class="overview-value highlight">{{ fmt(selectedReport.summary.enhanced_avg) }}</div>
             <div class="overview-label">增强均分</div>
           </div>
           <div class="overview-item">
             <div class="overview-value" :class="selectedReport.summary.gain >= 0 ? 'gain-positive' : 'gain-negative'">
-              {{ selectedReport.summary.gain >= 0 ? '+' : '' }}{{ selectedReport.summary.gain.toFixed(1) }}
+              {{ selectedReport.summary.gain >= 0 ? '+' : '' }}{{ fmt(selectedReport.summary.gain) }}
             </div>
             <div class="overview-label">整体增益</div>
           </div>
@@ -87,7 +92,7 @@
       </div>
 
       <!-- 维度分析 -->
-      <div class="card">
+      <div class="card" v-if="hasDimensions">
         <h3 class="section-title">维度分析</h3>
         <div class="dimension-bars">
           <div
@@ -100,49 +105,22 @@
               <div class="dim-bar-row">
                 <span class="bar-label">基线</span>
                 <div class="bar-track">
-                  <div class="bar-fill baseline" :style="{ width: (data.baseline_avg * 10) + '%' }"></div>
+                  <div class="bar-fill baseline" :style="{ width: data.baseline_avg + '%' }"></div>
                 </div>
-                <span class="bar-value">{{ data.baseline_avg.toFixed(1) }}</span>
+                <span class="bar-value">{{ fmt(data.baseline_avg) }}</span>
               </div>
               <div class="dim-bar-row">
                 <span class="bar-label">增强</span>
                 <div class="bar-track">
-                  <div class="bar-fill enhanced" :style="{ width: (data.enhanced_avg * 10) + '%' }"></div>
+                  <div class="bar-fill enhanced" :style="{ width: data.enhanced_avg + '%' }"></div>
                 </div>
-                <span class="bar-value">{{ data.enhanced_avg.toFixed(1) }}</span>
+                <span class="bar-value">{{ fmt(data.enhanced_avg) }}</span>
               </div>
             </div>
             <div class="dim-gain" :class="data.gain >= 0 ? 'gain-positive' : 'gain-negative'">
-              {{ data.gain >= 0 ? '+' : '' }}{{ data.gain.toFixed(1) }}
+              {{ data.gain >= 0 ? '+' : '' }}{{ fmt(data.gain) }}
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- 趋势对比（多次评测） -->
-      <div class="card">
-        <h3 class="section-title">趋势对比</h3>
-        <div class="trend-chart">
-          <div class="trend-y-axis">
-            <span v-for="v in [10, 8, 6, 4, 2, 0]" :key="v">{{ v }}</span>
-          </div>
-          <div class="trend-bars-area">
-            <div v-for="point in trendData" :key="point.date" class="trend-bar-group">
-              <div class="trend-bar-pair">
-                <div class="trend-bar baseline" :style="{ height: (point.baseline * 10) + '%' }">
-                  <span class="trend-bar-value">{{ point.baseline }}</span>
-                </div>
-                <div class="trend-bar enhanced" :style="{ height: (point.enhanced * 10) + '%' }">
-                  <span class="trend-bar-value">{{ point.enhanced }}</span>
-                </div>
-              </div>
-              <div class="trend-date">{{ point.date }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="trend-legend">
-          <span class="legend-item"><span class="legend-dot baseline"></span> 基线</span>
-          <span class="legend-item"><span class="legend-dot enhanced"></span> 增强</span>
         </div>
       </div>
 
@@ -150,69 +128,125 @@
       <div class="card">
         <h3 class="section-title">用例明细</h3>
         <el-table :data="selectedReport.cases" stripe style="width: 100%;">
-          <el-table-column prop="case_id" label="用例 ID" width="160">
+          <el-table-column prop="case_id" label="用例 ID" width="180">
             <template #default="{ row }">
               <span class="case-id">{{ row.case_id }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="title" label="标题" min-width="200" />
-          <el-table-column prop="baseline_total" label="基线得分" width="100" sortable>
+          <el-table-column prop="scenario" label="场景" width="120" />
+          <el-table-column prop="baseline_rule" label="基线规则分" width="110" sortable>
             <template #default="{ row }">
-              {{ row.baseline_total.toFixed(1) }}
+              {{ fmt(row.baseline_rule) }}
             </template>
           </el-table-column>
-          <el-table-column prop="enhanced_total" label="增强得分" width="100" sortable>
+          <el-table-column prop="enhanced_rule" label="增强规则分" width="110" sortable>
             <template #default="{ row }">
-              {{ row.enhanced_total.toFixed(1) }}
+              {{ fmt(row.enhanced_rule) }}
             </template>
           </el-table-column>
-          <el-table-column prop="gain" label="增益" width="100" sortable>
+          <el-table-column prop="baseline_total" label="基线总分" width="100" sortable>
             <template #default="{ row }">
-              <span :class="row.gain >= 0 ? 'gain-positive' : 'gain-negative'">
-                {{ row.gain >= 0 ? '+' : '' }}{{ row.gain.toFixed(1) }}
+              {{ fmt(row.baseline_total) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="enhanced_total" label="增强总分" width="100" sortable>
+            <template #default="{ row }">
+              {{ fmt(row.enhanced_total) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="增益" width="100" sortable :sort-by="row => row.enhanced_total - row.baseline_total">
+            <template #default="{ row }">
+              <span :class="(row.enhanced_total - row.baseline_total) >= 0 ? 'gain-positive' : 'gain-negative'">
+                {{ (row.enhanced_total - row.baseline_total) >= 0 ? '+' : '' }}{{ fmt(row.enhanced_total - row.baseline_total) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="regression" label="回退" width="80">
-            <template #default="{ row }">
-              <el-tag :type="row.regression ? 'danger' : 'success'" size="small">
-                {{ row.regression ? '是' : '否' }}
-              </el-tag>
-            </template>
-          </el-table-column>
         </el-table>
+
+        <!-- 用例维度展开 -->
+        <div v-if="selectedCase" class="case-dimension-detail">
+          <h4>{{ selectedCase.case_id }} 维度得分</h4>
+          <div class="case-dim-grid" v-if="selectedCase.dimension_scores">
+            <div v-for="(scores, dim) in selectedCase.dimension_scores" :key="dim" class="case-dim-item">
+              <div class="case-dim-name">{{ dimensionLabel(dim) }}</div>
+              <div class="case-dim-scores">
+                <span class="baseline-score">基线: {{ scores.baseline }}</span>
+                <span class="enhanced-score">增强: {{ scores.enhanced }}</span>
+                <span :class="(scores.enhanced - scores.baseline) >= 0 ? 'gain-positive' : 'gain-negative'">
+                  {{ (scores.enhanced - scores.baseline) >= 0 ? '+' : '' }}{{ scores.enhanced - scores.baseline }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </template>
 
-    <div v-else class="card empty-state">
+    <div v-else-if="reports.length > 0" class="card empty-state">
       <el-empty description="点击上方表格中的报告查看详情" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { mockReports, mockTrendData } from '../mock/data'
+import { ref, computed, onMounted } from 'vue'
+import { Refresh } from '@element-plus/icons-vue'
+import axios from 'axios'
 
-const reports = ref(mockReports)
+const reports = ref([])
 const filterProfile = ref('')
 const selectedReport = ref(null)
-const trendData = ref(mockTrendData)
+const selectedCase = ref(null)
+const loading = ref(false)
+
+const fmt = (v) => {
+  if (v == null) return '-'
+  return typeof v === 'number' ? v.toFixed(1) : v
+}
+
+const formatTime = (t) => {
+  if (!t) return '-'
+  return t.replace('T', ' ').slice(0, 19)
+}
+
+const profileOptions = computed(() => {
+  const set = new Set(reports.value.map(r => r.profile))
+  return Array.from(set).sort()
+})
 
 const filteredReports = computed(() => {
   if (!filterProfile.value) return reports.value
   return reports.value.filter(r => r.profile === filterProfile.value)
 })
 
-const selectReport = (row) => {
-  selectedReport.value = row
-}
+const hasDimensions = computed(() => {
+  return selectedReport.value?.summary?.dimensions &&
+    Object.keys(selectedReport.value.summary.dimensions).length > 0
+})
 
 const dimensionLabel = (name) => ({
   correctness: '正确性',
   completeness: '完整性',
   code_quality: '代码质量',
 }[name] || name)
+
+const loadReports = async () => {
+  loading.value = true
+  try {
+    const res = await axios.get('/api/reports')
+    reports.value = res.data
+  } catch (e) {
+    console.error('Failed to load reports:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+const selectReport = (row) => {
+  selectedReport.value = row
+  selectedCase.value = null
+}
 
 const exportJSON = (report) => {
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
@@ -237,22 +271,40 @@ const exportMD = (report) => {
 
 const generateMarkdown = (report) => {
   let md = `# 评测报告: ${report.run_id}\n\n`
-  md += `- Profile: ${report.profile}\n`
-  md += `- 场景: ${report.scenario}\n`
-  md += `- 时间: ${report.created}\n\n`
+  md += `- **Profile**: ${report.profile}\n`
+  md += `- **场景**: ${report.scenario}\n`
+  md += `- **时间**: ${formatTime(report.generated_at)}\n\n`
   md += `## 概览\n\n`
   md += `| 指标 | 值 |\n|------|----|\n`
   md += `| 用例数 | ${report.summary.total_cases} |\n`
-  md += `| 基线均分 | ${report.summary.baseline_avg.toFixed(1)} |\n`
-  md += `| 增强均分 | ${report.summary.enhanced_avg.toFixed(1)} |\n`
-  md += `| 增益 | ${report.summary.gain >= 0 ? '+' : ''}${report.summary.gain.toFixed(1)} |\n\n`
+  md += `| 基线均分 | ${fmt(report.summary.baseline_avg)} |\n`
+  md += `| 增强均分 | ${fmt(report.summary.enhanced_avg)} |\n`
+  md += `| 增益 | ${report.summary.gain >= 0 ? '+' : ''}${fmt(report.summary.gain)} |\n`
+  md += `| 基线通过率 | ${report.summary.baseline_pass_rate} |\n`
+  md += `| 增强通过率 | ${report.summary.enhanced_pass_rate} |\n\n`
+
+  if (report.summary.dimensions) {
+    md += `## 维度分析\n\n`
+    md += `| 维度 | 基线 | 增强 | 增益 |\n|------|------|------|------|\n`
+    for (const [name, data] of Object.entries(report.summary.dimensions)) {
+      md += `| ${dimensionLabel(name)} | ${fmt(data.baseline_avg)} | ${fmt(data.enhanced_avg)} | ${data.gain >= 0 ? '+' : ''}${fmt(data.gain)} |\n`
+    }
+    md += '\n'
+  }
+
   md += `## 用例明细\n\n`
-  md += `| 用例 | 基线 | 增强 | 增益 |\n|------|------|------|------|\n`
+  md += `| 用例 | 标题 | 基线规则 | 增强规则 | 基线总分 | 增强总分 | 增益 |\n`
+  md += `|------|------|----------|----------|----------|----------|------|\n`
   for (const c of report.cases) {
-    md += `| ${c.case_id} | ${c.baseline_total.toFixed(1)} | ${c.enhanced_total.toFixed(1)} | ${c.gain >= 0 ? '+' : ''}${c.gain.toFixed(1)} |\n`
+    const gain = c.enhanced_total - c.baseline_total
+    md += `| ${c.case_id} | ${c.title} | ${fmt(c.baseline_rule)} | ${fmt(c.enhanced_rule)} | ${fmt(c.baseline_total)} | ${fmt(c.enhanced_total)} | ${gain >= 0 ? '+' : ''}${fmt(gain)} |\n`
   }
   return md
 }
+
+onMounted(() => {
+  loadReports()
+})
 </script>
 
 <style scoped>
@@ -279,6 +331,12 @@ const generateMarkdown = (report) => {
 .report-header h3 {
   margin: 0;
   color: #1a1a2e;
+}
+
+.report-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .run-id {
@@ -396,124 +454,66 @@ const generateMarkdown = (report) => {
 }
 
 .bar-value {
-  width: 36px;
+  width: 42px;
   font-size: 13px;
   font-weight: 600;
   color: #333;
 }
 
 .dim-gain {
-  width: 50px;
+  width: 56px;
   text-align: center;
   font-weight: 600;
   font-size: 15px;
 }
 
-/* 趋势图 */
-.trend-chart {
-  display: flex;
-  gap: 8px;
-  height: 240px;
-  padding: 10px 0;
-}
-
-.trend-y-axis {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  font-size: 12px;
-  color: #999;
-  width: 24px;
-  text-align: right;
-  padding: 4px 0;
-}
-
-.trend-bars-area {
-  flex: 1;
-  display: flex;
-  justify-content: space-around;
-  align-items: flex-end;
-  border-left: 1px solid #eee;
-  border-bottom: 1px solid #eee;
-  padding: 0 16px;
-}
-
-.trend-bar-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-}
-
-.trend-bar-pair {
-  display: flex;
-  gap: 4px;
-  align-items: flex-end;
-  height: 200px;
-}
-
-.trend-bar {
-  width: 24px;
-  border-radius: 4px 4px 0 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 4px;
-  min-height: 20px;
-  transition: height 0.6s ease;
-}
-
-.trend-bar.baseline {
-  background: linear-gradient(180deg, #bbb, #ddd);
-}
-
-.trend-bar.enhanced {
-  background: linear-gradient(180deg, #667eea, #a78bfa);
-}
-
-.trend-bar-value {
-  font-size: 10px;
-  color: #fff;
-  font-weight: 600;
-}
-
-.trend-date {
-  font-size: 12px;
-  color: #999;
-}
-
-.trend-legend {
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  margin-top: 12px;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: #666;
-}
-
-.legend-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-}
-
-.legend-dot.baseline {
-  background: #bbb;
-}
-
-.legend-dot.enhanced {
-  background: #667eea;
-}
-
+/* 用例明细 */
 .case-id {
   font-family: 'Consolas', monospace;
+  color: #667eea;
+}
+
+.case-dimension-detail {
+  margin-top: 16px;
+  padding: 16px;
+  background: #f8f9fb;
+  border-radius: 10px;
+}
+
+.case-dimension-detail h4 {
+  margin: 0 0 12px;
+  color: #1a1a2e;
+}
+
+.case-dim-grid {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.case-dim-item {
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 8px;
+  min-width: 180px;
+}
+
+.case-dim-name {
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.case-dim-scores {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.baseline-score {
+  color: #999;
+}
+
+.enhanced-score {
   color: #667eea;
 }
 

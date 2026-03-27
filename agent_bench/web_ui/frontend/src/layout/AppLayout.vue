@@ -33,6 +33,11 @@
           <el-icon><DataAnalysis /></el-icon>
           <template #title>报告展示</template>
         </el-menu-item>
+        <div class="menu-divider" v-if="!isCollapsed"></div>
+        <el-menu-item index="/about">
+          <el-icon><InfoFilled /></el-icon>
+          <template #title>关于系统</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -57,7 +62,7 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  Document, Setting, Aim, VideoPlay, DataAnalysis
+  Document, Setting, Aim, VideoPlay, DataAnalysis, InfoFilled
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -71,6 +76,7 @@ const titleMap = {
   '/rubrics': '评分标准管理',
   '/evaluation': '评测中心',
   '/reports': '报告展示',
+  '/about': '关于系统',
 }
 const currentTitle = computed(() => titleMap[route.path] || '评测系统')
 </script>
@@ -172,6 +178,12 @@ const currentTitle = computed(() => titleMap[route.path] || '评测系统')
   padding: 20px;
   overflow-y: auto;
   background: #f0f2f5;
+}
+
+.menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 8px 16px;
 }
 </style>
 

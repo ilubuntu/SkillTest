@@ -35,6 +35,12 @@ const routes = [
     component: () => import('../views/ReportView.vue'),
     meta: { title: '报告展示', icon: 'DataAnalysis' },
   },
+  {
+    path: '/about',
+    name: 'About',
+    component: () => import('../views/AboutView.vue'),
+    meta: { title: '关于系统', icon: 'InfoFilled' },
+  },
 ]
 
 const router = createRouter({

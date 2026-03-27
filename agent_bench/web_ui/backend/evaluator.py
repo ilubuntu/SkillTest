@@ -3,19 +3,25 @@
 
 管理评测生命周期（启动/停止/进度查询），
 通过回调接收 pipeline 进度，维护状态供前端查询。
+追踪每个 case 的阶段级进度。
 """
 
 import json
 import os
 import queue
+import re
 import threading
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from backend.models import (
     EvaluationStatus, LogEntry, CaseResult, EvaluationResult,
     EvaluationSummary, EvaluationProgress,
+    CaseProgress, CaseStage,
 )
+
+# case 执行的阶段顺序
+CASE_STAGES = ["基线运行", "增强运行", "规则检查", "LLM评分"]
 
 
 class EvaluatorManager:
@@ -44,12 +50,13 @@ class EvaluatorManager:
 
     def _reset_state(self):
         self._status = EvaluationStatus.IDLE
-        self._progress = 0
         self._total_cases = 0
         self._done_cases = 0
         self._current_case: Optional[str] = None
         self._current_profile: Optional[str] = None
         self._current_scenario: Optional[str] = None
+        self._scenarios: List[str] = []
+        self._case_progresses: Dict[str, CaseProgress] = {}
         self._logs: List[LogEntry] = []
         self._result: Optional[EvaluationResult] = None
         self._results: List[EvaluationResult] = []
@@ -71,6 +78,35 @@ class EvaluatorManager:
         except queue.Full:
             pass
 
+    # ── Case 进度追踪 ────────────────────────────────────────
+
+    def _ensure_case(self, case_id: str, title: str = "", scenario: str = ""):
+        """确保 case 进度条目存在"""
+        if case_id not in self._case_progresses:
+            self._case_progresses[case_id] = CaseProgress(
+                case_id=case_id,
+                title=title,
+                scenario=scenario or self._current_scenario or "",
+                status="pending",
+                stages=[CaseStage(name=s) for s in CASE_STAGES],
+            )
+
+    def _update_case_stage(self, case_id: str, stage_name: str,
+                           status: str, elapsed: float = None):
+        """更新某 case 某阶段的状态"""
+        cp = self._case_progresses.get(case_id)
+        if not cp:
+            return
+        for stage in cp.stages:
+            if stage.name == stage_name:
+                stage.status = status
+                if elapsed is not None:
+                    stage.elapsed = round(elapsed, 1)
+                break
+        # 如果有阶段在跑，case 状态为 running
+        if status == "running":
+            cp.status = "running"
+
     # ── Pipeline 回调 ─────────────────────────────────────────
 
     def _pipeline_callback(self, event: str, data: dict):
@@ -80,6 +116,7 @@ class EvaluatorManager:
 
         if event == "pipeline_start":
             self._current_profile = data.get("profile")
+            self._scenarios = data.get("scenarios", [])
             self._add_log("INFO", f"评测启动: profile={data['profile']}, "
                           f"scenarios={','.join(data['scenarios'])}")
 
@@ -90,22 +127,32 @@ class EvaluatorManager:
 
         elif event == "stage_done":
             case_id = data.get("case_id", "")
-            if data.get("skipped"):
-                self._add_log("DEBUG", f"[{case_id}] {data['stage']} 跳过")
-            else:
-                elapsed = data.get("elapsed", 0)
-                self._add_log("INFO", f"[{case_id}] {data['stage']} 完成 ({elapsed:.0f}s)")
+            stage = data["stage"]
+            if case_id:
+                self._ensure_case(case_id)
+                if data.get("skipped"):
+                    self._update_case_stage(case_id, stage, "skipped")
+                    self._add_log("DEBUG", f"[{case_id}] {stage} 跳过")
+                else:
+                    elapsed = data.get("elapsed", 0)
+                    self._update_case_stage(case_id, stage, "done", elapsed)
+                    self._add_log("INFO", f"[{case_id}] {stage} 完成 ({elapsed:.0f}s)")
 
         elif event == "case_done":
             self._done_cases += 1
-            self._current_case = data["case_id"]
-            if self._total_cases > 0:
-                self._progress = int(self._done_cases / self._total_cases * 100)
+            case_id = data["case_id"]
+            self._current_case = case_id
+            self._ensure_case(case_id, data.get("title", ""), data.get("scenario", ""))
+            cp = self._case_progresses[case_id]
+            cp.status = "done"
+            cp.baseline_total = data.get("baseline_total")
+            cp.enhanced_total = data.get("enhanced_total")
+            cp.gain = data.get("gain")
             gain = data["gain"]
             sign = "+" if gain >= 0 else ""
             self._add_log("INFO",
-                          f"用例完成: {data['case_id']} - {data['title']} "
-                          f"(基线={data['baseline_total']}, 增强={data['enhanced_total']}, "
+                          f"用例完成: {case_id} - {data['title']} "
+                          f"(基线={data['baseline_total']:.1f}, 增强={data['enhanced_total']:.1f}, "
                           f"增益={sign}{gain:.1f})")
 
         elif event == "scenario_done":
@@ -115,12 +162,45 @@ class EvaluatorManager:
             self._add_log("INFO", f"评测完成: 共 {data['total_cases']} 用例")
 
         elif event == "log":
-            self._add_log(data.get("level", "INFO"), data.get("message", ""))
+            level = data.get("level", "INFO")
+            message = data.get("message", "")
+            # 从日志中推断 case 进度（当 log 包含 [case_id] 开始xxx 时）
+            self._infer_case_stage_from_log(message)
+            self._add_log(level, message)
 
         elif event == "error":
             case_id = data.get("case_id", "")
             prefix = f"[{case_id}] " if case_id else ""
+            if case_id and case_id in self._case_progresses:
+                self._case_progresses[case_id].status = "error"
+                self._case_progresses[case_id].error = data.get("message", "")
             self._add_log("ERROR", f"{prefix}{data['message']}")
+
+    def _infer_case_stage_from_log(self, message: str):
+        """从 log message 推断 case 当前正在执行的阶段"""
+        # 匹配 [case_id] 开始基线运行/增强运行/规则检查/LLM评分
+        m = re.match(r'\[(\w+)\]\s+开始(基线运行|增强运行|规则检查|LLM)', message)
+        if m:
+            case_id = m.group(1)
+            stage_keyword = m.group(2)
+            stage_map = {
+                "基线运行": "基线运行",
+                "增强运行": "增强运行",
+                "规则检查": "规则检查",
+                "LLM": "LLM评分",
+            }
+            stage_name = stage_map.get(stage_keyword)
+            if stage_name and case_id in self._case_progresses:
+                self._update_case_stage(case_id, stage_name, "running")
+            return
+
+        # 匹配 [case_id] 开始处理用例: xxx — 初始化 case
+        m = re.match(r'\[(\w+)\]\s+开始处理用例:\s+(.+)', message)
+        if m:
+            case_id = m.group(1)
+            title = m.group(2)
+            self._ensure_case(case_id, title)
+            self._case_progresses[case_id].status = "running"
 
     # ── 工作线程 ──────────────────────────────────────────────
 
@@ -155,7 +235,6 @@ class EvaluatorManager:
 
             self._result = self._build_result(result)
             self._status = EvaluationStatus.COMPLETED
-            self._progress = 100
             self._add_log("INFO", "评测任务已完成")
 
         except InterruptedError:
@@ -251,10 +330,13 @@ class EvaluatorManager:
     def get_progress(self) -> EvaluationProgress:
         return EvaluationProgress(
             status=self._status,
-            progress=self._progress,
+            total_cases=self._total_cases,
+            done_cases=self._done_cases,
             current_case=self._current_case,
             current_profile=self._current_profile,
             current_scenario=self._current_scenario,
+            scenarios=self._scenarios,
+            case_progresses=list(self._case_progresses.values()),
             logs=self._logs.copy(),
             result=self._result,
             results=self._results.copy(),

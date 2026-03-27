@@ -72,12 +72,31 @@ class EvaluationResult(BaseModel):
     cases: List[CaseResult]
 
 
+class CaseStage(BaseModel):
+    name: str
+    status: str = "pending"       # pending, running, done, skipped, error
+    elapsed: Optional[float] = None
+
+class CaseProgress(BaseModel):
+    case_id: str
+    title: str
+    scenario: str
+    status: str = "pending"       # pending, running, done, error
+    stages: List[CaseStage] = []
+    baseline_total: Optional[float] = None
+    enhanced_total: Optional[float] = None
+    gain: Optional[float] = None
+    error: Optional[str] = None
+
 class EvaluationProgress(BaseModel):
     status: EvaluationStatus
-    progress: int
+    total_cases: int = 0
+    done_cases: int = 0
     current_case: Optional[str] = None
     current_profile: Optional[str] = None
     current_scenario: Optional[str] = None
+    scenarios: List[str] = []
+    case_progresses: List[CaseProgress] = []
     logs: List[LogEntry]
     result: Optional[EvaluationResult] = None
     results: List[EvaluationResult] = []
