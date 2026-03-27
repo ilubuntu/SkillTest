@@ -18,6 +18,7 @@ ENV/
 node_modules/
 package-lock.json
 dist/
+.vite/
 
 # IDE
 .vscode/
