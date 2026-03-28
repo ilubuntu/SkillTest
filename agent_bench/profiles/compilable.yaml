@@ -4,6 +4,8 @@ scenarios:
   - compilable
 enhancements:
   skills:
+    - name: build-harmony-project
+      path: skills/build-harmony-project.md
     - name: compilable
       path: skills/compilable.md
   system_prompt: |
