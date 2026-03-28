@@ -17,7 +17,7 @@ from typing import Optional, List, Dict
 from backend.models import (
     EvaluationStatus, LogEntry, CaseResult, EvaluationResult,
     EvaluationSummary, EvaluationProgress,
-    CaseProgress, CaseStage,
+    CaseProgress, CaseStage, GeneralResult, CompileResult,
 )
 
 # case 执行的阶段顺序
@@ -60,6 +60,7 @@ class EvaluatorManager:
         self._logs: List[LogEntry] = []
         self._result: Optional[EvaluationResult] = None
         self._results: List[EvaluationResult] = []
+        self._general_result: Optional[EvaluationResult] = None
 
     # ── 日志 ──────────────────────────────────────────────────
 
@@ -234,6 +235,7 @@ class EvaluatorManager:
                 return
 
             self._result = self._build_result(result)
+            self._general_result = self._build_general_result(result.get("results", []))
             self._status = EvaluationStatus.COMPLETED
             self._add_log("INFO", "评测任务已完成")
 
@@ -243,6 +245,87 @@ class EvaluatorManager:
         except Exception as e:
             self._status = EvaluationStatus.ERROR
             self._add_log("ERROR", f"评测失败: {str(e)}")
+
+    def _build_general_result(self, general_results: list) -> Optional[EvaluationResult]:
+        """从 general_results 构建通用用例的评测结果"""
+        if not general_results:
+            return None
+
+        try:
+            baseline_compilable_count = 0
+            baseline_compilable_total = 0
+            enhanced_compilable_count = 0
+            enhanced_compilable_total = 0
+
+            for r in general_results:
+                compile_results = r.get("compile_results")
+                if compile_results:
+                    if compile_results.get("baseline_compilable") is not None:
+                        baseline_compilable_total += 1
+                        if compile_results.get("baseline_compilable"):
+                            baseline_compilable_count += 1
+                    if compile_results.get("enhanced_compilable") is not None:
+                        enhanced_compilable_total += 1
+                        if compile_results.get("enhanced_compilable"):
+                            enhanced_compilable_count += 1
+
+            baseline_rate = f"{baseline_compilable_count}/{baseline_compilable_total}" if baseline_compilable_total > 0 else "N/A"
+            enhanced_rate = f"{enhanced_compilable_count}/{enhanced_compilable_total}" if enhanced_compilable_total > 0 else "N/A"
+
+            general_data = {
+                "baseline_compile_pass_rate": baseline_rate,
+                "enhanced_compile_pass_rate": enhanced_rate,
+            }
+
+            general = GeneralResult(
+                baseline_compile_pass_rate=baseline_rate,
+                enhanced_compile_pass_rate=enhanced_rate,
+                note="通用用例编译检查结果" if baseline_compilable_total > 0 or enhanced_compilable_total > 0 else None,
+            )
+
+            cases = []
+            for c in general_results:
+                compile_results_data = c.get("compile_results")
+                compile_results = None
+                if compile_results_data:
+                    compile_results = CompileResult(
+                        baseline_compilable=compile_results_data.get("baseline_compilable"),
+                        baseline_error=compile_results_data.get("baseline_error", ""),
+                        enhanced_compilable=compile_results_data.get("enhanced_compilable"),
+                        enhanced_error=compile_results_data.get("enhanced_error", ""),
+                    )
+                cases.append(CaseResult(
+                    case_id=c.get("case_id", ""),
+                    title=c.get("title", ""),
+                    scenario=c.get("scenario", "general"),
+                    baseline_rule=c.get("baseline_rule", 0),
+                    enhanced_rule=c.get("enhanced_rule", 0),
+                    baseline_total=c.get("baseline_total", 0),
+                    enhanced_total=c.get("enhanced_total", 0),
+                    gain=c.get("enhanced_total", 0) - c.get("baseline_total", 0),
+                    dimension_scores=c.get("dimension_scores", {}),
+                    compile_results=compile_results,
+                ))
+
+            return EvaluationResult(
+                run_id="",
+                profile="general",
+                scenario="general",
+                summary=EvaluationSummary(
+                    total_cases=len(cases),
+                    baseline_avg=0,
+                    enhanced_avg=0,
+                    gain=0,
+                    baseline_pass_rate="0/0",
+                    enhanced_pass_rate="0/0",
+                    dimensions={},
+                ),
+                cases=cases,
+                general=general,
+            )
+        except Exception as e:
+            self._add_log("ERROR", f"构建通用用例结果失败: {str(e)}")
+            return None
 
     def _build_result(self, pipeline_result: dict) -> Optional[EvaluationResult]:
         """从 pipeline 返回的 JSON 报告构建前端 EvaluationResult"""
@@ -258,6 +341,15 @@ class EvaluatorManager:
             cases = []
             for c in data.get("cases", []):
                 gain = c.get("enhanced_total", 0) - c.get("baseline_total", 0)
+                compile_results_data = c.get("compile_results")
+                compile_results = None
+                if compile_results_data:
+                    compile_results = CompileResult(
+                        baseline_compilable=compile_results_data.get("baseline_compilable"),
+                        baseline_error=compile_results_data.get("baseline_error", ""),
+                        enhanced_compilable=compile_results_data.get("enhanced_compilable"),
+                        enhanced_error=compile_results_data.get("enhanced_error", ""),
+                    )
                 cases.append(CaseResult(
                     case_id=c.get("case_id", ""),
                     title=c.get("title", ""),
@@ -268,7 +360,17 @@ class EvaluatorManager:
                     enhanced_total=c.get("enhanced_total", 0),
                     gain=gain,
                     dimension_scores=c.get("dimension_scores", {}),
+                    compile_results=compile_results,
                 ))
+
+            general_data = data.get("general", {})
+            general = None
+            if general_data:
+                general = GeneralResult(
+                    baseline_compile_pass_rate=general_data.get("baseline_compile_pass_rate", "N/A"),
+                    enhanced_compile_pass_rate=general_data.get("enhanced_compile_pass_rate", "N/A"),
+                    note=general_data.get("note"),
+                )
 
             eval_result = EvaluationResult(
                 run_id=pipeline_result["run_id"],
@@ -284,6 +386,7 @@ class EvaluatorManager:
                     dimensions=summary.get("dimensions", {}),
                 ),
                 cases=cases,
+                general=general,
             )
             self._results.append(eval_result)
             return eval_result
@@ -340,6 +443,7 @@ class EvaluatorManager:
             logs=self._logs.copy(),
             result=self._result,
             results=self._results.copy(),
+            general_result=self._general_result,
         )
 
     def get_log_queue(self) -> queue.Queue:

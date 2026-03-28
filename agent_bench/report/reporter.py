@@ -111,13 +111,45 @@ def _compute_summary(results: list) -> dict:
 def _compute_general(results: list) -> dict:
     """计算通用检查结果（编译/lint 通过率）
 
-    TODO: 接入实际的编译和 lint 检查
+    从评测结果中提取编译检查数据：
+    - baseline_compilable: 基线代码是否可编译
+    - enhanced_compilable: 增强代码是否可编译
+    - 注意：project_gen 场景不进行编译检查（compilable=None）
     """
-    # 占位：当前没有编译/lint 数据
+    baseline_compilable_count = 0
+    baseline_compilable_total = 0
+    enhanced_compilable_count = 0
+    enhanced_compilable_total = 0
+
+    for r in results:
+        compile_results = r.get("compile_results")
+        if compile_results:
+            if compile_results.get("baseline_compilable") is not None:
+                baseline_compilable_total += 1
+                if compile_results.get("baseline_compilable"):
+                    baseline_compilable_count += 1
+            if compile_results.get("enhanced_compilable") is not None:
+                enhanced_compilable_total += 1
+                if compile_results.get("enhanced_compilable"):
+                    enhanced_compilable_count += 1
+
+    if baseline_compilable_total == 0 and enhanced_compilable_total == 0:
+        return {
+            "baseline_compile_pass_rate": "N/A",
+            "enhanced_compile_pass_rate": "N/A",
+            "note": "编译检查仅适用于非 project_gen 场景",
+        }
+
+    baseline_rate = f"{baseline_compilable_count}/{baseline_compilable_total}" if baseline_compilable_total > 0 else "N/A"
+    enhanced_rate = f"{enhanced_compilable_count}/{enhanced_compilable_total}" if enhanced_compilable_total > 0 else "N/A"
+
     return {
-        "compile_pass_rate": "N/A",
-        "lint_pass_rate": "N/A",
-        "note": "通用检查（编译/lint）尚未接入，待后续实现",
+        "baseline_compile_pass_rate": baseline_rate,
+        "enhanced_compile_pass_rate": enhanced_rate,
+        "baseline_compilable_count": baseline_compilable_count,
+        "baseline_compilable_total": baseline_compilable_total,
+        "enhanced_compilable_count": enhanced_compilable_count,
+        "enhanced_compilable_total": enhanced_compilable_total,
     }
 
 
@@ -174,10 +206,9 @@ def _render_markdown(report: dict) -> str:
     if general:
         lines.append("## 通用检查")
         lines.append("")
-        lines.append(f"| 检查项 | 结果 |")
-        lines.append(f"|--------|------|")
-        lines.append(f"| 编译通过率 | {general.get('compile_pass_rate', 'N/A')} |")
-        lines.append(f"| Lint 通过率 | {general.get('lint_pass_rate', 'N/A')} |")
+        lines.append(f"| 检查项 | 基线 | 增强 |")
+        lines.append(f"|--------|------|------|")
+        lines.append(f"| 编译通过率 | {general.get('baseline_compile_pass_rate', 'N/A')} | {general.get('enhanced_compile_pass_rate', 'N/A')} |")
         if general.get("note"):
             lines.append(f"\n> {general['note']}")
         lines.append("")

@@ -1,0 +1,11 @@
+name: "general"
+description: "通用用例：验证Agent生成的代码可编译性"
+scenarios:
+  - general
+enhancements:
+  skills:
+    - name: build-harmony-project
+      path: skills/build-harmony-project.md
+  system_prompt: |
+    你是一个专注于代码质量的 ArkTS 开发专家，擅长编写可通过编译器检查的正确代码。
+    生成代码时请严格遵循 ArkTS 类型系统和语法规范，确保无编译错误。

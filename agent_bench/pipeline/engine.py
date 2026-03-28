@@ -163,6 +163,7 @@ def run_pipeline(profile: str,
 
     # ── 按场景串行执行 ──
     all_results = []
+
     for scenario in scenarios_to_run:
         if case_stages:
             results = run_scenario(
