@@ -28,6 +28,7 @@ from agent_bench.pipeline.artifacts import (
     save_runner_artifacts, load_runner_artifacts,
     save_evaluator_artifacts, load_evaluator_result,
 )
+from agent_bench.pipeline.compile_checker import check_compilable
 
 
 # ── 任务 Prompt 模板 ─────────────────────────────────────────
@@ -63,7 +64,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                     dry_run: bool = False,
                     skip_baseline: bool = False,
                     on_progress: Callable = None,
-                    phase_weights: dict = None) -> dict:
+                    phase_weights: dict = None,
+                    is_general_case: bool = False) -> dict:
     """执行单个测试用例的指定阶段
 
     Args:
@@ -85,25 +87,42 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     case_id = case["id"]
     title = case["title"]
     prompt = case["input"]["prompt"]
-    input_code = load_file(case["input"]["code_file"])
-    reference_code = load_file(case["expected"]["reference_file"])
+
+    # 对于 general 场景，不需要加载代码文件，直接编译验证
+    if is_general_case or scenario == "general":
+        input_code = ""
+        reference_code = ""
+        task_prompt = ""
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"[{case_id}] 通用用例：直接编译 empty_hos_project 验证"})
+    else:
+        input_code = load_file(
+            os.path.join("test_cases", scenario, case["input"]["code_file"])
+        )
+        reference_code = load_file(
+            os.path.join("test_cases", scenario, case["expected"]["reference_file"])
+        )
+        task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
+
     # rubric 从 scoring_standards.json 按场景加载，不再依赖 case YAML
     rubric = load_rubric(scenario)
-
-    # 构建纯任务 prompt（不含 skill，skill 由 adapter 通过 system 字段注入）
-    task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
 
     os.makedirs(case_dir, exist_ok=True)
     _notify(on_progress, "log", {"level": "INFO",
         "message": f"[{case_id}] 开始处理用例: {title}"})
 
+    compile_results = None
+
     # ── Runner 阶段 ──
     if "runner" in stages:
-        baseline_output, enhanced_output = _run_runner_stage(
+        baseline_output, enhanced_output, compile_results = _run_runner_stage(
             case_id, task_prompt, enhancements,
-            adapter, reference_code,
+            adapter, reference_code, input_code,
             dry_run=dry_run, skip_baseline=skip_baseline,
             on_progress=on_progress,
+            scenario=scenario,
+            case_dir=case_dir,
+            is_general_case=is_general_case or scenario == "general",
         )
         _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Runner 产物..."})
         save_runner_artifacts(case_dir, baseline_output, enhanced_output)
@@ -122,22 +141,64 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             llm_judge, case_dir,
             dry_run=dry_run, on_progress=on_progress,
             phase_weights=phase_weights,
+            compile_results=compile_results,
         )
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Evaluator 产物..."})
         result = load_evaluator_result(case_dir)
 
+    if compile_results:
+        result["compile_results"] = compile_results
+
     return result
 
 
 def _run_runner_stage(case_id, task_prompt, enhancements,
-                      adapter, reference_code,
-                      dry_run, skip_baseline, on_progress):
-    """执行 Runner 阶段，返回 (baseline_output, enhanced_output)
+                      adapter, reference_code, input_code,
+                      dry_run, skip_baseline, on_progress,
+                      scenario: str = None, case_dir: str = None,
+                      is_general_case: bool = False):
+    """执行 Runner 阶段，返回 (baseline_output, enhanced_output, compile_results)
 
     基线运行：adapter.setup({}) → 无增强
     增强运行：adapter.setup(enhancements) → 注入 skill/system_prompt/mcp
+    
+    对于非 project_gen 场景，还会在生成代码后进行编译检查。
+    对于 general 场景，直接编译 empty_hos_project 验证可编译性。
+    compile_results: {
+        "baseline_compilable": bool,
+        "baseline_error": str,
+        "enhanced_compilable": bool,
+        "enhanced_error": str,
+    }
     """
+    compile_results = {
+        "baseline_compilable": None,
+        "baseline_error": "",
+        "enhanced_compilable": None,
+        "enhanced_error": "",
+    }
+
+    # general 场景：直接编译 empty_hos_project 验证
+    if is_general_case:
+        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例：直接编译验证 empty_hos_project 可编译性"})
+        t0 = time.time()
+        compile_result = check_compilable("", case_dir=case_dir, is_general_check=True)
+        elapsed = time.time() - t0
+        compile_results["baseline_compilable"] = compile_result["compilable"]
+        compile_results["baseline_error"] = compile_result.get("error", "")
+        if compile_result["compilable"]:
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例编译成功"})
+        else:
+            _notify(on_progress, "log", {"level": "ERROR", 
+                "message": f"[{case_id}] 通用用例编译失败: {compile_result.get('error', '未知错误')[:200]}"})
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "通用编译检查", "elapsed": elapsed})
+        return "", "", compile_results
+
+    need_compile_check = scenario and scenario != "project_gen"
+    _notify(on_progress, "log", {"level": "DEBUG",
+        "message": f"[{case_id}] 编译检查配置: scenario={scenario}, need_compile_check={need_compile_check}"})
+
     # ── 基线运行 ──
     if dry_run:
         baseline_output = "// dry run - no output"
@@ -164,6 +225,22 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
         adapter.teardown()
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] 基线运行完成, 输出={len(baseline_output)}字符, 耗时={elapsed:.1f}s"})
+        
+        if need_compile_check:
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查基线代码可编译性..."})
+            code_to_check = baseline_output if baseline_output.strip() else input_code
+            if not baseline_output.strip():
+                _notify(on_progress, "log", {"level": "WARNING", 
+                    "message": f"[{case_id}] 基线未生成有效代码({len(baseline_output)}字符), 使用输入代码检查编译"})
+            compile_result = check_compilable(code_to_check, case_dir=case_dir)
+            compile_results["baseline_compilable"] = compile_result["compilable"]
+            compile_results["baseline_error"] = compile_result.get("error", "")
+            if compile_result["compilable"]:
+                _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 基线代码可编译"})
+            else:
+                _notify(on_progress, "log", {"level": "WARNING", 
+                    "message": f"[{case_id}] 基线代码编译失败: {compile_result.get('error', '未知错误')[:100]}"})
+        
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": elapsed})
 
     # ── 增强运行 ──
@@ -186,9 +263,21 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
         adapter.teardown()
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] 增强运行完成, 输出={len(enhanced_output)}字符, 耗时={elapsed:.1f}s"})
+        
+        if need_compile_check:
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查增强代码可编译性..."})
+            compile_result = check_compilable(enhanced_output, case_dir=case_dir)
+            compile_results["enhanced_compilable"] = compile_result["compilable"]
+            compile_results["enhanced_error"] = compile_result.get("error", "")
+            if compile_result["compilable"]:
+                _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 增强代码可编译"})
+            else:
+                _notify(on_progress, "log", {"level": "WARNING", 
+                    "message": f"[{case_id}] 增强代码编译失败: {compile_result.get('error', '未知错误')[:100]}"})
+        
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": elapsed})
 
-    return baseline_output, enhanced_output
+    return baseline_output, enhanced_output, compile_results
 
 
 def _run_evaluator_stage(case_id, title, scenario, case,
@@ -196,11 +285,39 @@ def _run_evaluator_stage(case_id, title, scenario, case,
                          baseline_output, enhanced_output,
                          llm_judge, case_dir,
                          dry_run, on_progress,
-                         phase_weights=None):
+                         phase_weights=None,
+                         compile_results=None):
     """执行 Evaluator 阶段，返回结果 dict
 
-    流程：内部评分（全局规则）→ LLM 评分 → 聚合
+    流程：内部评分（全局规则）→ LLM 评分 → 聚合 → 编译结果附加
+    
+    对于 general 场景：直接返回编译结果，跳过 LLM 评分。
+    
+    Args:
+        compile_results: 编译检查结果，包含 baseline_compilable, baseline_error,
+                        enhanced_compilable, enhanced_error
     """
+    # general 场景：只返回编译结果
+    if scenario == "general":
+        is_compilable = compile_results.get("baseline_compilable", False) if compile_results else False
+        result = {
+            "case_id": case_id,
+            "title": title,
+            "scenario": scenario,
+            "baseline_rule": 0,
+            "enhanced_rule": 0,
+            "baseline_total": 100 if is_compilable else 0,
+            "enhanced_total": 100 if is_compilable else 0,
+            "dimension_scores": {},
+            "general_pass": is_compilable,
+        }
+        if compile_results:
+            result["compile_results"] = compile_results
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"[{case_id}] 通用用例结果: {'PASS' if is_compilable else 'FAIL'}"})
+        save_evaluator_artifacts(case_dir, {}, {}, result)
+        return result
+
     all_dim_names = [r["name"] for r in rubric]
 
     # ── 内部评分（全局规则库）──────────────────────────────────
@@ -318,6 +435,9 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         "enhanced_total": enhanced_total,
         "dimension_scores": dimension_scores,
     }
+
+    if compile_results:
+        result["compile_results"] = compile_results
 
     _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Evaluator 产物..."})
     save_evaluator_artifacts(case_dir, internal_artifact, judge_raw, result)

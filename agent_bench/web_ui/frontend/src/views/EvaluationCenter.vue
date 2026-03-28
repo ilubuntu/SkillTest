@@ -167,6 +167,46 @@
       </div>
     </div>
 
+    <!-- 通用用例结果 -->
+    <div class="card" v-if="generalResult">
+      <div class="card-title">通用用例评测结果</div>
+      <div class="compile-summary-card" v-if="generalResult.general">
+        <div class="compile-summary-title">编译通过率</div>
+        <div class="compile-summary-grid">
+          <div class="compile-item">
+            <div class="compile-label">基线</div>
+            <div class="compile-value">{{ generalResult.general.baseline_compile_pass_rate }}</div>
+          </div>
+          <div class="compile-item">
+            <div class="compile-label">增强</div>
+            <div class="compile-value">{{ generalResult.general.enhanced_compile_pass_rate }}</div>
+          </div>
+        </div>
+        <div class="compile-note" v-if="generalResult.general.note">
+          {{ generalResult.general.note }}
+        </div>
+      </div>
+      <div class="case-list" v-if="generalResult.cases?.length > 0">
+        <div class="case-row done" v-for="c in generalResult.cases" :key="c.case_id">
+          <div class="case-info">
+            <div class="case-id-row">
+              <span class="case-status-dot done"></span>
+              <span class="case-id">{{ c.case_id }}</span>
+            </div>
+            <div class="case-title">{{ c.title }}</div>
+          </div>
+          <div class="case-result">
+            <div class="compile-status" :class="c.compile_results?.baseline_compilable ? 'pass' : 'fail'">
+              基线: {{ c.compile_results?.baseline_compilable ? '可编译' : '不可编译' }}
+            </div>
+            <div class="compile-status" :class="c.compile_results?.enhanced_compilable ? 'pass' : 'fail'">
+              增强: {{ c.compile_results?.enhanced_compilable ? '可编译' : '不可编译' }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 评测结果 -->
     <ResultCard
       v-if="result || results.length > 0"
@@ -249,7 +289,7 @@ const scenariosData = ref([])     // [{name, case_count}]
 const selectedOptions = ref([])
 const selectedScenario = ref([])
 const selectedProfile = ref([])
-const skipBaseline = ref(true)
+const skipBaseline = ref(false)
 
 // ── 状态 ──
 const status = ref('idle')
@@ -260,6 +300,7 @@ const caseProgresses = ref([])
 const logs = ref([])
 const result = ref(null)
 const results = ref([])
+const generalResult = ref(null)
 const activeResultTab = ref('cases')
 const pollInterval = ref(null)
 const elapsedSeconds = ref(0)
@@ -373,6 +414,7 @@ const fetchStatus = async () => {
     if (d.logs?.length > logs.value.length) logs.value = d.logs
     if (d.result) result.value = d.result
     if (d.results?.length > 0) results.value = d.results
+    if (d.general_result) generalResult.value = d.general_result
     if (['completed', 'stopped', 'error'].includes(d.status)) {
       clearInterval(pollInterval.value)
       pollInterval.value = null
@@ -395,6 +437,7 @@ const startEvaluation = async () => {
     logs.value = []
     result.value = null
     results.value = []
+    generalResult.value = null
     pollInterval.value = setInterval(fetchStatus, 1000)
   } catch (e) { console.error(e) }
 }
@@ -716,6 +759,69 @@ onUnmounted(() => {
 
 .spinning { animation: spin 1s linear infinite; }
 @keyframes spin { from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+
+/* 通用用例结果 */
+.compile-summary-card {
+  background: linear-gradient(135deg, #34a85322, #4285f422);
+  border: 1px solid #34a85344;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.compile-summary-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #34a853;
+  margin-bottom: 12px;
+}
+
+.compile-summary-grid {
+  display: flex;
+  gap: 32px;
+}
+
+.compile-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compile-label {
+  font-size: 13px;
+  color: #666;
+}
+
+.compile-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #34a853;
+}
+
+.compile-note {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 3px solid #667eea;
+  font-size: 12px;
+  color: #666;
+}
+
+.compile-status {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin: 2px;
+}
+.compile-status.pass {
+  background: #34a85322;
+  color: #34a853;
+}
+.compile-status.fail {
+  background: #ea433522;
+  color: #ea4335;
+}
 </style>
 
 <style>

@@ -35,3 +35,4 @@ htmlcov/
 agent_bench/results/
 agent_bench/baselines/
 agent_bench/sandbox/
+agent_bench/build-logs/

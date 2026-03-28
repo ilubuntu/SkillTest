@@ -43,6 +43,13 @@ class LogEntry(BaseModel):
     detail: Optional[str] = None
 
 
+class CompileResult(BaseModel):
+    baseline_compilable: Optional[bool] = None
+    baseline_error: str = ""
+    enhanced_compilable: Optional[bool] = None
+    enhanced_error: str = ""
+
+
 class CaseResult(BaseModel):
     case_id: str
     title: str
@@ -53,6 +60,13 @@ class CaseResult(BaseModel):
     enhanced_total: float
     gain: float
     dimension_scores: Dict[str, Any]  # {dimId: {name, baseline: {llm, internal}, enhanced: {llm, internal}}}
+    compile_results: Optional[CompileResult] = None
+
+
+class GeneralResult(BaseModel):
+    baseline_compile_pass_rate: str = "N/A"
+    enhanced_compile_pass_rate: str = "N/A"
+    note: Optional[str] = None
 
 
 class EvaluationSummary(BaseModel):
@@ -71,6 +85,7 @@ class EvaluationResult(BaseModel):
     scenario: str
     summary: EvaluationSummary
     cases: List[CaseResult]
+    general: Optional[GeneralResult] = None
 
 
 class CaseStage(BaseModel):
@@ -102,3 +117,4 @@ class EvaluationProgress(BaseModel):
     result: Optional[EvaluationResult] = None
     results: List[EvaluationResult] = []
     elapsed_time: int = 0  # 秒，评测运行时长
+    general_result: Optional[EvaluationResult] = None

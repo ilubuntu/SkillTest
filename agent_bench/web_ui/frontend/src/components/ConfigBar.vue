@@ -68,7 +68,7 @@ defineProps({
 
 const emit = defineEmits(['update:selectedOptions', 'start', 'stop'])
 
-const skipBaseline = ref(true)
+const skipBaseline = ref(false)
 
 const handleChange = (value) => {
   emit('update:selectedOptions', value)

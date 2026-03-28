@@ -30,6 +30,37 @@
         </div>
       </div>
 
+      <div class="compile-summary-card" v-if="compilePassRateData">
+        <div class="compile-summary-title">编译通过率</div>
+        <div class="compile-summary-grid">
+          <div class="compile-item">
+            <div class="compile-label">基线</div>
+            <el-tooltip 
+              :content="baselineCompileError || '编译通过'" 
+              placement="top" 
+              :disabled="!baselineCompileError">
+              <div class="compile-value" :class="baselineCompileError ? 'compile-failed' : 'compile-pass'">
+                {{ compilePassRateData.baseline }}
+              </div>
+            </el-tooltip>
+          </div>
+          <div class="compile-item">
+            <div class="compile-label">增强</div>
+            <el-tooltip 
+              :content="enhancedCompileError || '编译通过'" 
+              placement="top" 
+              :disabled="!enhancedCompileError">
+              <div class="compile-value" :class="enhancedCompileError ? 'compile-failed' : 'compile-pass'">
+                {{ compilePassRateData.enhanced }}
+              </div>
+            </el-tooltip>
+          </div>
+        </div>
+        <div class="compile-note" v-if="compilePassRateData.note">
+          {{ compilePassRateData.note }}
+        </div>
+      </div>
+
       <el-tabs :model-value="activeResultTab" @update:model-value="val => emit('update:activeResultTab', val)" class="result-tabs">
         <el-tab-pane label="用例明细" name="cases">
           <el-table :data="currentResult.cases" stripe style="width: 100%" max-height="400">
@@ -155,6 +186,43 @@ const gainText = computed(() => {
   const gain = currentResult.value.summary.gain
   return (gain >= 0 ? '+' : '') + gain.toFixed(1)
 })
+
+const compilePassRateData = computed(() => {
+  if (!currentResult.value?.general) return null
+  const g = currentResult.value.general
+  if (g.baseline_compile_pass_rate === 'N/A' && g.enhanced_compile_pass_rate === 'N/A') {
+    return null
+  }
+  return {
+    baseline: g.baseline_compile_pass_rate || 'N/A',
+    enhanced: g.enhanced_compile_pass_rate || 'N/A',
+    note: g.note || null
+  }
+})
+
+const baselineCompileError = computed(() => {
+  if (!currentResult.value?.cases?.length) return ''
+  const errors = []
+  for (const c of currentResult.value.cases) {
+    if (c.compile_results?.baseline_compilable === false && c.compile_results?.baseline_error) {
+      const shortError = c.compile_results.baseline_error.split('\n').slice(-3).join('\n')
+      errors.push(`${c.case_id}: ${shortError}`)
+    }
+  }
+  return errors.join('\n\n')
+})
+
+const enhancedCompileError = computed(() => {
+  if (!currentResult.value?.cases?.length) return ''
+  const errors = []
+  for (const c of currentResult.value.cases) {
+    if (c.compile_results?.enhanced_compilable === false && c.compile_results?.enhanced_error) {
+      const shortError = c.compile_results.enhanced_error.split('\n').slice(-3).join('\n')
+      errors.push(`${c.case_id}: ${shortError}`)
+    }
+  }
+  return errors.join('\n\n')
+})
 </script>
 
 <style scoped>
@@ -198,5 +266,85 @@ const gainText = computed(() => {
   text-align: center;
   padding: 60px 20px;
   color: #999;
+}
+
+.passrate-section {
+  margin-bottom: 24px;
+}
+
+.passrate-section:last-child {
+  margin-bottom: 0;
+}
+
+.passrate-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.compile-note {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 3px solid #667eea;
+}
+
+.note-text {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+}
+
+.compile-summary-card {
+  background: linear-gradient(135deg, #34a85322, #4285f422);
+  border: 1px solid #34a85344;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.compile-summary-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #34a853;
+  margin-bottom: 12px;
+}
+
+.compile-summary-grid {
+  display: flex;
+  gap: 32px;
+}
+
+.compile-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.compile-label {
+  font-size: 13px;
+  color: #666;
+}
+
+.compile-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.compile-pass {
+  color: #34a853;
+}
+
+.compile-failed {
+  color: #ea4335;
+  cursor: pointer;
+}
+
+.compile-failed:hover {
+  text-decoration: underline;
 }
 </style>
