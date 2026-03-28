@@ -60,6 +60,7 @@ class EvaluatorManager:
         self._logs: List[LogEntry] = []
         self._result: Optional[EvaluationResult] = None
         self._results: List[EvaluationResult] = []
+        self._start_time: Optional[float] = None
 
     # ── 日志 ──────────────────────────────────────────────────
 
@@ -300,6 +301,7 @@ class EvaluatorManager:
 
         self._stop_event.clear()
         self._reset_state()
+        self._start_time = datetime.now().timestamp()
         self._status = EvaluationStatus.RUNNING
         # 清空日志队列
         while not self._log_queue.empty():
@@ -328,6 +330,9 @@ class EvaluatorManager:
         return True, "评测任务已停止"
 
     def get_progress(self) -> EvaluationProgress:
+        elapsed = 0
+        if self._start_time is not None:
+            elapsed = int(datetime.now().timestamp() - self._start_time)
         return EvaluationProgress(
             status=self._status,
             total_cases=self._total_cases,
@@ -340,6 +345,7 @@ class EvaluatorManager:
             logs=self._logs.copy(),
             result=self._result,
             results=self._results.copy(),
+            elapsed_time=elapsed,
         )
 
     def get_log_queue(self) -> queue.Queue:

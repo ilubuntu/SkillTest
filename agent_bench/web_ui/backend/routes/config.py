@@ -7,6 +7,7 @@ from fastapi import APIRouter
 
 from agent_bench.pipeline.loader import (
     list_all_profiles, load_profile, load_test_cases,
+    load_test_cases_registry, resolve_scenario_id_to_name,
 )
 from backend.models import ProfileInfo, ScenarioInfo
 
@@ -18,33 +19,37 @@ def _load_profiles() -> List[ProfileInfo]:
     results = []
     for name in list_all_profiles():
         data = load_profile(name)
+        # 将 scenario_ids 转换为场景名称
+        scenario_ids = data.get("scenario_ids", [])
+        scenario_names = []
+        for sid in scenario_ids:
+            sname = resolve_scenario_id_to_name(sid)
+            if sname:
+                scenario_names.append(sname)
         results.append(ProfileInfo(
+            id=data.get("id", ""),
             name=data.get("name", name),
             description=data.get("description", ""),
-            scenarios=data.get("scenarios", []),
+            scenarios=scenario_names,
         ))
     return results
 
 
 def _load_scenarios() -> List[ScenarioInfo]:
-    """从 pipeline/loader 加载场景信息"""
-    import os
-    from agent_bench.pipeline.loader import BASE_DIR
-
-    test_cases_dir = os.path.join(BASE_DIR, "test_cases")
-    if not os.path.isdir(test_cases_dir):
-        return []
-
+    """从 test_cases.yaml registry 加载场景信息"""
+    registry = load_test_cases_registry()
     scenarios = []
-    for entry in sorted(os.listdir(test_cases_dir)):
-        entry_path = os.path.join(test_cases_dir, entry)
-        if os.path.isdir(entry_path):
-            cases = load_test_cases(entry)
-            scenarios.append(ScenarioInfo(
-                name=entry,
-                description=f"{entry} 场景",
-                case_count=len(cases),
-            ))
+
+    for s in registry.get("scenarios", []):
+        scenario_name = s.get("name", s.get("id", ""))
+        # 通过场景名获取用例数
+        cases = load_test_cases(scenario_name)
+        scenarios.append(ScenarioInfo(
+            name=scenario_name,
+            description=s.get("description", f"{scenario_name} 场景"),
+            case_count=len(cases),
+        ))
+
     return scenarios
 
 

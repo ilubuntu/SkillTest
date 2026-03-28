@@ -16,8 +16,8 @@ import time
 from typing import Callable
 
 from agent_bench.runner.adapter import AgentAdapter
-from agent_bench.scoring.llm_judge import LLMJudge
-from agent_bench.scoring import internal_scorer, aggregator
+from agent_bench.evaluator.llm_judge import LLMJudge
+from agent_bench.evaluator import internal_scorer, aggregator
 from dataclasses import asdict
 
 from agent_bench.pipeline.loader import (
@@ -85,12 +85,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     case_id = case["id"]
     title = case["title"]
     prompt = case["input"]["prompt"]
-    input_code = load_file(
-        os.path.join("test_cases", scenario, case["input"]["code_file"])
-    )
-    reference_code = load_file(
-        os.path.join("test_cases", scenario, case["expected"]["reference_file"])
-    )
+    input_code = load_file(case["input"]["code_file"])
+    reference_code = load_file(case["expected"]["reference_file"])
     # rubric 从 scoring_standards.json 按场景加载，不再依赖 case YAML
     rubric = load_rubric(scenario)
 
@@ -158,7 +154,12 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
             "message": f"[{case_id}] Task Prompt={len(task_prompt)}字符"})
         t0 = time.time()
         tag = f"[{case_id}][基线] "
-        baseline_output = adapter.execute(task_prompt, tag=tag)
+        try:
+            baseline_output = adapter.execute(task_prompt, tag=tag)
+        except TimeoutError as e:
+            adapter.teardown()
+            _notify(on_progress, "error", {"case_id": case_id, "message": str(e)})
+            raise
         elapsed = time.time() - t0
         adapter.teardown()
         _notify(on_progress, "log", {"level": "INFO",
@@ -175,7 +176,12 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始增强运行..."})
         t0 = time.time()
         tag = f"[{case_id}][增强] "
-        enhanced_output = adapter.execute(task_prompt, tag=tag)
+        try:
+            enhanced_output = adapter.execute(task_prompt, tag=tag)
+        except TimeoutError as e:
+            adapter.teardown()
+            _notify(on_progress, "error", {"case_id": case_id, "message": str(e)})
+            raise
         elapsed = time.time() - t0
         adapter.teardown()
         _notify(on_progress, "log", {"level": "INFO",
@@ -213,7 +219,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
 
     # ── LLM 评分 ──────────────────────────────────────────────
     if dry_run:
-        from agent_bench.scoring.models import LLMDimensionScore, LLMScoringResult
+        from agent_bench.evaluator.models import LLMDimensionScore, LLMScoringResult
         def _mock_llm_result(score_val):
             dims = [LLMDimensionScore(name=r["name"], score=score_val,
                                      weight=r["weight"], reason="dry-run")

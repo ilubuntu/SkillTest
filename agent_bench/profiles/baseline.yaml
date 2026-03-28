@@ -1,4 +1,5 @@
-name: "baseline"
+id: profile_001
+name: "Baseline"
 description: "裸Agent，无任何增强配置"
-scenarios: []
-enhancements: {}
+scenario_ids: []
+enhancement_ids: []

@@ -238,7 +238,7 @@ class OpenCodeAdapter(AgentAdapter):
             return ""
         except TimeoutError:
             self._log("ERROR", f"请求超时 ({self.timeout}s)", tag=tag)
-            return ""
+            raise TimeoutError(f"Agent 请求超时 ({self.timeout}s)")
 
     def _create_session(self) -> Optional[str]:
         """创建新 session，返回 session_id"""

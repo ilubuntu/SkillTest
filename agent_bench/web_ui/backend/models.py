@@ -10,6 +10,7 @@ class CascaderOption(BaseModel):
 
 
 class ProfileInfo(BaseModel):
+    id: str = ""
     name: str
     description: str
     scenarios: List[str]
@@ -100,3 +101,4 @@ class EvaluationProgress(BaseModel):
     logs: List[LogEntry]
     result: Optional[EvaluationResult] = None
     results: List[EvaluationResult] = []
+    elapsed_time: int = 0  # 秒，评测运行时长

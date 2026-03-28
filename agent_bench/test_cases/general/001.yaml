@@ -1,0 +1,9 @@
+id: general_001
+category: general
+scenario: general
+title: "通用计数器组件"
+input:
+  prompt: "请实现一个简单的计数器组件，包含增加和减少按钮，初始值为0"
+  code_file: cases/001/input.ets
+expected:
+  reference_file: cases/001/expected.ets

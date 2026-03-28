@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Callable
 
 from agent_bench.runner.opencode_adapter import OpenCodeAdapter, DEFAULT_API_BASE
-from agent_bench.scoring.llm_judge import LLMJudge
+from agent_bench.evaluator.llm_judge import LLMJudge
 from agent_bench.report.reporter import generate as generate_report
 
 from agent_bench.pipeline.loader import (

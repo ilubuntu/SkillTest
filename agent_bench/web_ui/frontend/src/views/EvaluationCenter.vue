@@ -138,13 +138,19 @@
 
           <!-- Case 结果 -->
           <div class="case-result" v-if="cp.status === 'done' && cp.gain != null">
-            <div class="result-scores">
-              <span class="score-base">{{ fmtScore(cp.baseline_total) }}</span>
-              <span class="score-arrow">→</span>
-              <span class="score-enhanced">{{ fmtScore(cp.enhanced_total) }}</span>
+            <div class="result-col">
+              <span class="result-label">基线</span>
+              <span class="result-value">{{ fmtScore(cp.baseline_total) }}</span>
             </div>
-            <div class="result-gain" :class="cp.gain >= 0 ? 'positive' : 'negative'">
-              {{ cp.gain >= 0 ? '+' : '' }}{{ fmtScore(cp.gain) }}
+            <div class="result-col">
+              <span class="result-label">增强</span>
+              <span class="result-value enhanced">{{ fmtScore(cp.enhanced_total) }}</span>
+            </div>
+            <div class="result-col">
+              <span class="result-label">增益</span>
+              <span class="result-value" :class="cp.gain >= 0 ? 'positive' : 'negative'">
+                {{ cp.gain >= 0 ? '+' : '' }}{{ fmtScore(cp.gain) }}
+              </span>
             </div>
           </div>
           <div class="case-result" v-else-if="cp.status === 'error'">
@@ -256,9 +262,7 @@ const result = ref(null)
 const results = ref([])
 const activeResultTab = ref('cases')
 const pollInterval = ref(null)
-const startTime = ref(null)
 const elapsedSeconds = ref(0)
-const elapsedTimer = ref(null)
 
 // ── 日志 ──
 const logLevel = ref('ALL')
@@ -363,6 +367,7 @@ const fetchStatus = async () => {
     status.value = d.status
     totalCases.value = d.total_cases || 0
     doneCases.value = d.done_cases || 0
+    elapsedSeconds.value = d.elapsed_time || 0
     currentProfile.value = d.current_profile || ''
     if (d.case_progresses) caseProgresses.value = d.case_progresses
     if (d.logs?.length > logs.value.length) logs.value = d.logs
@@ -371,8 +376,6 @@ const fetchStatus = async () => {
     if (['completed', 'stopped', 'error'].includes(d.status)) {
       clearInterval(pollInterval.value)
       pollInterval.value = null
-      clearInterval(elapsedTimer.value)
-      elapsedTimer.value = null
     }
   } catch (e) { console.error(e) }
 }
@@ -387,16 +390,12 @@ const startEvaluation = async () => {
     status.value = 'running'
     totalCases.value = 0
     doneCases.value = 0
+    elapsedSeconds.value = 0
     caseProgresses.value = []
     logs.value = []
     result.value = null
     results.value = []
-    startTime.value = Date.now()
-    elapsedSeconds.value = 0
     pollInterval.value = setInterval(fetchStatus, 1000)
-    elapsedTimer.value = setInterval(() => {
-      elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000)
-    }, 1000)
   } catch (e) { console.error(e) }
 }
 
@@ -404,7 +403,6 @@ const stopEvaluation = async () => {
   try {
     await axios.post('/api/evaluation/stop')
     clearInterval(pollInterval.value)
-    clearInterval(elapsedTimer.value)
   } catch (e) { console.error(e) }
 }
 
@@ -430,16 +428,11 @@ onMounted(async () => {
   await loadCascaderOptions()
   await fetchStatus()
   if (status.value === 'running') {
-    startTime.value = Date.now()
     pollInterval.value = setInterval(fetchStatus, 1000)
-    elapsedTimer.value = setInterval(() => {
-      elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000)
-    }, 1000)
   }
 })
 onUnmounted(() => {
   clearInterval(pollInterval.value)
-  clearInterval(elapsedTimer.value)
 })
 </script>
 
@@ -619,7 +612,7 @@ onUnmounted(() => {
 .case-row.done    { background: #f6fef6; border-color: #d4efd4; }
 .case-row.error   { background: #fff5f5; border-color: #fdd; }
 
-.case-info { min-width: 180px; flex-shrink: 0; }
+.case-info { min-width: 200px; flex-shrink: 0; }
 .case-id-row {
   display: flex; align-items: center; gap: 6px; margin-bottom: 2px;
 }
@@ -631,13 +624,14 @@ onUnmounted(() => {
 .case-status-dot.error   { background: #ea4335; }
 @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:.3; } }
 
-.case-id   { font-family: 'Consolas', monospace; font-weight: 600; font-size: 13px; color: #1a1a2e; }
-.case-title { font-size: 12px; color: #888; }
-.scenario-tag { font-size: 11px; padding: 0 4px; height: 18px; line-height: 18px; }
+.case-id   { font-family: 'Consolas', monospace; font-weight: 600; font-size: 12px; color: #1a1a2e; }
+.case-title { font-size: 11px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+.scenario-tag { font-size: 10px; padding: 0 3px; height: 16px; line-height: 16px; }
 
 /* ── 阶段流水线（横排） ── */
 .stage-pipeline {
-  display: flex; align-items: center; flex: 1; gap: 0;
+  display: flex; align-items: center; gap: 0;
+  flex-shrink: 0;
 }
 .stage-item {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
@@ -661,17 +655,19 @@ onUnmounted(() => {
 .stage-time { font-size: 10px; color: #ccc; }
 
 .stage-connector {
-  flex: 1; height: 2px; background: #e8e8e8; min-width: 8px; margin-bottom: 14px;
+  flex: 0 0 12px; height: 2px; background: #e8e8e8; margin-bottom: 14px;
 }
 .stage-connector.done { background: #34a853; }
 
 /* ── Case 结果 ── */
 .case-result { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
-.result-scores { display: flex; align-items: center; gap: 4px; font-size: 12px; }
-.score-base    { color: #999; }
-.score-arrow   { color: #ccc; font-size: 11px; }
-.score-enhanced { color: #667eea; font-weight: 600; }
-.result-gain { font-size: 15px; font-weight: 700; min-width: 52px; text-align: right; }
+.result-col { display: flex; flex-direction: column; align-items: center; min-width: 50px; }
+.result-label { font-size: 10px; color: #999; margin-bottom: 2px; }
+.result-value { font-size: 14px; font-weight: 600; }
+.result-value.baseline { color: #999; }
+.result-value.enhanced { color: #667eea; }
+.result-value.positive { color: #34a853; }
+.result-value.negative { color: #ea4335; }
 .result-gain.positive { color: #34a853; }
 .result-gain.negative { color: #ea4335; }
 .error-text   { color: #ea4335; font-size: 12px; }

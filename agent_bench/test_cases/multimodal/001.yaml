@@ -1,0 +1,9 @@
+id: multimodal_001
+category: specialized
+scenario: multimodal
+title: "商品卡片多模态组件"
+input:
+  prompt: "请实现一个商品卡片组件，显示图片、标题和价格，使用多模态布局"
+  code_file: cases/001/input.ets
+expected:
+  reference_file: cases/001/expected.ets
