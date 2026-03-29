@@ -1,9 +1,0 @@
-id: performance_002
-category: specialized
-scenario: performance
-title: "Swiper组件滑动性能优化"
-input:
-  prompt: "请优化以下Swiper组件代码，使其在自动播放和手动滑动时保持流畅性能"
-  code_file: cases/002/input.ets
-expected:
-  reference_file: cases/002/input.ets

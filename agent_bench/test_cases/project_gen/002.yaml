@@ -1,9 +1,0 @@
-id: project_gen_002
-category: specialized
-scenario: project_gen
-title: "生成ArkTS Navigation路由工程"
-input:
-  prompt: "请生成一个使用Navigation组件实现路由的ArkTS工程，包含主页、详情页和设置页"
-  code_file: cases/002/input.ets
-expected:
-  reference_file: cases/002/input.ets

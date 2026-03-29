@@ -27,6 +27,7 @@ from agent_bench.pipeline.loader import (
 from agent_bench.pipeline.artifacts import (
     save_runner_artifacts, load_runner_artifacts,
     save_evaluator_artifacts, load_evaluator_result,
+    stage_dir,
 )
 from agent_bench.pipeline.compile_checker import check_compilable
 
@@ -96,12 +97,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] 通用用例：直接编译 empty_hos_project 验证"})
     else:
-        input_code = load_file(
-            os.path.join("test_cases", scenario, case["input"]["code_file"])
-        )
-        reference_code = load_file(
-            os.path.join("test_cases", scenario, case["expected"]["reference_file"])
-        )
+        input_code = load_file(case["input"]["code_file"])
+        reference_code = load_file(case["expected"]["reference_file"])
         task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
 
     # rubric 从 scoring_standards.json 按场景加载，不再依赖 case YAML
@@ -125,7 +122,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             is_general_case=is_general_case or scenario == "general",
         )
         _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Runner 产物..."})
-        save_runner_artifacts(case_dir, baseline_output, enhanced_output)
+        save_runner_artifacts(case_dir, baseline_output, enhanced_output,
+                              task_prompt=task_prompt, enhancements=enhancements)
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Runner 产物..."})
         baseline_output, enhanced_output = load_runner_artifacts(case_dir)
@@ -183,7 +181,7 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
     if is_general_case:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例：直接编译验证 empty_hos_project 可编译性"})
         t0 = time.time()
-        compile_result = check_compilable("", case_dir=case_dir, is_general_check=True)
+        compile_result = check_compilable("", case_dir=stage_dir(case_dir, "baseline"), is_general_check=True)
         elapsed = time.time() - t0
         compile_results["baseline_compilable"] = compile_result["compilable"]
         compile_results["baseline_error"] = compile_result.get("error", "")
@@ -230,9 +228,9 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查基线代码可编译性..."})
             code_to_check = baseline_output if baseline_output.strip() else input_code
             if not baseline_output.strip():
-                _notify(on_progress, "log", {"level": "WARNING", 
+                _notify(on_progress, "log", {"level": "WARNING",
                     "message": f"[{case_id}] 基线未生成有效代码({len(baseline_output)}字符), 使用输入代码检查编译"})
-            compile_result = check_compilable(code_to_check, case_dir=case_dir)
+            compile_result = check_compilable(code_to_check, case_dir=stage_dir(case_dir, "baseline"))
             compile_results["baseline_compilable"] = compile_result["compilable"]
             compile_results["baseline_error"] = compile_result.get("error", "")
             if compile_result["compilable"]:
@@ -266,7 +264,7 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
         
         if need_compile_check:
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查增强代码可编译性..."})
-            compile_result = check_compilable(enhanced_output, case_dir=case_dir)
+            compile_result = check_compilable(enhanced_output, case_dir=stage_dir(case_dir, "enhanced"))
             compile_results["enhanced_compilable"] = compile_result["compilable"]
             compile_results["enhanced_error"] = compile_result.get("error", "")
             if compile_result["compilable"]:
@@ -323,6 +321,12 @@ def _run_evaluator_stage(case_id, title, scenario, case,
     # ── 内部评分（全局规则库）──────────────────────────────────
     _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始规则检查..."})
     rules_config = load_internal_rules()
+
+    import json as _json
+    rc_dir = stage_dir(case_dir, "rule_check")
+    with open(os.path.join(rc_dir, "rules.json"), "w", encoding="utf-8") as f:
+        _json.dump(rules_config, f, ensure_ascii=False, indent=2)
+
     baseline_internal = internal_scorer.score(baseline_output, rules_config)
     enhanced_internal = internal_scorer.score(enhanced_output, rules_config)
     _notify(on_progress, "log", {"level": "INFO",
@@ -356,6 +360,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         judge_scores = llm_judge.judge(
             input_code, baseline_output, enhanced_output,
             reference_code, rubric, case_id=case_id,
+            case_dir=case_dir,
         )
         elapsed = time.time() - t0
         baseline_llm = judge_scores["baseline"]

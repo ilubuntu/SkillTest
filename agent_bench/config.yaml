@@ -17,6 +17,11 @@ agent:
   # 格式: "provider/model" 如 "opencode/mimo-v2-pro-free"
   model: null
 
+# DevEco Studio 路径（留空则自动检测）
+# macOS 示例: /Applications/DevEco-Studio.app
+# Windows 示例: C:\Program Files\Huawei\DevEco Studio
+deveco_path: null
+
 # LLM Judge 配置（评分用的 LLM）
 # 当前 Judge 与 Agent 共用同一个 OpenCode API 和默认模型。
 # 注意：同一模型既生成代码又评分，可能导致评分不够客观（倾向给自己高分）。

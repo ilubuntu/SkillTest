@@ -121,7 +121,8 @@
           <!-- 阶段流水线 -->
           <div class="stage-pipeline">
             <template v-for="(stage, idx) in cp.stages" :key="stage.name">
-              <div class="stage-item" :class="stage.status">
+              <div class="stage-item" :class="[stage.status, { clickable: stage.status === 'done' && runId }]"
+                   @click="stage.status === 'done' && runId ? openStageFiles(cp.case_id, stage.name) : null">
                 <div class="stage-dot" :class="stage.status">
                   <el-icon v-if="stage.status === 'done'" :size="10"><Check /></el-icon>
                   <el-icon v-else-if="stage.status === 'running'" :size="10" class="spinning"><Loading /></el-icon>
@@ -247,6 +248,29 @@
     </div>
 
     <!-- 全屏日志弹窗 -->
+    <!-- 阶段产物弹窗 -->
+    <el-dialog v-model="showStageFiles" width="720px" :title="stageDialogTitle" class="stage-dialog">
+      <div v-if="stageFileLoading" style="text-align: center; padding: 40px;">
+        <el-icon class="spinning" :size="24"><Loading /></el-icon>
+        <div style="margin-top: 8px; color: #999;">加载中...</div>
+      </div>
+      <div v-else-if="stageFileContent !== null" class="stage-file-viewer">
+        <div class="stage-file-tabs">
+          <span
+            v-for="f in stageFiles"
+            :key="f"
+            class="stage-file-tab"
+            :class="{ active: f === activeStageFile }"
+            @click="loadStageFile(f)"
+          >{{ f }}</span>
+        </div>
+        <pre class="stage-file-content">{{ stageFileContent }}</pre>
+      </div>
+      <div v-else style="text-align: center; padding: 40px; color: #999;">
+        该阶段暂无产物文件
+      </div>
+    </el-dialog>
+
     <el-dialog v-model="showFullscreen" fullscreen :close-on-click-modal="false" class="fullscreen-log-dialog">
       <template #header>
         <div class="fullscreen-header">
@@ -376,6 +400,66 @@ const dimensionData = computed(() => {
 
 const fmtScore = (v) => v != null ? v.toFixed(1) : '-'
 
+// ── 阶段产物浏览 ──
+const runId = ref(null)
+const showStageFiles = ref(false)
+const stageDialogTitle = ref('')
+const stageFileLoading = ref(false)
+const stageFiles = ref([])
+const stageFileContent = ref(null)
+const activeStageFile = ref('')
+let currentStageCtx = { caseId: '', stage: '' }
+
+const STAGE_NAME_MAP = {
+  '基线运行': 'baseline',
+  '增强运行': 'enhanced',
+  '规则检查': 'rule_check',
+  'LLM评分': 'llm_judge',
+}
+
+const openStageFiles = async (caseId, stageName) => {
+  const stage = STAGE_NAME_MAP[stageName]
+  if (!stage || !runId.value) return
+
+  currentStageCtx = { caseId, stage }
+  stageDialogTitle.value = `${caseId} — ${stageName}`
+  stageFileLoading.value = true
+  stageFileContent.value = null
+  stageFiles.value = []
+  activeStageFile.value = ''
+  showStageFiles.value = true
+
+  try {
+    const res = await axios.get(`/api/results/${runId.value}/cases/${caseId}/stages`)
+    const files = res.data.stages?.[stage] || []
+    stageFiles.value = files
+    if (files.length > 0) {
+      await loadStageFile(files[0])
+    } else {
+      stageFileLoading.value = false
+    }
+  } catch (e) {
+    console.error(e)
+    stageFileLoading.value = false
+  }
+}
+
+const loadStageFile = async (filename) => {
+  activeStageFile.value = filename
+  stageFileLoading.value = true
+  try {
+    const { caseId, stage } = currentStageCtx
+    const res = await axios.get(
+      `/api/results/${runId.value}/cases/${caseId}/stages/${stage}/${filename}`,
+      { transformResponse: [data => data] }
+    )
+    stageFileContent.value = typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2)
+  } catch (e) {
+    stageFileContent.value = '加载失败'
+  }
+  stageFileLoading.value = false
+}
+
 // ── 数据加载 ──
 const loadCascaderOptions = async () => {
   try {
@@ -406,6 +490,7 @@ const fetchStatus = async () => {
     const res = await axios.get('/api/evaluation/status')
     const d = res.data
     status.value = d.status
+    if (d.run_id) runId.value = d.run_id
     totalCases.value = d.total_cases || 0
     doneCases.value = d.done_cases || 0
     elapsedSeconds.value = d.elapsed_time || 0
@@ -821,6 +906,58 @@ onUnmounted(() => {
 .compile-status.fail {
   background: #ea433522;
   color: #ea4335;
+}
+
+/* ── 可点击阶段 ── */
+.stage-item.clickable {
+  cursor: pointer;
+}
+.stage-item.clickable:hover .stage-dot {
+  box-shadow: 0 0 0 3px rgba(52, 168, 83, 0.25);
+}
+.stage-item.clickable:hover .stage-label {
+  text-decoration: underline;
+}
+
+/* ── 阶段产物弹窗 ── */
+.stage-file-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.stage-file-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.stage-file-tab {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: #f0f2f5;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.stage-file-tab:hover {
+  background: #e0e4ea;
+}
+.stage-file-tab.active {
+  background: #667eea;
+  color: #fff;
+}
+.stage-file-content {
+  background: #1e1e1e;
+  color: #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  max-height: 500px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
 }
 </style>
 

@@ -3,17 +3,20 @@
 struct Dashboard {
   @State count: number = 0
   @State data: string = '加载中...'
-  private intervalId: number = -1
+  private timer: number = -1
 
   aboutToAppear() {
-    this.intervalId = setInterval(() => {
+    this.timer = setInterval(() => {
       this.count++
       this.data = `已刷新 ${this.count} 次`
     }, 5000)
   }
 
   aboutToDisappear() {
-    clearInterval(this.intervalId)
+    if (this.timer !== -1) {
+      clearInterval(this.timer)
+      this.timer = -1
+    }
   }
 
   build() {

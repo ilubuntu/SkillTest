@@ -1,9 +1,0 @@
-id: compilable_001
-category: specialized
-scenario: compilable
-title: "生成可编译的List组件代码"
-input:
-  prompt: "请生成一个包含List组件的ArkTS页面，要求代码可以通过ArkTS编译器检查"
-  code_file: cases/001/input.ets
-expected:
-  reference_file: cases/001/input.ets

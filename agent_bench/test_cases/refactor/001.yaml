@@ -1,9 +1,0 @@
-id: refactor_001
-category: specialized
-scenario: refactor
-title: "登录页面代码重构"
-input:
-  prompt: "以下登录页面代码结构混乱，请进行重构使其更清晰易维护，保留原有功能"
-  code_file: cases/001/input.ets
-expected:
-  reference_file: cases/001/expected.ets

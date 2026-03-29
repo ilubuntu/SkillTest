@@ -1,9 +1,0 @@
-id: compilable_002
-category: specialized
-scenario: compilable
-title: "生成可编译的Form表单代码"
-input:
-  prompt: "请生成一个包含TextInput和Button组件的ArkTS表单页面，要求代码可以通过ArkTS编译器检查"
-  code_file: cases/002/input.ets
-expected:
-  reference_file: cases/002/input.ets

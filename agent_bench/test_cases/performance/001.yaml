@@ -1,9 +1,0 @@
-id: performance_001
-category: specialized
-scenario: performance
-title: "List组件滑动性能优化"
-input:
-  prompt: "请优化以下List组件代码，使其支持大数据量滑动时的流畅性能（需要使用LazyForEach和cachedCount）"
-  code_file: cases/001/input.ets
-expected:
-  reference_file: cases/001/input.ets

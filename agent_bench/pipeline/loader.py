@@ -226,61 +226,26 @@ def resolve_scenario_id_to_name(scenario_id: str) -> Optional[str]:
 def load_test_cases(scenario: str) -> list:
     """加载指定场景下的所有测试用例
 
-    优先从 test_cases.yaml 读取，目录下的 yaml 文件作为向后兼容。
+    从 test_cases.yaml 总表读取，路径已相对于 agent_bench/ 目录。
     返回的 case 格式统一为 {id, title, input: {prompt, code_file}, expected: {reference_file}, ...}
     """
-    # 尝试从 registry 获取
     registry = load_test_cases_registry()
     for s in registry.get("scenarios", []):
-        # 通过 id 或 name 匹配
         if s.get("id") == scenario or s.get("name") == scenario:
             raw_cases = s.get("cases", [])
-            # 转换为兼容格式（registry 格式，路径已是绝对路径）
-            return [_transform_case(c, is_registry=True) for c in raw_cases]
-
-    # 向后兼容：从目录加载
-    cases_dir = os.path.join(BASE_DIR, "test_cases", scenario)
-    if not os.path.isdir(cases_dir):
-        return []
-
-    cases = []
-    for f in sorted(os.listdir(cases_dir)):
-        if f.endswith(".yaml") or f.endswith(".yml"):
-            filepath = os.path.join(cases_dir, f)
-            case = load_yaml(filepath)
-            if case:
-                # 向后兼容格式，路径需要拼接 test_cases/{scenario}/
-                cases.append(_transform_case(case, is_registry=False, scenario=scenario))
-    return cases
+            return [_transform_case(c) for c in raw_cases]
+    return []
 
 
-def _transform_case(case: dict, is_registry: bool = True, scenario: str = "") -> dict:
-    """将用例格式转换为兼容格式
+def _transform_case(case: dict) -> dict:
+    """将 registry 格式转换为运行时格式
 
     registry 格式: {case_id, prompt, input_file, expected_file, ...}
-    兼容格式: {id, input: {prompt, code_file}, expected: {reference_file}, ...}
-
-    Args:
-        is_registry: True 表示来自 registry（路径已相对于 agent_bench/）
-                     False 表示来自目录（路径相对于 test_cases/{scenario}/）
-        scenario: 向后兼容时需要，用于拼接相对路径
+    运行时格式: {id, title, input: {prompt, code_file}, expected: {reference_file}, ...}
     """
     if "input" in case and isinstance(case["input"], dict):
-        # 已经是兼容格式
         return case
 
-    # 获取路径
-    input_file = case.get("input_file", "")
-    expected_file = case.get("expected_file", "")
-
-    # 如果是向后兼容格式且路径不是以 test_cases/ 开头，需要拼接
-    if not is_registry and scenario:
-        if input_file and not input_file.startswith("test_cases/"):
-            input_file = os.path.join("test_cases", scenario, input_file)
-        if expected_file and not expected_file.startswith("test_cases/"):
-            expected_file = os.path.join("test_cases", scenario, expected_file)
-
-    # 转换 flat 格式为嵌套格式
     return {
         "id": case.get("case_id", case.get("id", "")),
         "title": case.get("title", ""),
@@ -288,10 +253,10 @@ def _transform_case(case: dict, is_registry: bool = True, scenario: str = "") ->
         "scenario": case.get("scenario", ""),
         "input": {
             "prompt": case.get("prompt", ""),
-            "code_file": input_file,
+            "code_file": case.get("input_file", ""),
         },
         "expected": {
-            "reference_file": expected_file,
+            "reference_file": case.get("expected_file", ""),
         },
     }
 

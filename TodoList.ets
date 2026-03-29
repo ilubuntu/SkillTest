@@ -24,7 +24,7 @@ struct TodoList {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding(12)
           }
-        })
+        }, (item: string) => item)
       }
     }
     .width('100%')

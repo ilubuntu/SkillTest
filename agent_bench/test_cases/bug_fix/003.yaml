@@ -1,9 +1,0 @@
-id: bug_fix_003
-category: specialized
-scenario: bug_fix
-title: "组件销毁后定时器未清除导致内存泄漏"
-input:
-  prompt: "以下ArkTS代码中，组件使用了setInterval定时刷新数据，但页面退出后定时器仍在运行导致内存泄漏，请修复"
-  code_file: cases/003/input.ets
-expected:
-  reference_file: cases/003/expected.ets

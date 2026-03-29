@@ -1,9 +1,0 @@
-id: bug_fix_001
-category: specialized
-scenario: bug_fix
-title: "List组件ForEach性能崩溃修复"
-input:
-  prompt: "以下ArkTS代码在List组件中使用ForEach渲染大量数据，快速滑动时会崩溃，请修复"
-  code_file: cases/001/input.ets
-expected:
-  reference_file: cases/001/expected.ets

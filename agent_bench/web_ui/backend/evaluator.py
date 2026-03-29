@@ -62,6 +62,8 @@ class EvaluatorManager:
         self._results: List[EvaluationResult] = []
         self._start_time: Optional[float] = None
         self._general_result: Optional[EvaluationResult] = None
+        self._run_id: Optional[str] = None
+        self._run_generation: int = getattr(self, '_run_generation', 0) + 1
 
     # ── 日志 ──────────────────────────────────────────────────
 
@@ -119,6 +121,7 @@ class EvaluatorManager:
         if event == "pipeline_start":
             self._current_profile = data.get("profile")
             self._scenarios = data.get("scenarios", [])
+            self._run_id = data.get("run_id")
             self._add_log("INFO", f"评测启动: profile={data['profile']}, "
                           f"scenarios={','.join(data['scenarios'])}")
 
@@ -206,7 +209,11 @@ class EvaluatorManager:
 
     # ── 工作线程 ──────────────────────────────────────────────
 
-    def _run_pipeline_thread(self, profiles, scenarios, skip_baseline):
+    def _run_pipeline_thread(self, profiles, scenarios, skip_baseline, generation):
+        """工作线程，generation 用于防止旧线程回写状态到新评测"""
+        def is_stale():
+            return self._run_generation != generation
+
         try:
             from agent_bench.runner.discovery import ensure_opencode_server
             from agent_bench.pipeline.engine import run_pipeline
@@ -230,6 +237,9 @@ class EvaluatorManager:
                 on_progress=self._pipeline_callback,
             )
 
+            if is_stale():
+                return
+
             if self._stop_event.is_set():
                 self._status = EvaluationStatus.STOPPED
                 self._add_log("INFO", "评测任务已停止")
@@ -241,9 +251,13 @@ class EvaluatorManager:
             self._add_log("INFO", "评测任务已完成")
 
         except InterruptedError:
+            if is_stale():
+                return
             self._status = EvaluationStatus.STOPPED
             self._add_log("INFO", "评测任务已停止")
         except Exception as e:
+            if is_stale():
+                return
             self._status = EvaluationStatus.ERROR
             self._add_log("ERROR", f"评测失败: {str(e)}")
 
@@ -417,7 +431,7 @@ class EvaluatorManager:
 
         self._worker_thread = threading.Thread(
             target=self._run_pipeline_thread,
-            args=(profiles, scenarios, skip_baseline),
+            args=(profiles, scenarios, skip_baseline, self._run_generation),
             daemon=True,
         )
         self._worker_thread.start()
@@ -438,6 +452,7 @@ class EvaluatorManager:
             elapsed = int(datetime.now().timestamp() - self._start_time)
         return EvaluationProgress(
             status=self._status,
+            run_id=self._run_id,
             total_cases=self._total_cases,
             done_cases=self._done_cases,
             current_case=self._current_case,

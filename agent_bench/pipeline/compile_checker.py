@@ -1,62 +1,22 @@
 # -*- coding: utf-8 -*-
 """ArkTS 编译验证模块
 
-职责：
-- 将生成的代码写入 empty_hos_project 的 Index.ets
-- 执行 hvigorw 编译命令验证代码可编译性
-- 返回编译结果（成功/失败、错误信息）
+每次编译将 empty_hos_project 模板复制到独立沙箱目录，支持并行编译。
 """
 
 import os
-import subprocess
 import shutil
-from typing import Dict, Optional, Tuple, Any
+import subprocess
+import tempfile
+from typing import Dict, Tuple, Any
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EMPTY_HOS_PROJECT_PATH = os.path.join(BASE_DIR, "empty_hos_project")
-INDEX_ETS_PATH = os.path.join(EMPTY_HOS_PROJECT_PATH, "entry", "src", "main", "ets", "pages", "Index.ets")
-
-INDEX_ETS_TEMPLATE = """@Entry
-@Component
-struct Index {
-  build() {
-
-  }
-}
-"""
-
-
-def write_index_ets(code: str) -> bool:
-    """将代码写入 empty_hos_project/entry/src/main/ets/pages/Index.ets
-
-    Args:
-        code: 要写入的 ArkTS 代码
-
-    Returns:
-        是否写入成功
-    """
-    try:
-        cleaned_code = _clean_markdown_code_blocks(code)
-        with open(INDEX_ETS_PATH, "w", encoding="utf-8") as f:
-            f.write(cleaned_code)
-        return True
-    except Exception as e:
-        return False
+TEMPLATE_PROJECT_PATH = os.path.join(BASE_DIR, "empty_hos_project")
+INDEX_ETS_REL = os.path.join("entry", "src", "main", "ets", "pages", "Index.ets")
 
 
 def _clean_markdown_code_blocks(code: str) -> str:
-    """删除 markdown 代码块标记，提取代码内容
-
-    移除 ```typescript, ``` 等 markdown 代码块标记，
-    只保留代码块内的内容，删除块外的解释文字。
-    如果没有代码块标记，返回原始代码。
-
-    Args:
-        code: 原始代码
-
-    Returns:
-        清理后的代码
-    """
+    """提取 markdown 代码块内的代码，无代码块则原样返回"""
     lines = code.split('\n')
     cleaned_lines = []
     in_code_block = False
@@ -68,10 +28,9 @@ def _clean_markdown_code_blocks(code: str) -> str:
             if not in_code_block:
                 in_code_block = True
                 has_code_block = True
-                continue
             else:
                 in_code_block = False
-                continue
+            continue
         if in_code_block:
             cleaned_lines.append(line)
 
@@ -80,21 +39,90 @@ def _clean_markdown_code_blocks(code: str) -> str:
     return '\n'.join(cleaned_lines).strip()
 
 
-def compile_arkts_project(timeout: int = 300) -> Tuple[bool, str]:
-    """执行 hvigor 编译命令验证代码可编译性
+def _copy_template(dest: str):
+    """复制模板工程到目标目录，跳过 build 产物和缓存"""
+    def _ignore(directory, files):
+        ignored = set()
+        dir_name = os.path.basename(directory)
+        if dir_name in ('build', '.hvigor', 'node_modules', 'oh_modules'):
+            ignored.update(files)
+        for f in files:
+            if f == 'oh-package-lock.json5':
+                ignored.add(f)
+        return ignored
 
-    使用 DevEco Studio 内置的 node + hvigorw.js 进行编译
+    shutil.copytree(TEMPLATE_PROJECT_PATH, dest, ignore=_ignore)
 
-    Args:
-        timeout: 编译超时时间（秒）
 
-    Returns:
-        (is_success, error_message)
-        - is_success: 编译是否成功
-        - error_message: 错误信息（如果编译失败）
+def _find_deveco_base() -> str:
+    """查找 DevEco Studio 的工具根目录
+
+    优先读取 config.yaml 的 deveco_path，未配置则按平台自动探测。
     """
+    import platform
+    from agent_bench.pipeline.loader import load_config
+
+    config = load_config()
+    deveco_path = config.get("deveco_path")
+    system = platform.system()
+
+    if deveco_path:
+        deveco_path = deveco_path.rstrip("/\\")
+        if system == "Darwin" and not deveco_path.endswith("Contents"):
+            candidate = os.path.join(deveco_path, "Contents")
+            if os.path.isdir(os.path.join(candidate, "tools")):
+                return candidate
+        if os.path.isdir(os.path.join(deveco_path, "tools")):
+            return deveco_path
+        return deveco_path
+
+    if system == "Darwin":
+        candidates = [
+            "/Applications/DevEco-Studio.app/Contents",
+        ]
+    else:
+        candidates = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Huawei", "DevEco Studio"),
+            os.path.join(os.environ.get("ProgramFiles", ""), "Huawei", "DevEco Studio"),
+            r"C:\DevEco Studio",
+            r"D:\DevEco Studio",
+            r"D:\deveco\DevEco Studio",
+        ]
+
+    for c in candidates:
+        if c and os.path.isdir(os.path.join(c, "tools")):
+            return c
+
+    if system == "Darwin":
+        return "/Applications/DevEco-Studio.app/Contents"
+    return r"C:\Program Files\Huawei\DevEco Studio"
+
+
+def _find_deveco_paths() -> Dict[str, str]:
+    """基于 DevEco Studio 根目录，构造各工具的完整路径"""
+    import platform
+    system = platform.system()
+    deveco_base = _find_deveco_base()
+
+    if system == "Darwin":
+        node = os.path.join(deveco_base, "tools", "node", "bin", "node")
+        java = os.path.join(deveco_base, "jbr", "Contents", "Home")
+    else:
+        node = os.path.join(deveco_base, "tools", "node", "node.exe")
+        java = os.path.join(deveco_base, "jbr")
+
+    return {
+        "node": node,
+        "hvigor": os.path.join(deveco_base, "tools", "hvigor", "bin", "hvigorw.js"),
+        "java": java,
+        "sdk": os.path.join(deveco_base, "sdk"),
+    }
+
+
+def _compile_project(project_path: str, timeout: int = 300) -> Tuple[bool, str]:
+    """在指定项目目录下执行 hvigor 编译"""
     paths = _find_deveco_paths()
-    
+
     if not os.path.exists(paths["node"]):
         return False, f"DevEco Studio node 未找到: {paths['node']}"
     if not os.path.exists(paths["hvigor"]):
@@ -106,7 +134,11 @@ def compile_arkts_project(timeout: int = 300) -> Tuple[bool, str]:
         env = os.environ.copy()
         env["DEVECO_SDK_HOME"] = paths["sdk"]
         env["JAVA_HOME"] = paths["java"]
-        env["PATH"] = os.path.join(paths["java"], "bin") + os.pathsep + os.path.dirname(paths["node"]) + os.pathsep + env.get("PATH", "")
+        env["PATH"] = (
+            os.path.join(paths["java"], "bin") + os.pathsep
+            + os.path.dirname(paths["node"]) + os.pathsep
+            + env.get("PATH", "")
+        )
 
         hvigor_cmd = [
             paths["node"], paths["hvigor"],
@@ -115,12 +147,13 @@ def compile_arkts_project(timeout: int = 300) -> Tuple[bool, str]:
             "assembleHap",
             "--analyze=normal",
             "--parallel",
-            "--incremental"
+            "--incremental",
+            "--no-daemon"
         ]
 
         result = subprocess.run(
             hvigor_cmd,
-            cwd=EMPTY_HOS_PROJECT_PATH,
+            cwd=project_path,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -131,12 +164,11 @@ def compile_arkts_project(timeout: int = 300) -> Tuple[bool, str]:
 
         if result.returncode == 0:
             return True, ""
-        else:
-            stdout = result.stdout or ""
-            stderr = result.stderr or ""
-            full_output = stdout + "\n[STDERR]\n" + stderr if stderr else stdout
-            error_msg = full_output if full_output.strip() else "编译失败"
-            return False, error_msg
+
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        full_output = stdout + "\n[STDERR]\n" + stderr if stderr else stdout
+        return False, full_output if full_output.strip() else "编译失败"
 
     except subprocess.TimeoutExpired:
         return False, f"编译超时（{timeout}秒）"
@@ -146,112 +178,49 @@ def compile_arkts_project(timeout: int = 300) -> Tuple[bool, str]:
         return False, f"编译异常: {str(e)}"
 
 
-def _find_deveco_paths() -> Dict[str, str]:
-    """查找 DevEco Studio 相关路径
-
-    Returns:
-        {
-            "node": str,       # node.exe 路径
-            "hvigor": str,     # hvigorw.js 路径
-            "java": str,       # JAVA_HOME 路径
-            "sdk": str,        # DEVECO_SDK_HOME 路径
-        }
-    """
-    deveco_base = r"D:\deveco\DevEco Studio"
-    
-    return {
-        "node": os.path.join(deveco_base, "tools", "node", "node.exe"),
-        "hvigor": os.path.join(deveco_base, "tools", "hvigor", "bin", "hvigorw.js"),
-        "java": os.path.join(deveco_base, "jbr"),
-        "sdk": os.path.join(deveco_base, "sdk"),
-    }
-
-
-def _extract_compile_error(output: str) -> str:
-    """从编译输出中提取关键错误信息
-
-    Args:
-        output: 编译命令的完整输出
-
-    Returns:
-        提取的错误信息（最多返回最后20行）
-    """
-    if not output:
-        return "未知错误"
-
-    lines = output.strip().split("\n")
-    error_lines = [line for line in lines if "error" in line.lower() or "failed" in line.lower()]
-
-    if error_lines:
-        return "\n".join(error_lines[-20:])
-    return "\n".join(lines[-20:]) if lines else "未知错误"
-
-
-def check_compilable(code: str, timeout: int = 300, case_dir: str = None, is_general_check: bool = False) -> Dict[str, Any]:
+def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
+                     is_general_check: bool = False) -> Dict[str, Any]:
     """检查代码是否可编译
 
-    完整流程（普通场景）：
-    1. 备份原始 Index.ets
-    2. 将代码写入 Index.ets
-    3. 保存替换后的 Index.ets 到 case_dir（如果提供）
-    4. 执行编译
-    5. 恢复原始 Index.ets
-    6. 返回编译结果
-
-    完整流程（general 场景 is_general_check=True）：
-    1. 直接编译 empty_hos_project（不替换代码）
-    2. 返回编译结果
+    将模板工程复制到临时沙箱，写入代码后编译，编译完清理沙箱。
+    每次调用使用独立副本，支持并行。
 
     Args:
         code: 要检查的 ArkTS 代码
         timeout: 编译超时时间（秒）
-        case_dir: 用例产物目录，用于保存替换后的 Index.ets
-        is_general_check: 是否为通用用例检查（直接编译，不替换代码）
-
-    Returns:
-        {
-            "compilable": bool,      # 是否可编译
-            "error": str,             # 错误信息（如果不可编译）
-            "checked": bool,          # 是否执行了检查
-        }
+        case_dir: 用例产物目录，用于保存 Index.ets 副本
+        is_general_check: True 时直接编译模板（不替换代码）
     """
-    if is_general_check:
-        is_success, error_msg = compile_arkts_project(timeout=timeout)
-        if not is_success:
-            print(f"[COMPILE ERROR] error_msg={error_msg}")
-        return {
-            "compilable": is_success,
-            "error": error_msg,
-            "checked": True,
-        }
+    # 沙箱放在 case_dir/compile_sandbox 下便于调试，无 case_dir 时用临时目录
+    if case_dir:
+        os.makedirs(case_dir, exist_ok=True)
+        sandbox = os.path.join(case_dir, "compile_sandbox")
+        tmp_parent = None
+    else:
+        tmp_parent = tempfile.mkdtemp(prefix="hos_compile_")
+        sandbox = os.path.join(tmp_parent, "project")
 
     try:
-        with open(INDEX_ETS_PATH, "r", encoding="utf-8") as f:
-            original_code = f.read()
+        if os.path.exists(sandbox):
+            shutil.rmtree(sandbox)
+        _copy_template(sandbox)
 
-        if not write_index_ets(code):
-            return {
-                "compilable": False,
-                "error": "无法写入 Index.ets",
-                "checked": True,
-            }
+        if not is_general_check:
+            cleaned_code = _clean_markdown_code_blocks(code)
+            index_path = os.path.join(sandbox, INDEX_ETS_REL)
+            with open(index_path, "w", encoding="utf-8") as f:
+                f.write(cleaned_code)
 
-        if case_dir:
-            index_ets_copy = os.path.join(case_dir, "Index.ets")
-            os.makedirs(case_dir, exist_ok=True)
-            with open(index_ets_copy, "w", encoding="utf-8") as f:
-                f.write(code)
+        is_success, error_msg = _compile_project(sandbox, timeout=timeout)
 
-        is_success, error_msg = compile_arkts_project(timeout=timeout)
-        
         if not is_success:
-            print(f"[COMPILE ERROR] error_msg={error_msg}")
-        
+            print(f"[COMPILE ERROR] error_msg={error_msg[:200]}")
+
         return {
             "compilable": is_success,
             "error": error_msg,
             "checked": True,
         }
     finally:
-        with open(INDEX_ETS_PATH, "w", encoding="utf-8") as f:
-            f.write(INDEX_ETS_TEMPLATE)
+        if tmp_parent:
+            shutil.rmtree(tmp_parent, ignore_errors=True)

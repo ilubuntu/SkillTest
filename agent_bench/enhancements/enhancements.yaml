@@ -5,7 +5,7 @@ skills:
   - id: skill_001
     name: bug_fix
     path: enhancements/skills/bug_fix.md
-    description: "Bug修复Skill - 修复ArkTS代码中的常见缺陷"
+    description: "Bug修复Skill - 修复ArkTS列表性能、状态管理和组件生命周期等常见缺陷"
 
   - id: skill_002
     name: compilable
@@ -21,6 +21,11 @@ skills:
     name: create-harmony-project
     path: enhancements/skills/create-harmony-project.md
     description: "工程生成Skill - 从零构建HarmonyOS项目结构"
+
+  - id: skill_005
+    name: build-harmony-project
+    path: enhancements/skills/build-harmony-project.md
+    description: "HarmonyOS编译Skill - 在非DevEco Studio环境中编译HarmonyOS Next应用，支持自动检测SDK、编译和设备推送"
 
 system_prompts:
   - id: sp_001
@@ -42,6 +47,11 @@ system_prompts:
     name: "工程架构专家"
     path: enhancements/system_prompt/project_gen.txt
     description: "工程生成场景的系统提示词"
+
+  - id: sp_005
+    name: "通用代码质量专家"
+    path: enhancements/system_prompt/general.txt
+    description: "通用场景的系统提示词 - 代码质量和编译正确性"
 
 mcp_servers:
   # 待扩展

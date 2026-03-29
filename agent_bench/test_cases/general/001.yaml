@@ -1,9 +1,0 @@
-id: general_001
-category: general
-scenario: general
-title: "通用编译检查"
-description: "验证 Agent 生成的代码可通过 ArkTS 编译器检查。直接编译 empty_hos_project 项目，验证编译环境可用。"
-input:
-  prompt: "请确保代码可编译"
-expected:
-  compile_check: true

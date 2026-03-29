@@ -70,7 +70,8 @@ class LLMJudge:
               enhanced_code: str,
               reference_code: str,
               rubric: List[Dict],
-              case_id: str = "") -> Dict[str, LLMScoringResult]:
+              case_id: str = "",
+              case_dir: str = None) -> Dict[str, LLMScoringResult]:
         """对 baseline 和 enhanced 同时评分
 
         Args:
@@ -106,6 +107,13 @@ class LLMJudge:
             rubric_text=rubric_text,
         )
         self._log("DEBUG", f"{tag}[评分] Prompt 长度={len(prompt)}字符")
+
+        if case_dir:
+            import os
+            judge_dir = os.path.join(case_dir, "llm_judge")
+            os.makedirs(judge_dir, exist_ok=True)
+            with open(os.path.join(judge_dir, "prompt.txt"), "w", encoding="utf-8") as f:
+                f.write(prompt)
 
         try:
             raw = self.llm_fn(prompt, f"{tag}[评分] ")

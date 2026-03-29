@@ -106,6 +106,7 @@ class CaseProgress(BaseModel):
 
 class EvaluationProgress(BaseModel):
     status: EvaluationStatus
+    run_id: Optional[str] = None
     total_cases: int = 0
     done_cases: int = 0
     current_case: Optional[str] = None
@@ -116,5 +117,5 @@ class EvaluationProgress(BaseModel):
     logs: List[LogEntry]
     result: Optional[EvaluationResult] = None
     results: List[EvaluationResult] = []
-    elapsed_time: int = 0  # 秒，评测运行时长
+    elapsed_time: int = 0
     general_result: Optional[EvaluationResult] = None

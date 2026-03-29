@@ -33,8 +33,6 @@ FRONTEND_PORT=5177
 BACKEND_DIR="$SCRIPT_DIR/agent_bench/web_ui"
 FRONTEND_DIR="$SCRIPT_DIR/agent_bench/web_ui/frontend"
 
-PID_DIR="$SCRIPT_DIR/.pids"
-mkdir -p "$PID_DIR"
 
 # ── 颜色 ──────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -99,7 +97,6 @@ start_opencode() {
     kill_port $OPENCODE_PORT
 
     opencode serve --port $OPENCODE_PORT &
-    echo $! > "$PID_DIR/opencode.pid"
 
     # 等待启动
     info "等待 OpenCode Server 启动..."
@@ -137,7 +134,6 @@ start_backend() {
 
     cd "$BACKEND_DIR"
     python3 -m uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT &
-    echo $! > "$PID_DIR/backend.pid"
 
     # 等待启动
     for i in $(seq 1 10); do
@@ -170,7 +166,6 @@ start_frontend() {
 
     cd "$FRONTEND_DIR"
     npm run dev &
-    echo $! > "$PID_DIR/frontend.pid"
 
     # 等待启动
     for i in $(seq 1 10); do
@@ -186,16 +181,6 @@ start_frontend() {
 # ── 停止所有服务 ─────────────────────────────────────────
 stop_all() {
     info "停止所有服务..."
-    for pidfile in "$PID_DIR"/*.pid; do
-        if [ -f "$pidfile" ]; then
-            pid=$(cat "$pidfile")
-            if kill -0 "$pid" 2>/dev/null; then
-                kill "$pid" 2>/dev/null || true
-                info "已停止进程 $pid ($(basename $pidfile .pid))"
-            fi
-            rm -f "$pidfile"
-        fi
-    done
     kill_port $OPENCODE_PORT
     kill_port $BACKEND_PORT
     kill_port $FRONTEND_PORT

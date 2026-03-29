@@ -8,7 +8,7 @@ struct TodoList {
     Column() {
       Button('添加任务')
         .onClick(() => {
-          this.items.push(`新任务 ${this.items.length + 1}`)
+          this.items = [...this.items, `新任务 ${this.items.length + 1}`]
         })
 
       List() {
@@ -18,7 +18,7 @@ struct TodoList {
               Text(item).fontSize(16)
               Button('删除')
                 .onClick(() => {
-                  this.items.splice(index, 1)
+                  this.items = this.items.filter((_, i) => i !== index)
                 })
             }
             .width('100%')
