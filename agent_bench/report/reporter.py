@@ -2,14 +2,20 @@
 """报告生成模块
 
 支持新的报告格式：
-  - general: 通用检查（编译/lint 通过率）— 占位，待实现
+  - weighted_total: 加权总分（场景评分×80% + 通用评分×20%）
+  - scenario_summary: 场景用例评分汇总
+  - general_summary: 通用用例评分汇总
+  - general: 通用检查（编译/lint 通过率）
   - by_scenario: 按场景汇总
-  - 每个用例包含 scenario 字段
 """
 
 import json
 import os
 from datetime import datetime
+
+
+DEFAULT_SCENARIO_WEIGHT = 0.8
+DEFAULT_GENERAL_WEIGHT = 0.2
 
 
 def generate(results: list, scenario: str, profile_name: str, output_dir: str):
@@ -26,7 +32,9 @@ def generate(results: list, scenario: str, profile_name: str, output_dir: str):
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    summary = _compute_summary(results)
+    scenario_summary = _compute_scenario_summary(results)
+    general_summary = _compute_general_summary(results)
+    weighted_total = _compute_weighted_total(scenario_summary, general_summary)
     general = _compute_general(results)
     by_scenario = _compute_by_scenario(results)
 
@@ -34,7 +42,9 @@ def generate(results: list, scenario: str, profile_name: str, output_dir: str):
         "generated_at": datetime.now().isoformat(),
         "profile": profile_name,
         "scenario": scenario,
-        "summary": summary,
+        "weighted_total": weighted_total,
+        "scenario_summary": scenario_summary,
+        "general_summary": general_summary,
         "general": general,
         "by_scenario": by_scenario,
         "cases": results,
@@ -51,13 +61,23 @@ def generate(results: list, scenario: str, profile_name: str, output_dir: str):
     return json_path, md_path
 
 
-def _compute_summary(results: list) -> dict:
-    """计算整体汇总"""
-    if not results:
-        return {}
+def _compute_scenario_summary(results: list) -> dict:
+    """计算场景用例汇总（排除通用用例）"""
+    scenario_results = [r for r in results if r.get("scenario") != "general"]
 
-    baseline_scores = [r["baseline_total"] for r in results]
-    enhanced_scores = [r["enhanced_total"] for r in results]
+    if not scenario_results:
+        return {
+            "total_cases": 0,
+            "baseline_avg": None,
+            "enhanced_avg": None,
+            "gain": None,
+            "baseline_pass_rate": "N/A",
+            "enhanced_pass_rate": "N/A",
+            "dimensions": {},
+        }
+
+    baseline_scores = [r["baseline_total"] for r in scenario_results]
+    enhanced_scores = [r["enhanced_total"] for r in scenario_results]
 
     baseline_avg = sum(baseline_scores) / len(baseline_scores)
     enhanced_avg = sum(enhanced_scores) / len(enhanced_scores)
@@ -67,7 +87,7 @@ def _compute_summary(results: list) -> dict:
     enhanced_pass = sum(1 for s in enhanced_scores if s >= pass_threshold)
 
     dimensions = {}
-    for r in results:
+    for r in scenario_results:
         for dim_id, scores in r.get("dimension_scores", {}).items():
             if dim_id not in dimensions:
                 dimensions[dim_id] = {
@@ -98,13 +118,92 @@ def _compute_summary(results: list) -> dict:
         }
 
     return {
-        "total_cases": len(results),
+        "total_cases": len(scenario_results),
         "baseline_avg": round(baseline_avg, 1),
         "enhanced_avg": round(enhanced_avg, 1),
         "gain": round(enhanced_avg - baseline_avg, 1),
-        "baseline_pass_rate": f"{baseline_pass}/{len(results)}",
-        "enhanced_pass_rate": f"{enhanced_pass}/{len(results)}",
+        "baseline_pass_rate": f"{baseline_pass}/{len(scenario_results)}",
+        "enhanced_pass_rate": f"{enhanced_pass}/{len(scenario_results)}",
         "dimensions": dim_summary,
+    }
+
+
+def _compute_general_summary(results: list) -> dict:
+    """计算通用用例汇总"""
+    general_results = [r for r in results if r.get("scenario") == "general"]
+
+    if not general_results:
+        return {
+            "total_cases": 0,
+            "baseline_avg": None,
+            "enhanced_avg": None,
+            "gain": None,
+            "baseline_pass_rate": "N/A",
+            "enhanced_pass_rate": "N/A",
+        }
+
+    baseline_scores = [r["baseline_total"] for r in general_results]
+    enhanced_scores = [r["enhanced_total"] for r in general_results]
+
+    baseline_avg = sum(baseline_scores) / len(baseline_scores)
+    enhanced_avg = sum(enhanced_scores) / len(enhanced_scores)
+
+    pass_threshold = 60
+    baseline_pass = sum(1 for s in baseline_scores if s >= pass_threshold)
+    enhanced_pass = sum(1 for s in enhanced_scores if s >= pass_threshold)
+
+    general_pass_count = sum(1 for r in general_results if r.get("general_pass"))
+    general_total = len(general_results)
+
+    return {
+        "total_cases": len(general_results),
+        "baseline_avg": round(baseline_avg, 1),
+        "enhanced_avg": round(enhanced_avg, 1),
+        "gain": round(enhanced_avg - baseline_avg, 1),
+        "baseline_pass_rate": f"{baseline_pass}/{len(general_results)}",
+        "enhanced_pass_rate": f"{enhanced_pass}/{len(general_results)}",
+        "general_pass_count": general_pass_count,
+        "general_total": general_total,
+    }
+
+
+def _compute_weighted_total(scenario_summary: dict, general_summary: dict,
+                            scenario_weight: float = DEFAULT_SCENARIO_WEIGHT,
+                            general_weight: float = DEFAULT_GENERAL_WEIGHT) -> dict:
+    """计算加权总分：场景评分 × 80% + 通用评分 × 20%"""
+    scenario_avg = scenario_summary.get("baseline_avg")
+    general_avg = general_summary.get("baseline_avg")
+
+    if scenario_avg is None and general_avg is None:
+        return {
+            "baseline_weighted": None,
+            "enhanced_weighted": None,
+            "scenario_weight": scenario_weight,
+            "general_weight": general_weight,
+            "gain": None,
+        }
+
+    if scenario_avg is None:
+        baseline_weighted = general_avg
+        enhanced_weighted = general_summary.get("enhanced_avg")
+    elif general_avg is None:
+        baseline_weighted = scenario_avg
+        enhanced_weighted = scenario_summary.get("enhanced_avg")
+    else:
+        baseline_weighted = scenario_avg * scenario_weight + general_avg * general_weight
+        enhanced_weighted = (scenario_summary.get("enhanced_avg", 0) * scenario_weight +
+                            general_summary.get("enhanced_avg", 0) * general_weight)
+
+    baseline_weighted = round(baseline_weighted, 1) if baseline_weighted else None
+    enhanced_weighted = round(enhanced_weighted, 1) if enhanced_weighted else None
+    gain = round(enhanced_weighted - baseline_weighted, 1) if (enhanced_weighted and baseline_weighted) else None
+
+    return {
+        "baseline_weighted": baseline_weighted,
+        "enhanced_weighted": enhanced_weighted,
+        "scenario_weight": scenario_weight,
+        "general_weight": general_weight,
+        "gain": gain,
     }
 
 
@@ -181,9 +280,12 @@ def _compute_by_scenario(results: list) -> dict:
 
 def _render_markdown(report: dict) -> str:
     """渲染 Markdown 格式报告"""
-    s = report["summary"]
-    if not s:
+    if not report.get("cases"):
         return "# Agent Bench 评测报告\n\n无数据\n"
+
+    weighted = report.get("weighted_total", {})
+    scenario_sum = report.get("scenario_summary", {})
+    general_sum = report.get("general_summary", {})
 
     lines = [
         f"# Agent Bench 评测报告",
@@ -192,19 +294,45 @@ def _render_markdown(report: dict) -> str:
         f"- **Profile**: {report['profile']}",
         f"- **场景**: {report['scenario']}",
         f"",
-        f"## 总览",
-        f"",
-        f"| 指标 | 基线 | 增强 | 增益 |",
-        f"|------|------|------|------|",
-        f"| 平均得分 | {s['baseline_avg']} | {s['enhanced_avg']} | +{s['gain']} |",
-        f"| 通过率 (>=60) | {s['baseline_pass_rate']} | {s['enhanced_pass_rate']} | - |",
-        f"",
     ]
+
+    # 加权总分
+    if weighted.get("baseline_weighted") is not None:
+        lines.append("## 加权总分")
+        lines.append("")
+        lines.append(f"| 指标 | 基线 | 增强 | 增益 |")
+        lines.append(f"|------|------|------|------|")
+        lines.append(f"| **加权总分** | **{weighted['baseline_weighted']}** | **{weighted['enhanced_weighted']}** | +{weighted['gain']} |")
+        lines.append(f"| 场景用例权重 | {weighted['scenario_weight']*100:.0f}% | {weighted['scenario_weight']*100:.0f}% | - |")
+        lines.append(f"| 通用用例权重 | {weighted['general_weight']*100:.0f}% | {weighted['general_weight']*100:.0f}% | - |")
+        lines.append("")
+
+    # 场景用例汇总
+    if scenario_sum.get("total_cases", 0) > 0:
+        lines.append("## 场景用例汇总")
+        lines.append("")
+        lines.append(f"| 指标 | 基线 | 增强 | 增益 |")
+        lines.append(f"|------|------|------|------|")
+        lines.append(f"| 用例数 | {scenario_sum['total_cases']} | - | - |")
+        lines.append(f"| 平均得分 | {scenario_sum['baseline_avg']} | {scenario_sum['enhanced_avg']} | +{scenario_sum['gain']} |")
+        lines.append(f"| 通过率 (>=60) | {scenario_sum['baseline_pass_rate']} | {scenario_sum['enhanced_pass_rate']} | - |")
+        lines.append("")
+
+    # 通用用例汇总
+    if general_sum.get("total_cases", 0) > 0:
+        lines.append("## 通用用例汇总")
+        lines.append("")
+        lines.append(f"| 指标 | 基线 | 增强 | 增益 |")
+        lines.append(f"|------|------|------|------|")
+        lines.append(f"| 用例数 | {general_sum['total_cases']} | - | - |")
+        lines.append(f"| 平均得分 | {general_sum['baseline_avg']} | {general_sum['enhanced_avg']} | +{general_sum['gain']} |")
+        lines.append(f"| 通用通过 | {general_sum.get('general_pass_count', 'N/A')}/{general_sum.get('general_total', 'N/A')} | - | - |")
+        lines.append("")
 
     # 通用检查
     general = report.get("general", {})
     if general:
-        lines.append("## 通用检查")
+        lines.append("## 通用检查（编译通过率）")
         lines.append("")
         lines.append(f"| 检查项 | 基线 | 增强 |")
         lines.append(f"|--------|------|------|")
@@ -221,17 +349,18 @@ def _render_markdown(report: dict) -> str:
         lines.append("| 场景 | 用例数 | 基线均分 | 增强均分 | 增益 |")
         lines.append("|------|--------|---------|---------|------|")
         for sc, data in by_scenario.items():
-            lines.append(f"| {sc} | {data['total_cases']} | {data['baseline_avg']} "
+            sc_label = "通用用例" if sc == "general" else sc
+            lines.append(f"| {sc_label} | {data['total_cases']} | {data['baseline_avg']} "
                          f"| {data['enhanced_avg']} | +{data['gain']} |")
         lines.append("")
 
-    # 各维度对比
-    if s.get("dimensions"):
-        lines.append("## 各维度对比")
+    # 各维度对比（仅场景用例）
+    if scenario_sum.get("dimensions"):
+        lines.append("## 各维度对比（场景用例）")
         lines.append("")
         lines.append("| 维度 | 基线(LLM) | 基线(内部) | 增强(LLM) | 增强(内部) | 增益 |")
         lines.append("|------|-----------|------------|-----------|------------|------|")
-        for dim_id, dim in s["dimensions"].items():
+        for dim_id, dim in scenario_sum["dimensions"].items():
             name = dim.get("name", dim_id)
             lines.append(f"| {name} | {dim.get('baseline_llm_avg', dim.get('baseline_avg', 0))} "
                          f"| {dim.get('baseline_internal_avg', 'N/A')} "

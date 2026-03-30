@@ -1,125 +1,61 @@
 # 内部评分系统规则库
-# 5 个维度，与 scoring_standards.json 中的 rubric 维度一一对应
+# 3 个维度，与 standard.yaml 中的 rubric 维度一一对应
 #
 # level: HIGH(50%) / MEDIUM(30%) / LOW(20%) — 规则在维度内的权重比例
 # pattern: Python re.search 正则，针对代码文本匹配
-# pass_on_match: true = 匹配到算通过；false = 匹配到算不通过（反例检测）
-# 规则未匹配到任何内容（match 为空）→ 默认通过
+# pass_on_match: true = 匹配到算通过； false = 匹配到算不通过（反例检测）
+# 规则未匹配到任何内容（match 为空） → 默认通过
+#
+# 重构说明（v8.0）：
+# - 按"基本质量(40%)→工程可信(40%)→生态与创新(20%)"三层组织
+# - 基本质量：组件可编译性、兼容性、基础体验、稳定性等
+# - 工程可信：异常处理、组件规范、代码质量等
+# - 生态与创新：应用或者元服务的生态规则、行业创新能力等
 
-# ==================== 正确性 ====================
-correctness:
-  - name: 接口实现完整性
+# ==================== 基本质量 ====================
+basic_quality:
+  - name: 类型定义规范
     level: HIGH
-    description: 实现接口时应覆盖所有声明的方法
-    pattern: "implements\\s+\\w+"
-    pass_on_match: true
+    description: 禁止使用 any 类型
+    pattern: ":\\s*any\\b"
+    pass_on_match: false
 
-  - name: async/await 配对
+  - name: 编译通过
     level: HIGH
-    description: async 函数内应正确使用 await，避免漏写 await 导致逻辑错误
-    pattern: "async\\s+\\w+[^{]*\\{[^}]*await"
+    description: 代码可通过 ArkTS 编译器检查（由 compile_results 判定）
+    pattern: ".*"
     pass_on_match: true
 
-  - name: 返回值完整
-    level: MEDIUM
-    description: 有返回类型声明的函数应有对应的 return 语句
-    pattern: "\\)\\s*:\\s*\\w+[^{]*\\{[\\s\\S]*?return\\s"
-    pass_on_match: true
-
-# ==================== 完整性 ====================
-completeness:
+# ==================== 工程可信 ====================
+engineering_trust:
   - name: 异常处理
     level: HIGH
     description: 异步操作应有 .catch() 或 try/catch 进行异常处理
     pattern: "\\.catch\\s*\\(|try\\s*\\{"
     pass_on_match: true
 
-  - name: 生命周期钩子
+  - name: 代码重复度
     level: MEDIUM
-    description: 涉及资源申请/释放的组件应实现 aboutToAppear/aboutToDisappear
-    pattern: "aboutToAppear|aboutToDisappear"
+    description: 重复代码应提取为公共函数
+    pattern: "function\\s+\\w+\\s*\\("
     pass_on_match: true
 
-  - name: 空值防护
-    level: MEDIUM
-    description: 对可能为空的对象应使用可选链或空值合并运算符
-    pattern: "\\?\\.|\\?\\?"
-    pass_on_match: true
-
-# ==================== 代码质量 ====================
-code_quality:
-  - name: 类型注解完整
-    level: HIGH
-    description: 变量和函数参数应有明确类型注解，禁止使用 any
-    pattern: ":\\s*any\\b"
-    pass_on_match: false
-
-  - name: 禁止 var 声明
-    level: HIGH
-    description: 应使用 let/const，禁止使用 var
-    pattern: "\\bvar\\s+"
-    pass_on_match: false
-
-  - name: JSDoc 注释
-    level: MEDIUM
-    description: 公共函数和组件应有 JSDoc 注释
-    pattern: "\\/\\*\\*"
-    pass_on_match: true
-
-  - name: 禁止 TODO/FIXME 残留
-    level: LOW
-    description: 提交代码中不应含有 TODO 或 FIXME 标记
-    pattern: "\\bTODO\\b|\\bFIXME\\b"
-    pass_on_match: false
-
-# ==================== 兼容性 ====================
-compatibility:
-  - name: import 放置顶部
-    level: HIGH
-    description: import 语句应放在文件顶部，不得穿插在代码中
-    pattern: "^import\\s+"
-    pass_on_match: true
-
-  - name: 使用 ArkTS 装饰器
-    level: HIGH
-    description: 组件应使用 @Component/@Entry 等 ArkTS 装饰器
-    pattern: "@Component|@Entry|@State|@Prop|@Link|@Observed"
-    pass_on_match: true
-
-  - name: 禁止废弃路由 API
+  - name: 禁止废弃API
     level: MEDIUM
     description: 应使用 Navigation 路由，禁止使用已废弃的 router.push
     pattern: "router\\.push\\s*\\("
     pass_on_match: false
 
-  - name: 禁止直接操作 DOM
-    level: LOW
-    description: ArkTS 不支持 DOM 操作，禁止使用 document/window
-    pattern: "\\bdocument\\.|\\bwindow\\."
-    pass_on_match: false
-
-# ==================== 生态规则符合度 ====================
-ecosystem:
+# ==================== 生态与创新 ====================
+ecosystem_innovation:
   - name: 日志规范
     level: HIGH
     description: 应使用 hilog 替代 console.log 进行日志输出
     pattern: "console\\.log\\s*\\("
     pass_on_match: false
 
-  - name: 资源及时释放
-    level: HIGH
-    description: 申请的资源（连接、定时器等）应在生命周期结束时释放
-    pattern: "\\.close\\s*\\(\\)|\\.release\\s*\\(\\)|clearInterval\\s*\\(|clearTimeout\\s*\\("
-    pass_on_match: true
-
-  - name: 权限声明规范
+  - name: 路由规范
     level: MEDIUM
-    description: 需要权限的操作应在 module.json5 中声明，代码中不得硬编码权限字符串
-    pattern: "\"ohos\\.permission\\."
+    description: 应使用 Navigation 路由
+    pattern: "router\\.push\\s*\\("
     pass_on_match: false
-
-  - name: 本地化字符串
-    level: LOW
-    description: UI 文字应使用 $r() 引用资源，不得硬编码中文字符串
-    pattern: "\\$r\\s*\\("
-    pass_on_match: true

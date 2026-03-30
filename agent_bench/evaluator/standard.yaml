@@ -1,10 +1,17 @@
 # ArkTS Code Quality Review Rubric
-# Version: 2.0
-# Date: 2026-03-27
+# Version: 8.0
+# Date: 2026-03-30
 #
-# 评分维度：5个，与 internal_rules.yaml 维度一一对应
+# 评分维度：3个，与 internal_rules.yaml 维度一一对应
 # 总分：100分
 # 通过门槛：60分
+#
+# 重构说明（v8.0）：
+# - 按"基本质量→工程可信→生态与创新"三层组织
+# - 比例：basic_quality(40%) / engineering_trust(40%) / ecosystem_innovation(20%)
+# - 基本质量：组件可编译性、兼容性、基础体验、稳定性等
+# - 工程可信：异常处理、组件规范、代码质量等
+# - 生态与创新：应用或者元服务的生态规则、行业创新能力等
 
 rubric_name: "ArkTS代码质量评判标准"
 total_score: 100
@@ -15,124 +22,84 @@ pass_threshold: 60
 # ============================================================
 dimensions:
   # ----------------------------------------------------------
-  - dimension_id: correctness
-    name: 正确性
-    weight: 30
-    description: "代码是否正确解决了问题，逻辑是否无误"
+  # 维度1：基本质量 (40%)
+  # ----------------------------------------------------------
+  - dimension_id: basic_quality
+    name: 基本质量
+    weight: 40
+    description: "组件可编译性、兼容性、基础体验、稳定性等"
     rules:
-      - id: 1
-        name: 语法正确性
-        name_en: Syntax Correctness
-        description: "代码是否符合ArkTS语法规范"
-        check_points:
-          - "装饰器使用正确（@Component/@Entry/@State等）"
-          - "导入导出语句完整规范"
-          - "无语法错误和拼写错误"
-
-      - id: 2
-        name: 类型定义完整性
+      - id: B1
+        name: 类型定义规范
         name_en: Type Definition
-        description: "类型定义是否完整准确"
+        description: "禁止使用any，接口/类型定义清晰"
         check_points:
           - "避免使用any类型"
           - "接口/类型别名定义清晰"
           - "泛型约束合理"
 
-  # ----------------------------------------------------------
-  - dimension_id: completeness
-    name: 完整性
-    weight: 20
-    description: "是否覆盖所有需求，边界情况和异常处理是否完整"
-    rules:
-      - id: 3
-        name: 空值安全处理
-        name_en: Null Safety
-        description: "是否正确处理可空类型"
+      - id: B2
+        name: 编译通过
+        name_en: Compilability
+        description: "代码可通过ArkTS编译器检查"
         check_points:
-          - "使用?.可选链操作符"
-          - "使用??/???空值合并运算符"
-          - "避免硬编码空值比较"
-
-      - id: 7
-        name: 状态管理规范
-        name_en: State Management
-        description: "状态变量是否正确声明和使用"
-        check_points:
-          - "@State/@Link/@Prop/@Consume等装饰器使用正确"
-          - "状态更新触发UI刷新"
-          - "避免状态逃逸"
+          - "代码可通过hvigor编译"
+          - "无编译错误"
 
   # ----------------------------------------------------------
-  - dimension_id: code_quality
-    name: 代码质量
-    weight: 20
-    description: "是否符合ArkTS最佳实践、可读性"
+  # 维度2：工程可信 (40%)
+  # ----------------------------------------------------------
+  - dimension_id: engineering_trust
+    name: 工程可信
+    weight: 40
+    description: "异常处理、组件规范、代码质量等"
     rules:
-      - id: 8
+      - id: E1
+        name: 异常处理
+        name_en: Exception Handling
+        description: "异步操作是否有完善的异常处理"
+        check_points:
+          - "异步操作有.catch()处理"
+          - "try/catch块正确使用"
+
+      - id: E2
         name: 代码重复度
         name_en: Code Duplication
         description: "是否存在不必要的重复"
         check_points:
           - "重复代码块已提取为公共函数"
           - "相似逻辑已复用"
-          - "公共组件已抽取"
 
-      - id: 9
-        name: 命名规范
-        name_en: Naming Convention
-        description: "命名是否清晰规范"
+      - id: E3
+        name: 禁止废弃API
+        name_en: No Deprecated API
+        description: "禁止使用已废弃的API"
         check_points:
-          - "变量/函数命名有意义（驼峰命名）"
-          - "组件名称以大写开头"
-          - "常量使用全大写+下划线"
-
-      - id: 10
-        name: 代码可读性
-        name_en: Readability
-        description: "代码是否清晰易维护"
-        check_points:
-          - "函数长度适中（建议不超过50行）"
-          - "关键逻辑有注释说明"
-          - "条件判断嵌套不过深（建议不超过3层）"
+          - "避免使用已废弃的router.push"
 
   # ----------------------------------------------------------
-  - dimension_id: compatibility
-    name: 兼容性
+  # 维度3：生态与创新 (20%)
+  # ----------------------------------------------------------
+  - dimension_id: ecosystem_innovation
+    name: 生态与创新
     weight: 20
-    description: "是否符合鸿蒙应用的设计约束、是否包含废弃API"
+    description: "应用或者元服务的生态规则、行业创新能力等"
     rules:
-      - id: 5
-        name: 导入规范
-        name_en: Import Convention
-        description: "导入语句是否规范"
+      - id: G1
+        name: 日志规范
+        name_en: Logging Convention
+        description: "应使用hilog替代console.log"
         check_points:
-          - "import语句位于文件顶部"
-          - "导入路径正确"
-          - "避免不必要的导入"
+          - "使用hilog进行日志输出"
+          - "避免使用console.log"
 
-      - id: 6
-        name: 组件结构规范
-        name_en: Component Structure
-        description: "组件代码结构是否规范"
+      - id: G2
+        name: 路由规范
+        name_en: Routing Convention
+        description: "应使用Navigation路由"
         check_points:
-          - "@Component修饰的struct包含build()方法"
-          - "@Entry修饰的组件作为入口"
-          - "UI组件层级合理"
-
-  # ----------------------------------------------------------
-  - dimension_id: ecosystem
-    name: 生态规则符合度
-    weight: 10
-    description: "是否符合元服务或应用开发的生态规则"
-    rules:
-      - id: 4
-        name: 资源获取释放
-        name_en: Resource Lifecycle
-        description: "资源是否正确管理"
-        check_points:
-          - "文件/流操作有对应的close/dispose"
-          - "定时器有清理机制"
-          - "事件监听器有移除逻辑"
+          - "使用Navigation路由"
+          - "避免使用已废弃的router.push"
 
 # ============================================================
 # 输出格式定义
@@ -145,16 +112,16 @@ output_format:
       "passed": true,
       "dimensions": [
         {
-          "dimension_id": "correctness",
-          "name": "正确性",
+          "dimension_id": "basic_quality",
+          "name": "基本质量",
           "score": 90,
           "rules": [
-            {"id": 1, "name": "语法正确性", "score": 10, "comment": "通过"},
-            {"id": 2, "name": "类型定义完整性", "score": 8, "comment": "存在any类型"}
+            {"id": "B1", "name": "类型定义规范", "score": 10, "comment": "通过"},
+            {"id": "B2", "name": "编译通过", "score": 8, "comment": "存在编译问题"}
           ]
         }
       ],
-      "summary": "代码质量良好，存在少量类型安全问题"
+      "summary": "代码质量良好，组件设计合理"
     }
 
 # ============================================================
