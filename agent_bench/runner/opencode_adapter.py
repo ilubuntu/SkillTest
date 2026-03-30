@@ -50,10 +50,12 @@ class OpenCodeAdapter(AgentAdapter):
     def __init__(self, api_base: str = DEFAULT_API_BASE,
                  model: str = None,
                  timeout: int = TIMEOUT,
+                 temperature: float = None,
                  on_progress=None):
         self.api_base = api_base
         self.model = model
         self.timeout = timeout
+        self.temperature = temperature
         self.on_progress = on_progress
 
         # setup 阶段准备的配置
@@ -172,6 +174,8 @@ class OpenCodeAdapter(AgentAdapter):
                 message_payload["system"] = self._system_message
             if self._tools_config:
                 message_payload["tools"] = self._tools_config
+            if self.temperature is not None:
+                message_payload["temperature"] = self.temperature
 
             data = json.dumps(message_payload).encode("utf-8")
             prompt_kb = len(data) / 1024

@@ -19,6 +19,7 @@ async def start_evaluation(config: EvaluationConfig):
         config.profiles,
         config.scenarios,
         skip_baseline=config.skip_baseline,
+        only_run_baseline=config.only_run_baseline,
     )
     if not success:
         raise HTTPException(status_code=400, detail=message)

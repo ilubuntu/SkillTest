@@ -34,6 +34,7 @@ class EvaluationConfig(BaseModel):
     profiles: List[str]
     scenarios: List[str]
     skip_baseline: bool = False
+    only_run_baseline: bool = False
 
 
 class LogEntry(BaseModel):

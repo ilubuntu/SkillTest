@@ -111,23 +111,6 @@ class EvaluatorManager:
         if status == "running":
             cp.status = "running"
 
-    def _mark_case_error(self, case_id: str, message: str = ""):
-        """将 case 及其当前运行阶段标记为失败，避免 UI 仍显示运行中。"""
-        cp = self._case_progresses.get(case_id)
-        if not cp:
-            return
-        cp.status = "error"
-        cp.error = message
-        for stage in cp.stages:
-            if stage.status == "running":
-                stage.status = "error"
-
-    def _mark_running_cases_error(self, message: str = ""):
-        """在全局失败时，将所有仍在运行的 case 标记为失败。"""
-        for case_id, cp in self._case_progresses.items():
-            if cp.status == "running" or any(stage.status == "running" for stage in cp.stages):
-                self._mark_case_error(case_id, message)
-
     # ── Pipeline 回调 ─────────────────────────────────────────
 
     def _pipeline_callback(self, event: str, data: dict):
@@ -194,7 +177,8 @@ class EvaluatorManager:
             case_id = data.get("case_id", "")
             prefix = f"[{case_id}] " if case_id else ""
             if case_id and case_id in self._case_progresses:
-                self._mark_case_error(case_id, data.get("message", ""))
+                self._case_progresses[case_id].status = "error"
+                self._case_progresses[case_id].error = data.get("message", "")
             self._add_log("ERROR", f"{prefix}{data['message']}")
 
     def _infer_case_stage_from_log(self, message: str):
@@ -225,7 +209,7 @@ class EvaluatorManager:
 
     # ── 工作线程 ──────────────────────────────────────────────
 
-    def _run_pipeline_thread(self, profiles, scenarios, skip_baseline, generation):
+    def _run_pipeline_thread(self, profiles, scenarios, skip_baseline, only_run_baseline, generation):
         """工作线程，generation 用于防止旧线程回写状态到新评测"""
         def is_stale():
             return self._run_generation != generation
@@ -242,7 +226,7 @@ class EvaluatorManager:
             scenario_arg = "all" if "all" in scenarios else ",".join(scenarios)
 
             self._add_log("INFO", f"评测参数: profiles={profile_arg}, scenarios={scenario_arg}, "
-                          f"skip_baseline={skip_baseline}")
+                          f"skip_baseline={skip_baseline}, only_run_baseline={only_run_baseline}")
 
             result = run_pipeline(
                 profile=profile_arg,
@@ -250,6 +234,7 @@ class EvaluatorManager:
                 api_base=api_base,
                 dry_run=False,
                 skip_baseline=skip_baseline,
+                only_run_baseline=only_run_baseline,
                 on_progress=self._pipeline_callback,
             )
 
@@ -275,7 +260,6 @@ class EvaluatorManager:
             if is_stale():
                 return
             self._status = EvaluationStatus.ERROR
-            self._mark_running_cases_error(str(e))
             self._add_log("ERROR", f"评测失败: {str(e)}")
 
     def _build_general_result(self, general_results: list) -> Optional[EvaluationResult]:
@@ -429,7 +413,7 @@ class EvaluatorManager:
     # ── 公开接口 ──────────────────────────────────────────────
 
     def start_evaluation(self, profiles: List[str], scenarios: List[str],
-                         skip_baseline: bool = False):
+                         skip_baseline: bool = False, only_run_baseline: bool = False):
         if self._status == EvaluationStatus.RUNNING:
             return False, "评测正在进行中"
 
@@ -448,7 +432,7 @@ class EvaluatorManager:
 
         self._worker_thread = threading.Thread(
             target=self._run_pipeline_thread,
-            args=(profiles, scenarios, skip_baseline, self._run_generation),
+            args=(profiles, scenarios, skip_baseline, only_run_baseline, self._run_generation),
             daemon=True,
         )
         self._worker_thread.start()

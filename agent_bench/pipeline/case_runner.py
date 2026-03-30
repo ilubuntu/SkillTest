@@ -25,7 +25,7 @@ from agent_bench.pipeline.loader import (
     load_internal_rules, load_rubric,
 )
 from agent_bench.pipeline.artifacts import (
-    save_runner_artifacts, save_runner_stage_artifacts, load_runner_artifacts,
+    save_runner_artifacts, load_runner_artifacts,
     save_evaluator_artifacts, load_evaluator_result,
     stage_dir,
 )
@@ -64,6 +64,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                     stages: list = None,
                     dry_run: bool = False,
                     skip_baseline: bool = False,
+                    only_run_baseline: bool = False,
                     on_progress: Callable = None,
                     phase_weights: dict = None,
                     is_general_case: bool = False) -> dict:
@@ -89,8 +90,11 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     title = case["title"]
     prompt = case["input"]["prompt"]
 
+    # 场景名标准化（兼容 "General" / "general" / "Project Gen" 等写法）
+    _scenario_key = scenario.lower().replace(" ", "_")
+
     # 对于 general 场景，不需要加载代码文件，直接编译验证
-    if is_general_case or scenario == "general":
+    if is_general_case or _scenario_key == "general":
         input_code = ""
         reference_code = ""
         task_prompt = ""
@@ -112,18 +116,31 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
 
     # ── Runner 阶段 ──
     if "runner" in stages:
-        baseline_output, enhanced_output, compile_results = _run_runner_stage(
-            case_id, task_prompt, enhancements,
-            adapter, reference_code, input_code,
-            dry_run=dry_run, skip_baseline=skip_baseline,
-            on_progress=on_progress,
-            scenario=scenario,
-            case_dir=case_dir,
-            is_general_case=is_general_case or scenario == "general",
-        )
-        _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Runner 产物..."})
-        save_runner_artifacts(case_dir, baseline_output, enhanced_output,
-                              task_prompt=task_prompt, enhancements=enhancements)
+        # 若产物已存在则直接复用，避免重复调用 Agent 引入随机性
+        baseline_path = os.path.join(case_dir, "baseline", "output.txt")
+        enhanced_path = os.path.join(case_dir, "enhanced", "output.txt")
+        if os.path.exists(baseline_path) and os.path.exists(enhanced_path):
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"[{case_id}] Runner 产物已存在，跳过 Agent 执行（复用缓存）"})
+            baseline_output, enhanced_output = load_runner_artifacts(case_dir)
+            compile_results = {
+                "baseline_compilable": None, "baseline_error": "",
+                "enhanced_compilable": None, "enhanced_error": "",
+            }
+        else:
+            baseline_output, enhanced_output, compile_results = _run_runner_stage(
+                case_id, task_prompt, enhancements,
+                adapter, reference_code, input_code,
+                dry_run=dry_run, skip_baseline=skip_baseline,
+                only_run_baseline=only_run_baseline,
+                on_progress=on_progress,
+                scenario=scenario,
+                case_dir=case_dir,
+                is_general_case=is_general_case or _scenario_key == "general",
+            )
+            _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Runner 产物..."})
+            save_runner_artifacts(case_dir, baseline_output, enhanced_output,
+                                  task_prompt=task_prompt, enhancements=enhancements)
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Runner 产物..."})
         baseline_output, enhanced_output = load_runner_artifacts(case_dir)
@@ -153,7 +170,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
 
 def _run_runner_stage(case_id, task_prompt, enhancements,
                       adapter, reference_code, input_code,
-                      dry_run, skip_baseline, on_progress,
+                      dry_run, skip_baseline, only_run_baseline, on_progress,
                       scenario: str = None, case_dir: str = None,
                       is_general_case: bool = False):
     """执行 Runner 阶段，返回 (baseline_output, enhanced_output, compile_results)
@@ -193,7 +210,8 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "通用编译检查", "elapsed": elapsed})
         return "", "", compile_results
 
-    need_compile_check = scenario and scenario != "project_gen"
+    _skey = scenario.lower().replace(" ", "_") if scenario else ""
+    need_compile_check = _skey and _skey != "project_gen"
     _notify(on_progress, "log", {"level": "DEBUG",
         "message": f"[{case_id}] 编译检查配置: scenario={scenario}, need_compile_check={need_compile_check}"})
 
@@ -240,11 +258,15 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
                     "message": f"[{case_id}] 基线代码编译失败: {compile_result.get('error', '未知错误')[:100]}"})
         
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": elapsed})
-        save_runner_stage_artifacts(case_dir, "baseline", baseline_output, task_prompt=task_prompt)
-        _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 基线产物已保存"})
 
     # ── 增强运行 ──
-    if dry_run:
+    if only_run_baseline:
+        enhanced_output = baseline_output
+        compile_results["enhanced_compilable"] = compile_results.get("baseline_compilable")
+        compile_results["enhanced_error"] = compile_results.get("baseline_error", "")
+        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 仅运行基线，增强复用基线输出 (only_run_baseline)"})
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": 0, "skipped": True})
+    elif dry_run:
         enhanced_output = reference_code
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": 0, "skipped": True})
     else:
@@ -276,9 +298,6 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
                     "message": f"[{case_id}] 增强代码编译失败: {compile_result.get('error', '未知错误')[:100]}"})
         
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": elapsed})
-        save_runner_stage_artifacts(case_dir, "enhanced", enhanced_output,
-                                    task_prompt=task_prompt, enhancements=enhancements)
-        _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 增强产物已保存"})
 
     return baseline_output, enhanced_output, compile_results
 
@@ -301,7 +320,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
                         enhanced_compilable, enhanced_error
     """
     # general 场景：只返回编译结果
-    if scenario == "general":
+    if scenario.lower().replace(" ", "_") == "general":
         is_compilable = compile_results.get("baseline_compilable", False) if compile_results else False
         result = {
             "case_id": case_id,
@@ -481,6 +500,7 @@ def run_scenario(scenario: str,
                  max_workers: int = 1,
                  dry_run: bool = False,
                  skip_baseline: bool = False,
+                 only_run_baseline: bool = False,
                  case_id_filter: str = None,
                  on_progress: Callable = None,
                  phase_weights: dict = None) -> list:
@@ -537,6 +557,7 @@ def run_scenario(scenario: str,
                 adapter, llm_judge, case_dir,
                 stages=stages, dry_run=dry_run,
                 skip_baseline=skip_baseline,
+                only_run_baseline=only_run_baseline,
                 on_progress=on_progress,
                 phase_weights=phase_weights,
             )

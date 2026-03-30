@@ -44,6 +44,7 @@ def run_pipeline(profile: str,
                  max_workers: int = None,
                  dry_run: bool = False,
                  skip_baseline: bool = False,
+                 only_run_baseline: bool = False,
                  case_id_filter: str = None,
                  run_id: str = None,
                  output_dir: str = None,
@@ -134,10 +135,12 @@ def run_pipeline(profile: str,
 
         # LLM Judge（评分用的 LLM 调用，通过 adapter 提供）
         _notify(on_progress, "log", {"level": "INFO", "message": "初始化 LLMJudge..."})
+        judge_temperature = config.get("judge", {}).get("temperature", 0)
         judge_adapter = OpenCodeAdapter(
             api_base=api_base,
             model=judge_model,
             timeout=config.get("judge", {}).get("timeout", 60),
+            temperature=judge_temperature,
             on_progress=on_progress,
         )
         llm_judge = LLMJudge(
@@ -171,6 +174,7 @@ def run_pipeline(profile: str,
                 profile_name=profile,
                 stages=case_stages, max_workers=max_workers,
                 dry_run=dry_run, skip_baseline=skip_baseline,
+                only_run_baseline=only_run_baseline,
                 case_id_filter=case_id_filter,
                 on_progress=on_progress,
                 phase_weights=phase_weights,
