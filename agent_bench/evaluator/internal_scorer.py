@@ -28,12 +28,14 @@ LEVEL_WEIGHTS: Dict[str, float] = {
 INTERNAL_MAX = 30.0
 
 
-def score(code: str, rules_config: Dict[str, list]) -> InternalScoringResult:
+def score(code: str, rules_config: Dict[str, list],
+          file_ext: str = ".ets") -> InternalScoringResult:
     """对一份代码进行内部评分
 
     Args:
         code: 待评分的代码文本
         rules_config: 已加载的 internal_rules.yaml 内容（dict）
+        file_ext: 文件扩展名，用于 file_types 过滤
 
     Returns:
         InternalScoringResult
@@ -57,30 +59,40 @@ def score(code: str, rules_config: Dict[str, list]) -> InternalScoringResult:
         raw_score = 0.0
         rule_results: List[RuleResult] = []
 
+        active_by_level: Dict[str, list] = {}
         for level, level_rules in by_level.items():
-            if not level_rules:
-                continue
-            level_budget = base_score * LEVEL_WEIGHTS.get(level, 0.2)
-            per_rule = level_budget / len(level_rules)
+            active = [r for r in level_rules
+                      if not r.get("file_types") or file_ext in r["file_types"]]
+            if active:
+                active_by_level[level] = active
 
-            for r in level_rules:
+        total_weight = sum(LEVEL_WEIGHTS.get(l, 0.2) for l in active_by_level)
+
+        for level, active_rules in active_by_level.items():
+            normalized_weight = LEVEL_WEIGHTS.get(level, 0.2) / total_weight if total_weight > 0 else 0
+            level_budget = base_score * normalized_weight
+            per_rule = level_budget / len(active_rules)
+
+            for r in active_rules:
                 pattern = r.get("pattern", "")
                 pass_on_match = r.get("pass_on_match", True)
 
+                matched_text = ""
                 try:
                     m = re.search(pattern, code, re.MULTILINE)
                     matched = bool(m)
+                    if m:
+                        matched_text = m.group()[:100]
                 except re.error:
                     matched = False
 
-                # 规则未匹配到任何内容 → 默认通过（不扣分）
                 if not matched:
                     passed = True
                 else:
                     passed = pass_on_match
 
-                if passed:
-                    raw_score += per_rule
+                earned = per_rule if passed else 0.0
+                raw_score += earned
 
                 rule_results.append(RuleResult(
                     name=r["name"],
@@ -88,6 +100,9 @@ def score(code: str, rules_config: Dict[str, list]) -> InternalScoringResult:
                     description=r.get("description", ""),
                     passed=passed,
                     matched=matched,
+                    matched_text=matched_text,
+                    max_score=round(per_rule, 2),
+                    earned_score=round(earned, 2),
                 ))
 
         # 归一化到 0-100

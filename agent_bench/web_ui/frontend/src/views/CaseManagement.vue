@@ -3,21 +3,16 @@
     <!-- 工具栏 -->
     <div class="toolbar card">
       <div class="toolbar-left">
-        <el-select v-model="filterScenario" placeholder="全部场景" clearable style="width: 160px;">
+        <el-select v-model="filterScenario" placeholder="全部场景" clearable style="width: 180px;">
           <el-option
             v-for="s in scenarios"
             :key="s.name"
-            :label="s.label"
+            :label="`${s.label} (${s.count})`"
             :value="s.name"
           >
             <span class="scenario-dot" :style="{ background: s.color }"></span>
             {{ s.label }} ({{ s.count }})
           </el-option>
-        </el-select>
-        <el-select v-model="filterDifficulty" placeholder="全部难度" clearable style="width: 120px;">
-          <el-option label="简单" value="easy" />
-          <el-option label="中等" value="medium" />
-          <el-option label="困难" value="hard" />
         </el-select>
         <el-input
           v-model="searchText"
@@ -28,10 +23,7 @@
         />
       </div>
       <div class="toolbar-right">
-        <el-button type="primary" :icon="Plus" @click="showCreateDialog = true">
-          新建用例
-        </el-button>
-        <el-button :icon="Upload">批量导入</el-button>
+        <span class="case-total">共 {{ filteredCases.length }} 个用例</span>
       </div>
     </div>
 
@@ -55,17 +47,17 @@
 
     <!-- 用例表格 -->
     <div class="card">
-      <el-table :data="filteredCases" stripe style="width: 100%;" max-height="520">
-        <el-table-column prop="id" label="用例 ID" width="160">
+      <el-table :data="filteredCases" stripe style="width: 100%;" max-height="520" v-loading="loading">
+        <el-table-column prop="id" label="用例 ID" width="170">
           <template #default="{ row }">
             <span class="case-id-link" @click="openCaseDetail(row)">{{ row.id }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="title" label="标题" min-width="200" />
-        <el-table-column prop="scenario" label="场景" width="120">
+        <el-table-column prop="title" label="标题" min-width="240" />
+        <el-table-column prop="scenario" label="场景" width="140">
           <template #default="{ row }">
             <el-tag size="small" :color="getScenarioColor(row.scenario)" effect="dark" style="border: none;">
-              {{ getScenarioLabel(row.scenario) }}
+              {{ row.scenario }}
             </el-tag>
           </template>
         </el-table-column>
@@ -83,19 +75,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
-              {{ row.status === 'active' ? '启用' : '草稿' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="updated" label="更新时间" width="120" />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="80" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openCaseDetail(row)">查看</el-button>
-            <el-button link type="primary" size="small">编辑</el-button>
-            <el-button link type="danger" size="small">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -106,111 +88,61 @@
       <template v-if="detailCase">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="标题" :span="2">{{ detailCase.title }}</el-descriptions-item>
-          <el-descriptions-item label="场景">{{ detailCase.scenario }}</el-descriptions-item>
-          <el-descriptions-item label="难度">{{ difficultyLabel(detailCase.difficulty) }}</el-descriptions-item>
-          <el-descriptions-item label="状态">
-            <el-tag :type="detailCase.status === 'active' ? 'success' : 'info'" size="small">
-              {{ detailCase.status === 'active' ? '启用' : '草稿' }}
+          <el-descriptions-item label="场景">
+            <el-tag size="small" :color="getScenarioColor(detailCase.scenario)" effect="dark" style="border: none;">
+              {{ detailCase.scenario }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="更新时间">{{ detailCase.updated }}</el-descriptions-item>
+          <el-descriptions-item label="难度">
+            <el-tag :type="difficultyType(detailCase.difficulty)" size="small">
+              {{ difficultyLabel(detailCase.difficulty) }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="类别">{{ detailCase.category || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="标签">
+            <el-tag v-for="tag in detailCase.tags" :key="tag" size="small" class="tag-item">{{ tag }}</el-tag>
+          </el-descriptions-item>
         </el-descriptions>
 
         <h4 style="margin: 20px 0 10px;">Prompt</h4>
-        <div class="code-block">{{ detailCase.prompt }}</div>
+        <div class="code-block">{{ detailCase.prompt || '（无）' }}</div>
 
-        <h4 style="margin: 20px 0 10px;">输入代码</h4>
-        <div class="code-block">{{ detailCase.input_code || '（无）' }}</div>
+        <template v-if="detailCase.input_code">
+          <h4 style="margin: 20px 0 10px;">
+            输入代码
+            <span class="file-path">{{ detailCase.input_file }}</span>
+          </h4>
+          <div class="code-block">{{ detailCase.input_code }}</div>
+        </template>
 
-        <h4 style="margin: 20px 0 10px;">参考代码</h4>
-        <div class="code-block">{{ detailCase.reference_code || '（无）' }}</div>
-
-        <h4 style="margin: 20px 0 10px;">评分权重</h4>
-        <el-descriptions :column="3" border size="small">
-          <el-descriptions-item
-            v-for="(weight, dim) in detailCase.rubric"
-            :key="dim"
-            :label="dim"
-          >
-            {{ weight }}%
-          </el-descriptions-item>
-        </el-descriptions>
-
-        <h4 style="margin: 20px 0 10px;">规则匹配</h4>
-        <div style="margin-bottom: 8px;">
-          <strong>必须包含：</strong>
-          <el-tag v-for="r in detailCase.rules.must_contain" :key="r" size="small" type="success" class="tag-item">
-            {{ r }}
-          </el-tag>
-          <span v-if="!detailCase.rules.must_contain?.length" style="color: #999;">无</span>
-        </div>
-        <div>
-          <strong>不能包含：</strong>
-          <el-tag v-for="r in detailCase.rules.must_not_contain" :key="r" size="small" type="danger" class="tag-item">
-            {{ r }}
-          </el-tag>
-          <span v-if="!detailCase.rules.must_not_contain?.length" style="color: #999;">无</span>
-        </div>
+        <template v-if="detailCase.reference_code">
+          <h4 style="margin: 20px 0 10px;">
+            参考代码
+            <span class="file-path">{{ detailCase.expected_file }}</span>
+          </h4>
+          <div class="code-block">{{ detailCase.reference_code }}</div>
+        </template>
       </template>
     </el-drawer>
-
-    <!-- 新建用例弹窗 -->
-    <el-dialog v-model="showCreateDialog" title="新建测试用例" width="700px">
-      <el-form label-width="100px">
-        <el-form-item label="用例 ID">
-          <el-input placeholder="如 bug_fix_004" />
-        </el-form-item>
-        <el-form-item label="标题">
-          <el-input placeholder="简要描述测试目标" />
-        </el-form-item>
-        <el-form-item label="场景">
-          <el-select placeholder="选择场景" style="width: 100%;">
-            <el-option v-for="s in scenarios" :key="s.name" :label="s.label" :value="s.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="难度">
-          <el-radio-group>
-            <el-radio value="easy">简单</el-radio>
-            <el-radio value="medium">中等</el-radio>
-            <el-radio value="hard">困难</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="Prompt">
-          <el-input type="textarea" :rows="4" placeholder="Agent 接收到的提示词" />
-        </el-form-item>
-        <el-form-item label="输入代码">
-          <el-input type="textarea" :rows="4" placeholder="需要修改的原始代码（可选）" />
-        </el-form-item>
-        <el-form-item label="参考代码">
-          <el-input type="textarea" :rows="4" placeholder="期望的参考实现" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="showCreateDialog = false">保存</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { Search, Plus, Upload } from '@element-plus/icons-vue'
-import { mockCases, mockScenarios } from '../mock/data'
+import { ref, computed, onMounted } from 'vue'
+import { Search } from '@element-plus/icons-vue'
+import axios from 'axios'
 
-const scenarios = ref(mockScenarios)
-const cases = ref(mockCases)
+const scenarios = ref([])
+const cases = ref([])
 const filterScenario = ref('')
-const filterDifficulty = ref('')
 const searchText = ref('')
 const showDetail = ref(false)
 const detailCase = ref(null)
-const showCreateDialog = ref(false)
+const loading = ref(false)
 
 const filteredCases = computed(() => {
   return cases.value.filter(c => {
     if (filterScenario.value && c.scenario !== filterScenario.value) return false
-    if (filterDifficulty.value && c.difficulty !== filterDifficulty.value) return false
     if (searchText.value) {
       const q = searchText.value.toLowerCase()
       if (!c.id.toLowerCase().includes(q) && !c.title.toLowerCase().includes(q)) return false
@@ -224,11 +156,6 @@ const getScenarioColor = (name) => {
   return s ? s.color : '#999'
 }
 
-const getScenarioLabel = (name) => {
-  const s = scenarios.value.find(s => s.name === name)
-  return s ? s.label : name
-}
-
 const difficultyType = (d) => ({ easy: 'success', medium: 'warning', hard: 'danger' }[d] || 'info')
 const difficultyLabel = (d) => ({ easy: '简单', medium: '中等', hard: '困难' }[d] || d)
 
@@ -236,6 +163,23 @@ const openCaseDetail = (row) => {
   detailCase.value = row
   showDetail.value = true
 }
+
+const loadData = async () => {
+  loading.value = true
+  try {
+    const [casesRes, scenariosRes] = await Promise.all([
+      axios.get('/api/cases'),
+      axios.get('/api/cases/scenarios'),
+    ])
+    cases.value = casesRes.data
+    scenarios.value = scenariosRes.data
+  } catch (e) {
+    console.error('加载用例数据失败:', e)
+  }
+  loading.value = false
+}
+
+onMounted(loadData)
 </script>
 
 <style scoped>
@@ -266,6 +210,11 @@ const openCaseDetail = (row) => {
   gap: 10px;
 }
 
+.case-total {
+  font-size: 13px;
+  color: #999;
+}
+
 .scenario-overview {
   display: flex;
   gap: 12px;
@@ -277,7 +226,7 @@ const openCaseDetail = (row) => {
   background: #fff;
   border-radius: 12px;
   padding: 16px 20px;
-  min-width: 130px;
+  min-width: 120px;
   cursor: pointer;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
   border: 2px solid transparent;
@@ -356,7 +305,15 @@ const openCaseDetail = (row) => {
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 13px;
   white-space: pre-wrap;
-  max-height: 200px;
+  max-height: 300px;
   overflow-y: auto;
+}
+
+.file-path {
+  font-size: 11px;
+  color: #999;
+  font-weight: 400;
+  margin-left: 8px;
+  font-family: 'Consolas', monospace;
 }
 </style>

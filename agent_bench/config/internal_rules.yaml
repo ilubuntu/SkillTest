@@ -1,21 +1,26 @@
 # ArkTS 内部评分体系
-# 格式说明：规则名称|规则级别|描述|匹配规则|是否通过
-# 规则级别: HIGH(高)、MEDIUM(中)、LOW(低)
-# 是否通过: true(匹配到规则为通过)/false(匹配到规则为不通过)
-# 匹配规则: 支持Python正则表达式语法
+# 规则级别: HIGH(高权重)、MEDIUM(中权重)、LOW(低权重)
+# pass_on_match: true(匹配到则通过) / false(匹配到则不通过)
+# 未匹配到任何内容 → 默认通过（不扣分）
 
 # ==================== 兼容性 ====================
 compatibility:
-  - name: 导入规范
+  - name: 禁用var声明
     level: HIGH
-    description: import语句应放在文件顶部
-    pattern: "^import\\s+"
-    pass_on_match: true
+    description: 应使用let/const替代var，ArkTS不推荐var
+    pattern: "\\bvar\\s+"
+    pass_on_match: false
 
   - name: 类型注解
     level: MEDIUM
-    description: 建议添加类型注解，避免使用any
-    pattern: ": any\\b"
+    description: 避免使用any类型，应使用明确的类型注解
+    pattern: ":\\s*any\\b"
+    pass_on_match: false
+
+  - name: 装饰器V2规范
+    level: HIGH
+    description: 检测V1装饰器，应迁移到V2版本
+    pattern: "@Observed\\b(?!V2)|@ObjectLink|@Prop\\b|@Link\\b|@Provide\\b(?!r)|@Consume\\b(?!r)|@Watch\\b|@StorageLink|@StorageProp|@LocalStorageLink|@LocalStorageProp"
     pass_on_match: false
 
 # ==================== 生态规则符合度 ====================
@@ -23,43 +28,38 @@ ecosystem:
   - name: 日志规范
     level: HIGH
     description: 应使用hilog替代console.log
-    pattern: "console\\.log\\("
+    pattern: "console\\.(log|warn|error|info)\\("
     pass_on_match: false
 
-  - name: 资源管理
+  - name: 定时器清理
     level: HIGH
-    description: 资源使用后应及时释放
-    pattern: "\\.close\\(\\)|\\.release\\(\\)|\\.dispose\\(\\)"
+    description: 使用setInterval/setTimeout时应在组件销毁时清理
+    pattern: "aboutToDisappear|clearInterval|clearTimeout"
     pass_on_match: true
+
+  - name: 废弃路由API
+    level: MEDIUM
+    description: 应使用NavPathStack替代已废弃的router API
+    pattern: "router\\.push|router\\.replace|router\\.back"
+    pass_on_match: false
 
 # ==================== 代码质量 ====================
 code_quality:
-  - name: 空值检查
+  - name: 空值安全
     level: HIGH
-    description: 应使用可选链和空值合并运算符
-    pattern: "\\?\\.|\\?\\?|\\?\\?\\="
+    description: 应使用可选链(?.)和空值合并运算符(??)
+    pattern: "\\?\\.|\\?\\?"
     pass_on_match: true
 
   - name: 注释规范
     level: MEDIUM
-    description: 公共API应添加注释
+    description: 公共API应添加JSDoc注释
     pattern: "\\/\\*\\*"
     pass_on_match: true
 
-  - name: 代码重复
+  - name: 行宽限制
     level: LOW
-    description: 避免重复代码块
-    pattern: "\\bfunction\\b|\\bconst\\b"
-    pass_on_match: true
-
-  - name: 命名规范
-    level: HIGH
-    description: ArkTS变量命名应使用小驼峰或大驼峰
-    pattern: "^[a-z][a-zA-Z0-9]*$|^[A-Z][a-zA-Z0-9]*$"
-    pass_on_match: true
-
-  - name: 行宽不超过120个字符
-    level: HIGH
-    description: "^.{121,}$"
-    pattern: "^[a-z][a-zA-Z0-9]*$|^[A-Z][a-zA-Z0-9]*$"
-    pass_on_match: true
+    description: 单行代码不超过120个字符（仅适用于.ets文件）
+    pattern: "^.{121,}$"
+    pass_on_match: false
+    file_types: [".ets"]

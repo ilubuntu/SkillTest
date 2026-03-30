@@ -4,38 +4,26 @@
     <div class="toolbar card">
       <div class="toolbar-left">
         <el-input v-model="searchText" placeholder="搜索 Profile" :prefix-icon="Search" clearable style="width: 240px;" />
-        <el-checkbox v-model="showBaseline">显示基线配置</el-checkbox>
       </div>
       <div class="toolbar-right">
-        <el-button type="primary" :icon="Plus" @click="showCreateDialog = true">新建 Profile</el-button>
-        <el-button :icon="Connection">对比模式</el-button>
+        <span class="profile-total">共 {{ filteredProfiles.length }} 个 Profile</span>
       </div>
     </div>
 
     <!-- Profile 卡片网格 -->
-    <div class="profile-grid">
+    <div class="profile-grid" v-loading="loading">
       <div
         v-for="profile in filteredProfiles"
         :key="profile.name"
         class="profile-card card"
-        :class="{ baseline: profile.is_baseline }"
+        :class="{ baseline: !profile.enhancement_ids.length }"
       >
         <div class="profile-card-header">
           <div class="profile-name">
             {{ profile.name }}
-            <el-tag v-if="profile.is_baseline" type="info" size="small" class="baseline-tag">基线</el-tag>
+            <el-tag v-if="!profile.enhancement_ids.length" type="info" size="small" class="baseline-tag">基线</el-tag>
           </div>
-          <el-dropdown>
-            <el-icon class="more-icon"><MoreFilled /></el-icon>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item>编辑</el-dropdown-item>
-                <el-dropdown-item>复制</el-dropdown-item>
-                <el-dropdown-item>对比</el-dropdown-item>
-                <el-dropdown-item divided style="color: #f56c6c;">删除</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <span class="profile-id">{{ profile.id }}</span>
         </div>
 
         <div class="profile-desc">{{ profile.description }}</div>
@@ -56,30 +44,25 @@
 
         <!-- 增强配置摘要 -->
         <div class="enhancement-summary">
-          <div class="enhance-item" :class="{ active: profile.enhancements?.skills?.length }">
+          <div class="enhance-item" :class="{ active: profile.skills.length }">
             <el-icon><Document /></el-icon>
             <span>Skill</span>
-            <span class="enhance-count">{{ profile.enhancements?.skills?.length || 0 }}</span>
+            <span class="enhance-count">{{ profile.skills.length }}</span>
           </div>
-          <div class="enhance-item" :class="{ active: profile.enhancements?.system_prompt }">
+          <div class="enhance-item" :class="{ active: profile.system_prompts.length }">
             <el-icon><ChatDotRound /></el-icon>
             <span>System Prompt</span>
-            <el-icon v-if="profile.enhancements?.system_prompt" class="check-icon"><Check /></el-icon>
+            <span class="enhance-count">{{ profile.system_prompts.length }}</span>
           </div>
-          <div class="enhance-item" :class="{ active: profile.enhancements?.mcp_servers?.length }">
+          <div class="enhance-item" :class="{ active: profile.mcp_servers.length }">
             <el-icon><Connection /></el-icon>
             <span>MCP Server</span>
-            <span class="enhance-count">{{ profile.enhancements?.mcp_servers?.length || 0 }}</span>
-          </div>
-          <div class="enhance-item" :class="{ active: profile.enhancements?.tools }">
-            <el-icon><SetUp /></el-icon>
-            <span>Tools</span>
-            <el-icon v-if="profile.enhancements?.tools" class="check-icon"><Check /></el-icon>
+            <span class="enhance-count">{{ profile.mcp_servers.length }}</span>
           </div>
         </div>
 
         <div class="profile-footer">
-          <span class="update-time">更新于 {{ profile.updated }}</span>
+          <span class="profile-file">{{ profile.file }}</span>
           <el-button type="primary" link size="small" @click="openDetail(profile)">
             查看详情
           </el-button>
@@ -88,50 +71,84 @@
     </div>
 
     <!-- Profile 详情抽屉 -->
-    <el-drawer v-model="showDetail" :title="detailProfile?.name" size="600px">
+    <el-drawer v-model="showDetail" :title="detailProfile?.name" size="650px">
       <template v-if="detailProfile">
         <el-descriptions :column="1" border>
+          <el-descriptions-item label="ID">{{ detailProfile.id }}</el-descriptions-item>
           <el-descriptions-item label="名称">{{ detailProfile.name }}</el-descriptions-item>
           <el-descriptions-item label="描述">{{ detailProfile.description }}</el-descriptions-item>
-          <el-descriptions-item label="基线标记">
-            <el-tag :type="detailProfile.is_baseline ? 'warning' : 'info'" size="small">
-              {{ detailProfile.is_baseline ? '是' : '否' }}
-            </el-tag>
+          <el-descriptions-item label="配置文件">
+            <span class="mono">{{ detailProfile.file }}</span>
           </el-descriptions-item>
           <el-descriptions-item label="关联场景">
             <el-tag v-for="s in detailProfile.scenarios" :key="s" size="small" class="tag-item">{{ s }}</el-tag>
             <span v-if="!detailProfile.scenarios.length" style="color: #999;">无</span>
           </el-descriptions-item>
+          <el-descriptions-item label="Enhancement IDs">
+            <el-tag v-for="eid in detailProfile.enhancement_ids" :key="eid" size="small" type="info" class="tag-item">
+              {{ eid }}
+            </el-tag>
+            <span v-if="!detailProfile.enhancement_ids.length" style="color: #999;">无</span>
+          </el-descriptions-item>
         </el-descriptions>
 
-        <h4 style="margin: 24px 0 12px;">增强配置</h4>
+        <h4 style="margin: 24px 0 12px;">增强配置详情</h4>
 
-        <el-collapse>
+        <el-collapse v-model="activeCollapse">
+          <!-- Skills -->
           <el-collapse-item title="Skills" name="skills">
-            <div v-if="detailProfile.enhancements?.skills?.length">
-              <div v-for="skill in detailProfile.enhancements.skills" :key="skill.name" class="skill-item">
-                <el-icon><Document /></el-icon>
-                <div>
-                  <div class="skill-name">{{ skill.name }}</div>
-                  <div class="skill-path">{{ skill.path }}</div>
+            <template #title>
+              <span>Skills</span>
+              <el-tag size="small" type="info" style="margin-left: 8px;">{{ detailProfile.skills.length }}</el-tag>
+            </template>
+            <div v-if="detailProfile.skills.length">
+              <div v-for="skill in detailProfile.skills" :key="skill.id" class="enhance-detail-item">
+                <div class="enhance-detail-header">
+                  <el-icon><Document /></el-icon>
+                  <div>
+                    <div class="enhance-detail-name">{{ skill.name }}</div>
+                    <div class="enhance-detail-desc">{{ skill.description }}</div>
+                    <div class="enhance-detail-path">{{ skill.path }}</div>
+                  </div>
                 </div>
+                <div v-if="skill.content" class="code-block">{{ skill.content }}</div>
               </div>
             </div>
-            <div v-else style="color: #999;">未配置 Skill</div>
+            <div v-else class="empty-hint">未配置 Skill</div>
           </el-collapse-item>
 
+          <!-- System Prompts -->
           <el-collapse-item title="System Prompt" name="system_prompt">
-            <div v-if="detailProfile.enhancements?.system_prompt" class="code-block">
-              {{ detailProfile.enhancements.system_prompt }}
+            <template #title>
+              <span>System Prompt</span>
+              <el-tag size="small" type="info" style="margin-left: 8px;">{{ detailProfile.system_prompts.length }}</el-tag>
+            </template>
+            <div v-if="detailProfile.system_prompts.length">
+              <div v-for="sp in detailProfile.system_prompts" :key="sp.id" class="enhance-detail-item">
+                <div class="enhance-detail-header">
+                  <el-icon><ChatDotRound /></el-icon>
+                  <div>
+                    <div class="enhance-detail-name">{{ sp.name }}</div>
+                    <div class="enhance-detail-desc">{{ sp.description }}</div>
+                    <div class="enhance-detail-path">{{ sp.path }}</div>
+                  </div>
+                </div>
+                <div v-if="sp.content" class="code-block">{{ sp.content }}</div>
+              </div>
             </div>
-            <div v-else style="color: #999;">未配置 System Prompt</div>
+            <div v-else class="empty-hint">未配置 System Prompt</div>
           </el-collapse-item>
 
+          <!-- MCP Servers -->
           <el-collapse-item title="MCP Servers" name="mcp">
-            <div v-if="detailProfile.enhancements?.mcp_servers?.length">
+            <template #title>
+              <span>MCP Servers</span>
+              <el-tag size="small" type="info" style="margin-left: 8px;">{{ detailProfile.mcp_servers.length }}</el-tag>
+            </template>
+            <div v-if="detailProfile.mcp_servers.length">
               <el-descriptions
-                v-for="mcp in detailProfile.enhancements.mcp_servers"
-                :key="mcp.name"
+                v-for="mcp in detailProfile.mcp_servers"
+                :key="mcp.id"
                 :column="1"
                 border
                 size="small"
@@ -141,75 +158,28 @@
                 <el-descriptions-item label="命令">{{ mcp.command }} {{ (mcp.args || []).join(' ') }}</el-descriptions-item>
               </el-descriptions>
             </div>
-            <div v-else style="color: #999;">未配置 MCP Server</div>
-          </el-collapse-item>
-
-          <el-collapse-item title="Tools" name="tools">
-            <div v-if="detailProfile.enhancements?.tools">
-              <pre style="margin: 0; font-size: 13px;">{{ JSON.stringify(detailProfile.enhancements.tools, null, 2) }}</pre>
-            </div>
-            <div v-else style="color: #999;">未配置 Tools</div>
+            <div v-else class="empty-hint">未配置 MCP Server</div>
           </el-collapse-item>
         </el-collapse>
       </template>
     </el-drawer>
-
-    <!-- 新建 Profile 弹窗 -->
-    <el-dialog v-model="showCreateDialog" title="新建 Profile" width="700px">
-      <el-form label-width="120px">
-        <el-form-item label="Profile 名称">
-          <el-input placeholder="如 bug_fix_enhanced" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input type="textarea" :rows="2" placeholder="Profile 用途说明" />
-        </el-form-item>
-        <el-form-item label="关联场景">
-          <el-select multiple placeholder="选择场景" style="width: 100%;">
-            <el-option v-for="s in mockScenarios" :key="s.name" :label="s.label" :value="s.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="标记为基线">
-          <el-switch />
-        </el-form-item>
-        <el-divider content-position="left">增强配置</el-divider>
-        <el-form-item label="Skill 文件">
-          <el-upload action="#" :auto-upload="false">
-            <el-button type="primary">选择 Skill 文件</el-button>
-          </el-upload>
-        </el-form-item>
-        <el-form-item label="System Prompt">
-          <el-input type="textarea" :rows="4" placeholder="Agent 系统提示词" />
-        </el-form-item>
-        <el-form-item label="MCP Server">
-          <el-button :icon="Plus" size="small">添加 MCP Server</el-button>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="showCreateDialog = false">保存</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import {
-  Search, Plus, Connection, MoreFilled,
-  Document, ChatDotRound, SetUp, Check
-} from '@element-plus/icons-vue'
-import { mockProfiles, mockScenarios } from '../mock/data'
+import { ref, computed, onMounted } from 'vue'
+import { Search, Document, ChatDotRound, Connection } from '@element-plus/icons-vue'
+import axios from 'axios'
 
-const profiles = ref(mockProfiles)
+const profiles = ref([])
 const searchText = ref('')
-const showBaseline = ref(true)
 const showDetail = ref(false)
 const detailProfile = ref(null)
-const showCreateDialog = ref(false)
+const loading = ref(false)
+const activeCollapse = ref(['skills', 'system_prompt'])
 
 const filteredProfiles = computed(() => {
   return profiles.value.filter(p => {
-    if (!showBaseline.value && p.is_baseline) return false
     if (searchText.value) {
       const q = searchText.value.toLowerCase()
       if (!p.name.toLowerCase().includes(q) && !p.description.toLowerCase().includes(q)) return false
@@ -222,6 +192,19 @@ const openDetail = (profile) => {
   detailProfile.value = profile
   showDetail.value = true
 }
+
+const loadData = async () => {
+  loading.value = true
+  try {
+    const res = await axios.get('/api/profiles/detail')
+    profiles.value = res.data
+  } catch (e) {
+    console.error('加载 Profile 数据失败:', e)
+  }
+  loading.value = false
+}
+
+onMounted(loadData)
 </script>
 
 <style scoped>
@@ -250,6 +233,11 @@ const openDetail = (profile) => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.profile-total {
+  font-size: 13px;
+  color: #999;
 }
 
 .profile-grid {
@@ -289,14 +277,14 @@ const openDetail = (profile) => {
   gap: 8px;
 }
 
-.baseline-tag {
-  font-weight: 400;
+.profile-id {
+  font-size: 11px;
+  color: #bbb;
+  font-family: 'Consolas', monospace;
 }
 
-.more-icon {
-  cursor: pointer;
-  color: #999;
-  font-size: 18px;
+.baseline-tag {
+  font-weight: 400;
 }
 
 .profile-desc {
@@ -322,7 +310,7 @@ const openDetail = (profile) => {
 
 .enhancement-summary {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   padding: 12px;
   background: #f8f9fb;
@@ -348,11 +336,6 @@ const openDetail = (profile) => {
   color: #667eea;
 }
 
-.check-icon {
-  margin-left: auto;
-  color: #67c23a;
-}
-
 .profile-footer {
   display: flex;
   justify-content: space-between;
@@ -361,34 +344,49 @@ const openDetail = (profile) => {
   border-top: 1px solid #f0f0f0;
 }
 
-.update-time {
-  font-size: 12px;
-  color: #999;
+.profile-file {
+  font-size: 11px;
+  color: #bbb;
+  font-family: 'Consolas', monospace;
 }
 
 .tag-item {
   margin-right: 4px;
 }
 
-.skill-item {
+.mono {
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+}
+
+.enhance-detail-item {
+  margin-bottom: 16px;
+}
+
+.enhance-detail-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  padding: 8px;
-  border-radius: 6px;
-  background: #f8f9fb;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
-.skill-name {
-  font-weight: 500;
+.enhance-detail-name {
+  font-weight: 600;
   font-size: 14px;
+  color: #1a1a2e;
 }
 
-.skill-path {
+.enhance-detail-desc {
   font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.enhance-detail-path {
+  font-size: 11px;
   color: #999;
   font-family: 'Consolas', monospace;
+  margin-top: 2px;
 }
 
 .code-block {
@@ -396,10 +394,15 @@ const openDetail = (profile) => {
   color: #e0e0e0;
   border-radius: 8px;
   padding: 16px;
-  font-family: 'Consolas', monospace;
-  font-size: 13px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
   white-space: pre-wrap;
-  max-height: 200px;
+  max-height: 300px;
   overflow-y: auto;
+}
+
+.empty-hint {
+  color: #999;
+  font-size: 13px;
 }
 </style>

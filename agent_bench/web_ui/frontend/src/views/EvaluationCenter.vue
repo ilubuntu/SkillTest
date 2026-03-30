@@ -249,7 +249,7 @@
 
     <!-- 全屏日志弹窗 -->
     <!-- 阶段产物弹窗 -->
-    <el-dialog v-model="showStageFiles" width="720px" :title="stageDialogTitle" class="stage-dialog">
+    <el-dialog v-model="showStageFiles" width="860px" :title="stageDialogTitle" class="stage-dialog">
       <div v-if="stageFileLoading" style="text-align: center; padding: 40px;">
         <el-icon class="spinning" :size="24"><Loading /></el-icon>
         <div style="margin-top: 8px; color: #999;">加载中...</div>
@@ -264,7 +264,82 @@
             @click="loadStageFile(f)"
           >{{ f }}</span>
         </div>
-        <pre class="stage-file-content">{{ stageFileContent }}</pre>
+
+        <!-- 规则检查表格渲染 -->
+        <template v-if="ruleCheckData">
+          <div v-for="item in ruleSides" :key="item.key" class="rule-side">
+            <div class="rule-side-header">
+              <span class="rule-side-label">{{ item.label }}</span>
+              <span class="rule-side-score">{{ ruleCheckData[item.key]?.total?.toFixed(1) ?? '-' }} / 30</span>
+            </div>
+            <template v-if="ruleCheckData[item.key]?.dimensions">
+              <div v-for="(dim, dimName) in ruleCheckData[item.key].dimensions" :key="dimName" class="rule-dim">
+                <div class="rule-dim-header">
+                  {{ dimName }}
+                  <span class="rule-dim-score">{{ dim.raw_score }} / {{ dim.max_score }}</span>
+                </div>
+                <el-table :data="dim.rules" size="small" stripe style="width: 100%;">
+                  <el-table-column label="结果" width="60" align="center">
+                    <template #default="{ row }">
+                      <span :class="row.passed ? 'rule-pass' : 'rule-fail'">{{ row.passed ? '✓' : '✗' }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="name" label="规则" width="160" />
+                  <el-table-column prop="level" label="级别" width="80">
+                    <template #default="{ row }">
+                      <el-tag :type="{ HIGH: 'danger', MEDIUM: 'warning', LOW: 'info' }[row.level]" size="small">
+                        {{ row.level }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="description" label="说明" min-width="180" />
+                  <el-table-column label="满分" width="70" align="center">
+                    <template #default="{ row }">{{ row.max_score }}</template>
+                  </el-table-column>
+                  <el-table-column label="得分" width="70" align="center">
+                    <template #default="{ row }">
+                      <span :style="{ color: row.earned_score < row.max_score ? '#f56c6c' : '#67c23a', fontWeight: 600 }">
+                        {{ row.earned_score }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="匹配" width="160">
+                    <template #default="{ row }">
+                      <code v-if="row.matched_text" class="matched-code">{{ row.matched_text }}</code>
+                      <span v-else-if="!row.matched" style="color: #ccc;">未匹配</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- LLM评分表格渲染 -->
+        <template v-else-if="judgeData">
+          <div v-for="item in ruleSides" :key="item.key" class="rule-side">
+            <div class="rule-side-header">
+              <span class="rule-side-label">{{ item.label }}</span>
+              <span v-if="judgeData[item.key]" class="rule-side-score">
+                均分 {{ (judgeData[item.key].reduce((s, d) => s + d.score, 0) / judgeData[item.key].length).toFixed(1) }}
+              </span>
+            </div>
+            <el-table v-if="judgeData[item.key]" :data="judgeData[item.key]" size="small" stripe style="width: 100%;">
+              <el-table-column prop="name" label="维度" width="120" />
+              <el-table-column label="得分" width="80" align="center">
+                <template #default="{ row }">
+                  <span :style="{ color: row.score >= 80 ? '#67c23a' : row.score >= 60 ? '#e6a23c' : '#f56c6c', fontWeight: 600 }">
+                    {{ row.score }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="reason" label="评分理由" min-width="300" show-overflow-tooltip />
+            </el-table>
+          </div>
+        </template>
+
+        <!-- 通用文件内容 -->
+        <pre v-else class="stage-file-content">{{ stageFileContent }}</pre>
       </div>
       <div v-else style="text-align: center; padding: 40px; color: #999;">
         该阶段暂无产物文件
@@ -408,6 +483,9 @@ const stageFileLoading = ref(false)
 const stageFiles = ref([])
 const stageFileContent = ref(null)
 const activeStageFile = ref('')
+const ruleCheckData = ref(null)
+const judgeData = ref(null)
+const ruleSides = [{ key: 'baseline', label: '基线' }, { key: 'enhanced', label: '增强' }]
 let currentStageCtx = { caseId: '', stage: '' }
 
 const STAGE_NAME_MAP = {
@@ -425,6 +503,8 @@ const openStageFiles = async (caseId, stageName) => {
   stageDialogTitle.value = `${caseId} — ${stageName}`
   stageFileLoading.value = true
   stageFileContent.value = null
+  ruleCheckData.value = null
+  judgeData.value = null
   stageFiles.value = []
   activeStageFile.value = ''
   showStageFiles.value = true
@@ -447,13 +527,32 @@ const openStageFiles = async (caseId, stageName) => {
 const loadStageFile = async (filename) => {
   activeStageFile.value = filename
   stageFileLoading.value = true
+  ruleCheckData.value = null
+  judgeData.value = null
   try {
     const { caseId, stage } = currentStageCtx
     const res = await axios.get(
       `/api/results/${runId.value}/cases/${caseId}/stages/${stage}/${filename}`,
       { transformResponse: [data => data] }
     )
-    stageFileContent.value = typeof res.data === 'string' ? res.data : JSON.stringify(res.data, null, 2)
+    const raw = res.data
+    if (filename === 'internal_score.json' && stage === 'rule_check') {
+      try {
+        ruleCheckData.value = JSON.parse(raw)
+        stageFileContent.value = raw
+      } catch {
+        stageFileContent.value = raw
+      }
+    } else if (filename === 'judge.json' && stage === 'llm_judge') {
+      try {
+        judgeData.value = JSON.parse(raw)
+        stageFileContent.value = raw
+      } catch {
+        stageFileContent.value = raw
+      }
+    } else {
+      stageFileContent.value = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2)
+    }
   } catch (e) {
     stageFileContent.value = '加载失败'
   }
@@ -958,6 +1057,65 @@ onUnmounted(() => {
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
+}
+
+/* ── 规则检查表格 ── */
+.rule-side {
+  margin-bottom: 20px;
+}
+.rule-side-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f0f2f5;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+.rule-side-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1a1a2e;
+}
+.rule-side-score {
+  font-weight: 700;
+  font-size: 14px;
+  color: #667eea;
+}
+.rule-dim {
+  margin-bottom: 14px;
+}
+.rule-dim-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.rule-dim-score {
+  font-size: 12px;
+  color: #999;
+  font-weight: 400;
+}
+.rule-pass {
+  color: #34a853;
+  font-weight: 700;
+  font-size: 16px;
+}
+.rule-fail {
+  color: #ea4335;
+  font-weight: 700;
+  font-size: 16px;
+}
+.matched-code {
+  font-size: 11px;
+  background: #fff3f3;
+  color: #ea4335;
+  padding: 2px 6px;
+  border-radius: 3px;
+  word-break: break-all;
 }
 </style>
 

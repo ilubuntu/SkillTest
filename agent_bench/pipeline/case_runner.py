@@ -329,6 +329,18 @@ def _run_evaluator_stage(case_id, title, scenario, case,
 
     baseline_internal = internal_scorer.score(baseline_output, rules_config)
     enhanced_internal = internal_scorer.score(enhanced_output, rules_config)
+
+    for side, result, label in [("baseline", baseline_internal, "基线"),
+                                 ("enhanced", enhanced_internal, "增强")]:
+        for dim_name, dim in result.dimensions.items():
+            for rule in dim.rules:
+                status = "✓" if rule.passed else "✗"
+                detail = ""
+                if rule.matched and not rule.passed:
+                    detail = f" → {rule.matched_text}"
+                _notify(on_progress, "log", {"level": "DEBUG",
+                    "message": f"[{case_id}] 规则[{label}] {status} {rule.name} ({rule.level}){detail}"})
+
     _notify(on_progress, "log", {"level": "INFO",
         "message": f"[{case_id}] 规则检查完成: 基线={baseline_internal.total:.1f}/30, "
                    f"增强={enhanced_internal.total:.1f}/30"})
@@ -417,7 +429,10 @@ def _run_evaluator_stage(case_id, title, scenario, case,
                     "rules": [
                         {"name": rule.name, "level": rule.level,
                          "passed": rule.passed, "matched": rule.matched,
-                         "description": rule.description}
+                         "matched_text": rule.matched_text,
+                         "description": rule.description,
+                         "max_score": rule.max_score,
+                         "earned_score": rule.earned_score}
                         for rule in v.rules
                     ],
                 }

@@ -24,8 +24,10 @@ struct TodoList {
             .justifyContent(FlexAlign.SpaceBetween)
             .padding(12)
           }
-        }, (item: string) => item)
+        })
       }
+      .width('100%')
+      .layoutWeight(1)
     }
     .width('100%')
     .height('100%')

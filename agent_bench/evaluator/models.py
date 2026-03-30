@@ -16,6 +16,9 @@ class RuleResult:
     description: str
     passed: bool
     matched: bool       # 是否匹配到 pattern
+    matched_text: str = ""  # 匹配到的代码片段
+    max_score: float = 0.0  # 该规则满分
+    earned_score: float = 0.0  # 该规则实际得分
 
 
 @dataclass

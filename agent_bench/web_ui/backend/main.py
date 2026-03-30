@@ -25,6 +25,8 @@ sys.path.insert(0, str(_REPO_DIR))                       # repo root
 from backend.routes.config import router as config_router, init_cache
 from backend.routes.evaluation import router as evaluation_router
 from backend.routes.reports import router as reports_router
+from backend.routes.cases import router as cases_router
+from backend.routes.profiles import router as profiles_router
 
 
 @asynccontextmanager
@@ -52,6 +54,8 @@ app.add_middleware(
 app.include_router(config_router)
 app.include_router(evaluation_router)
 app.include_router(reports_router)
+app.include_router(cases_router)
+app.include_router(profiles_router)
 
 # ── 静态文件（前端 dist） ─────────────────────────────────────
 _dist_dir = Path(__file__).parent.parent / "frontend" / "dist"
