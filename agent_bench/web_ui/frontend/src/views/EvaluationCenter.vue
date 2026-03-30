@@ -303,10 +303,15 @@
                       </span>
                     </template>
                   </el-table-column>
-                  <el-table-column label="匹配" width="160">
+                  <el-table-column label="检查结论" width="120">
+                    <template #default="{ row }">
+                      <span :class="row.passed ? 'rule-conclusion pass' : 'rule-conclusion fail'">{{ getRuleConclusion(row) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="证据" width="160">
                     <template #default="{ row }">
                       <code v-if="row.matched_text" class="matched-code">{{ row.matched_text }}</code>
-                      <span v-else-if="!row.matched" style="color: #ccc;">未匹配</span>
+                      <span v-else style="color: #ccc;">-</span>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -538,7 +543,8 @@ const loadStageFile = async (filename) => {
     const raw = res.data
     if (filename === 'internal_score.json' && stage === 'rule_check') {
       try {
-        ruleCheckData.value = JSON.parse(raw)
+        const parsed = JSON.parse(raw)
+        ruleCheckData.value = await enrichRuleCheckData(parsed)
         stageFileContent.value = raw
       } catch {
         stageFileContent.value = raw
@@ -557,6 +563,66 @@ const loadStageFile = async (filename) => {
     stageFileContent.value = '加载失败'
   }
   stageFileLoading.value = false
+}
+
+const buildRuleMetaIndex = (rulesConfig) => {
+  const index = new Map()
+  Object.values(rulesConfig || {}).forEach((rules) => {
+    if (!Array.isArray(rules)) return
+    rules.forEach((rule) => {
+      if (!rule?.name) return
+      index.set(`${rule.name}::${rule.description || ''}`, rule)
+      index.set(rule.name, rule)
+    })
+  })
+  return index
+}
+
+const enrichRuleCheckSide = (sideData, ruleMetaIndex) => {
+  if (!sideData?.dimensions) return sideData
+  const dimensions = {}
+  for (const [dimName, dim] of Object.entries(sideData.dimensions)) {
+    dimensions[dimName] = {
+      ...dim,
+      rules: (dim.rules || []).map((rule) => {
+        const meta = ruleMetaIndex.get(`${rule.name}::${rule.description || ''}`) || ruleMetaIndex.get(rule.name)
+        return {
+          ...rule,
+          pass_on_match: meta?.pass_on_match,
+        }
+      }),
+    }
+  }
+  return { ...sideData, dimensions }
+}
+
+const enrichRuleCheckData = async (data) => {
+  try {
+    const { caseId, stage } = currentStageCtx
+    const rulesRes = await axios.get(
+      `/api/results/${runId.value}/cases/${caseId}/stages/${stage}/rules.json`,
+      { transformResponse: [raw => raw] }
+    )
+    const rulesConfig = JSON.parse(rulesRes.data)
+    const ruleMetaIndex = buildRuleMetaIndex(rulesConfig)
+    return {
+      ...data,
+      baseline: enrichRuleCheckSide(data.baseline, ruleMetaIndex),
+      enhanced: enrichRuleCheckSide(data.enhanced, ruleMetaIndex),
+    }
+  } catch {
+    return data
+  }
+}
+
+const getRuleConclusion = (row) => {
+  if (row.pass_on_match === false) {
+    return row.matched ? '发现违规' : '未发现违规'
+  }
+  if (row.pass_on_match === true) {
+    return row.matched ? '满足要求' : '默认通过'
+  }
+  return row.passed ? '通过' : '未通过'
 }
 
 // ── 数据加载 ──
@@ -1108,6 +1174,17 @@ onUnmounted(() => {
   color: #ea4335;
   font-weight: 700;
   font-size: 16px;
+}
+.rule-conclusion {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.rule-conclusion.pass {
+  color: #34a853;
+}
+.rule-conclusion.fail {
+  color: #ea4335;
 }
 .matched-code {
   font-size: 11px;

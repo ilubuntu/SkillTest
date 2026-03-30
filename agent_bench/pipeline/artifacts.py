@@ -15,25 +15,30 @@ import os
 
 # ── Runner 阶段 ──────────────────────────────────────────────
 
+def save_runner_stage_artifacts(case_dir: str,
+                                stage: str,
+                                output: str,
+                                task_prompt: str = "",
+                                enhancements: dict = None):
+    """保存单个 Runner 阶段产物，支持失败时保留已完成阶段。"""
+    sd = os.path.join(case_dir, stage)
+    os.makedirs(sd, exist_ok=True)
+    with open(os.path.join(sd, "output.txt"), "w", encoding="utf-8") as f:
+        f.write(output)
+    if task_prompt:
+        with open(os.path.join(sd, "input.txt"), "w", encoding="utf-8") as f:
+            f.write(task_prompt)
+    if stage == "enhanced" and enhancements:
+        with open(os.path.join(sd, "enhancements.json"), "w", encoding="utf-8") as f:
+            json.dump(enhancements, f, ensure_ascii=False, indent=2)
+
 def save_runner_artifacts(case_dir: str,
                           baseline_output: str, enhanced_output: str,
                           task_prompt: str = "",
                           enhancements: dict = None):
     """保存 Runner 阶段产物到 baseline/ 和 enhanced/ 子目录"""
-    for stage, output in [("baseline", baseline_output), ("enhanced", enhanced_output)]:
-        sd = os.path.join(case_dir, stage)
-        os.makedirs(sd, exist_ok=True)
-        with open(os.path.join(sd, "output.txt"), "w", encoding="utf-8") as f:
-            f.write(output)
-        if task_prompt:
-            with open(os.path.join(sd, "input.txt"), "w", encoding="utf-8") as f:
-                f.write(task_prompt)
-
-    if enhancements:
-        enhanced_dir = os.path.join(case_dir, "enhanced")
-        os.makedirs(enhanced_dir, exist_ok=True)
-        with open(os.path.join(enhanced_dir, "enhancements.json"), "w", encoding="utf-8") as f:
-            json.dump(enhancements, f, ensure_ascii=False, indent=2)
+    save_runner_stage_artifacts(case_dir, "baseline", baseline_output, task_prompt=task_prompt)
+    save_runner_stage_artifacts(case_dir, "enhanced", enhanced_output, task_prompt=task_prompt, enhancements=enhancements)
 
 
 def load_runner_artifacts(case_dir: str) -> tuple:

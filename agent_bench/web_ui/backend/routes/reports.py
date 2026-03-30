@@ -15,6 +15,23 @@ router = APIRouter(prefix="/api", tags=["reports"])
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 
 
+def _normalize_report_payload(data: dict, run_id: str) -> dict:
+    """兼容历史报告结构，统一补齐前端展示所需字段。"""
+    report = dict(data)
+    report["run_id"] = run_id
+
+    if "summary" not in report:
+        if "scenario_summary" in report and isinstance(report["scenario_summary"], dict):
+            report["summary"] = report["scenario_summary"]
+        elif "weighted_total" in report and isinstance(report["weighted_total"], dict):
+            report["summary"] = report["weighted_total"]
+        else:
+            report["summary"] = {}
+
+    report["cases"] = report.get("cases", [])
+    return report
+
+
 def _load_reports() -> List[dict]:
     """扫描 results 目录，加载所有 report.json"""
     reports = []
@@ -28,8 +45,7 @@ def _load_reports() -> List[dict]:
         try:
             with open(report_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            data["run_id"] = run_dir
-            reports.append(data)
+            reports.append(_normalize_report_payload(data, run_dir))
         except Exception:
             continue
 
@@ -48,8 +64,7 @@ async def get_report(run_id: str):
         return {"error": "报告不存在"}
     with open(report_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    data["run_id"] = run_id
-    return data
+    return _normalize_report_payload(data, run_id)
 
 
 # ── 用例阶段产物浏览 ────────────────────────────────────────

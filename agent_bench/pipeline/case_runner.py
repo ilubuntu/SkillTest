@@ -25,7 +25,7 @@ from agent_bench.pipeline.loader import (
     load_internal_rules, load_rubric,
 )
 from agent_bench.pipeline.artifacts import (
-    save_runner_artifacts, load_runner_artifacts,
+    save_runner_artifacts, save_runner_stage_artifacts, load_runner_artifacts,
     save_evaluator_artifacts, load_evaluator_result,
     stage_dir,
 )
@@ -240,6 +240,8 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
                     "message": f"[{case_id}] 基线代码编译失败: {compile_result.get('error', '未知错误')[:100]}"})
         
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": elapsed})
+        save_runner_stage_artifacts(case_dir, "baseline", baseline_output, task_prompt=task_prompt)
+        _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 基线产物已保存"})
 
     # ── 增强运行 ──
     if dry_run:
@@ -274,6 +276,9 @@ def _run_runner_stage(case_id, task_prompt, enhancements,
                     "message": f"[{case_id}] 增强代码编译失败: {compile_result.get('error', '未知错误')[:100]}"})
         
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": elapsed})
+        save_runner_stage_artifacts(case_dir, "enhanced", enhanced_output,
+                                    task_prompt=task_prompt, enhancements=enhancements)
+        _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 增强产物已保存"})
 
     return baseline_output, enhanced_output, compile_results
 

@@ -111,6 +111,23 @@ class EvaluatorManager:
         if status == "running":
             cp.status = "running"
 
+    def _mark_case_error(self, case_id: str, message: str = ""):
+        """将 case 及其当前运行阶段标记为失败，避免 UI 仍显示运行中。"""
+        cp = self._case_progresses.get(case_id)
+        if not cp:
+            return
+        cp.status = "error"
+        cp.error = message
+        for stage in cp.stages:
+            if stage.status == "running":
+                stage.status = "error"
+
+    def _mark_running_cases_error(self, message: str = ""):
+        """在全局失败时，将所有仍在运行的 case 标记为失败。"""
+        for case_id, cp in self._case_progresses.items():
+            if cp.status == "running" or any(stage.status == "running" for stage in cp.stages):
+                self._mark_case_error(case_id, message)
+
     # ── Pipeline 回调 ─────────────────────────────────────────
 
     def _pipeline_callback(self, event: str, data: dict):
@@ -177,8 +194,7 @@ class EvaluatorManager:
             case_id = data.get("case_id", "")
             prefix = f"[{case_id}] " if case_id else ""
             if case_id and case_id in self._case_progresses:
-                self._case_progresses[case_id].status = "error"
-                self._case_progresses[case_id].error = data.get("message", "")
+                self._mark_case_error(case_id, data.get("message", ""))
             self._add_log("ERROR", f"{prefix}{data['message']}")
 
     def _infer_case_stage_from_log(self, message: str):
@@ -259,6 +275,7 @@ class EvaluatorManager:
             if is_stale():
                 return
             self._status = EvaluationStatus.ERROR
+            self._mark_running_cases_error(str(e))
             self._add_log("ERROR", f"评测失败: {str(e)}")
 
     def _build_general_result(self, general_results: list) -> Optional[EvaluationResult]:
