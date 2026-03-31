@@ -142,6 +142,32 @@ dimensions:
               }
             }
 
+      - id: B4
+        name: 大数据列表懒加载规范
+        name_en: Large List Lazy Loading Convention
+        description: "对于数据量较大的列表（超过20项），应使用LazyForEach代替ForEach，并合理设置cachedCount，以提升列表滑动性能和内存占用"
+        check_points:
+          - "数据量超过20项的列表应使用LazyForEach实现懒加载"
+          - "LazyForEach应配合cachedCount设置合理的缓存数量"
+          - "避免使用普通ForEach渲染大数据量列表"
+        hit_conditions:
+          - "命中场景1：数据源数组长度超过20项，但使用普通ForEach而非LazyForEach"
+          - "命中场景2：使用LazyForEach但未设置cachedCount"
+          - "未命中：列表数据量小（<=20项）或正确使用LazyForEach+cachedCount"
+          - "边界情况：若代码中无列表渲染相关代码，则该项不适用（N/A）"
+        examples:
+          correct: |
+            // 正确：使用LazyForEach懒加载
+            LazyForEach(this.largeDataSource, (item: Item) => {
+              ListItem() { Text(item.name) }
+            }, (item: Item) => item.id.toString())
+            .cachedCount(5)
+          incorrect: |
+            // 错误：大数据量使用普通ForEach
+            ForEach(this.largeDataSource, (item: Item) => {
+              ListItem() { Text(item.name) }
+            })
+
   # ----------------------------------------------------------
   # 维度2：工程可信 (40%)
   # ----------------------------------------------------------
