@@ -28,7 +28,37 @@ dimensions:
     name: 基本质量
     weight: 40
     description: "组件可编译性、兼容性、基础体验、稳定性等"
-    rules: []
+    rules:
+      - id: B1
+        name: EventHub事件订阅释放
+        name_en: EventHub Subscription Cleanup
+        description: "使用 eventhub.on 接口订阅事件后，必须在合适的地方（如aboutToDisappear）调用 eventhub.off 释放订阅，否则会导致内存泄露"
+        check_points:
+          - "使用 eventhub.on 订阅事件时，需配套编写 eventhub.off 释放代码"
+          - "eventhub.off 应在 aboutToDisappear 或其他合适的生命周期中调用"
+          - "释放时使用的回调需与订阅时的回调保持一致（同一函数引用）"
+        hit_conditions:
+          - "命中场景：代码中使用了 eventhub.on 但未找到对应的 eventhub.off 进行释放"
+          - "未命中：eventhub.on 和 eventhub.off 配对出现，且在同一文件或同一组件内"
+          - "边界情况：若代码中完全未使用 eventhub.on，则该项不适用（N/A）"
+        examples:
+          correct: |
+            // 正确：在 aboutToDisappear 中释放事件订阅
+            private callback = (data) => { console.info(data) }
+
+            aboutToAppear() {
+              eventhub.on('eventName', this.callback)
+            }
+
+            aboutToDisappear() {
+              eventhub.off('eventName', this.callback)
+            }
+          incorrect: |
+            // 错误：只订阅不释放，会导致内存泄露
+            aboutToAppear() {
+              eventhub.on('eventName', (data) => { console.info(data) })
+            }
+            // 缺少 aboutToDisappear 中的 eventhub.off
 
   # ----------------------------------------------------------
   # 维度2：工程可信 (40%)
