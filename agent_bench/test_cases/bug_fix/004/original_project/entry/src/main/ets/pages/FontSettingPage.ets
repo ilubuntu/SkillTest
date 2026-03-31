@@ -1,14 +1,7 @@
-// Bug: @ObservedV2 类中字体大小属性缺少 @Trace 修饰
-// 页面B：字体调节页面（基线版本）
+// 修复: @ObservedV2 类中字体大小属性添加 @Trace 修饰，使用Navigation声明式导航
+// 页面B：字体调节页面
 
-import { PersistenceV2 } from '@kit.ArkUI'
-
-@ObservedV2
-class FontSettings {
-  @Trace fontSize: number = 16
-}
-
-PersistenceV2.connect(FontSettings, 'fontSettings', () => new FontSettings())
+import { FontSettings } from '../model/FontSettings'
 
 @Component
 export struct FontSettingPage {

@@ -5,29 +5,28 @@ import { PersistenceV2 } from '@kit.ArkUI'
 
 @ObservedV2
 class FontSettings {
-  @Trace fontSize: number = 16   // 添加 @Trace，属性变更时精准通知依赖该属性的 UI 节点
+  @Trace fontSize: number = 16
 }
 
 PersistenceV2.connect(FontSettings, 'fontSettings', () => new FontSettings())
 
-@Entry
 @Component
-struct FontSettingPage {
+export struct FontSettingPage {
   @StorageLink('fontSettings') settings: FontSettings = new FontSettings()
+  @Consume('pathStack') pathStack: NavPathStack
 
   build() {
-    Navigation() {
+    NavDestination() {
       Column() {
-        // 字体预览区
         Column() {
           Text('永远相信美好的事情即将发生')
-            .fontSize(this.settings.fontSize)   // 添加 @Trace 后正确刷新
+            .fontSize(this.settings.fontSize)
             .fontColor('#333333')
             .textAlign(TextAlign.Center)
             .padding(24)
 
           Text('The quick brown fox jumps over the lazy dog')
-            .fontSize(this.settings.fontSize)   // 添加 @Trace 后正确刷新
+            .fontSize(this.settings.fontSize)
             .fontColor('#666666')
             .textAlign(TextAlign.Center)
             .padding({ left: 24, right: 24, bottom: 24 })
@@ -36,7 +35,6 @@ struct FontSettingPage {
         .backgroundColor('#F7F8FA')
         .justifyContent(FlexAlign.Center)
 
-        // 字体调节区域
         Column() {
           Text('字体大小')
             .fontSize(14)
@@ -61,10 +59,10 @@ struct FontSettingPage {
               .trackColor('#E5E5E5')
               .selectedColor('#007DFF')
               .onChange((value: number) => {
-                this.settings.fontSize = value  // @Trace 确保此赋值触发所有依赖节点刷新
+                this.settings.fontSize = value
               })
 
-            Text(`${this.settings.fontSize}`)   // 正确刷新，显示当前字体大小
+            Text(`${this.settings.fontSize}`)
               .fontSize(14)
               .fontColor('#333333')
               .width(36)
@@ -83,5 +81,9 @@ struct FontSettingPage {
     }
     .title('字体大小设置')
     .titleMode(NavigationTitleMode.Mini)
+    .onBackPressed(() => {
+      this.pathStack.pop()
+      return true
+    })
   }
 }

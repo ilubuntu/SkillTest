@@ -22,7 +22,7 @@ from typing import Optional
 from agent_bench.runner.adapter import AgentAdapter
 
 DEFAULT_API_BASE = "http://localhost:4096"
-TIMEOUT = 180
+TIMEOUT = 480
 
 
 def parse_model(model_str: str) -> dict:
@@ -166,7 +166,7 @@ class OpenCodeAdapter(AgentAdapter):
 
             # 2. 构建 message payload
             message_payload = {
-                "parts": [{"type": "text", "text": prompt}]
+                "parts": [{"type": "text", "text": prompt}],
             }
             if self.model:
                 message_payload["model"] = parse_model(self.model)

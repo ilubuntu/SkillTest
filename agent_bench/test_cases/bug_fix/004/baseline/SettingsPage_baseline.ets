@@ -5,7 +5,7 @@ import { PersistenceV2 } from '@kit.ArkUI'
 
 @ObservedV2
 class FontSettings {
-  fontSize: number = 16   // 缺少 @Trace，属性变更不会触发 UI 更新
+  @Trace fontSize: number = 16
 }
 
 PersistenceV2.connect(FontSettings, 'fontSettings', () => new FontSettings())
@@ -14,11 +14,11 @@ PersistenceV2.connect(FontSettings, 'fontSettings', () => new FontSettings())
 @Component
 struct SettingsPage {
   @StorageLink('fontSettings') settings: FontSettings = new FontSettings()
+  @Provide('pathStack') pathStack: NavPathStack = new NavPathStack()
 
   build() {
     Navigation() {
       Column() {
-        // 设置列表
         List() {
           ListItem() {
             Row() {
@@ -28,7 +28,7 @@ struct SettingsPage {
                 .layoutWeight(1)
 
               Text('设置')
-                .fontSize(this.settings.fontSize)   // 绑定 PersistenceV2，但缺少 @Trace 不会刷新
+                .fontSize(this.settings.fontSize)
                 .fontColor('#007DFF')
 
               Text(' >')
@@ -37,6 +37,9 @@ struct SettingsPage {
             }
             .width('100%')
             .padding({ left: 20, right: 20, top: 16, bottom: 16 })
+            .onClick(() => {
+              this.pathStack.pushPathByName('FontSettingPage', null)
+            })
           }
 
           ListItem() {
@@ -69,15 +72,14 @@ struct SettingsPage {
         .layoutWeight(1)
         .backgroundColor('#FFFFFF')
 
-        // 底部预览区
         Column() {
           Text('预览文本')
-            .fontSize(this.settings.fontSize)   // 绑定 PersistenceV2，但不会刷新
+            .fontSize(this.settings.fontSize)
             .fontColor('#333333')
             .textAlign(TextAlign.Center)
             .padding(16)
 
-          Text(`当前字体大小: ${this.settings.fontSize}`)   // 不会刷新
+          Text(`当前字体大小: ${this.settings.fontSize}`)
             .fontSize(12)
             .fontColor('#666666')
             .textAlign(TextAlign.Center)
@@ -92,8 +94,18 @@ struct SettingsPage {
     }
     .title('设置')
     .titleMode(NavigationTitleMode.Mini)
-    .onNavDestinationSwitch((info: NavDestinationContext) => {
-      // Bug: 使用router方式跳转，不推荐
-    })
+    .navDestination(this.PageMap)
   }
+}
+
+@Builder
+function PageMap(name: string) {
+  if (name === 'FontSettingPage') {
+    FontSettingPageBuilder()
+  }
+}
+
+@Builder
+export function FontSettingPageBuilder() {
+  FontSettingPage()
 }
