@@ -144,6 +144,39 @@ dimensions:
               // ...
             }, (item: Item, index: number) => `${index}`)
 
+      - id: E3
+        name: 状态管理装饰器规范
+        name_en: State Management Decorator Convention
+        description: "应用状态管理中，如果存储的数据用于UI更新，则需按V1/V2规范使用对应装饰器。V1使用@Observed装饰类，V2使用@ObservedV2装饰类+@Trace装饰数据字段，否则UI无法响应数据变化"
+        check_points:
+          - "V1状态管理：使用@Observed装饰类，用于UI更新的类属性不加@Trace"
+          - "V2状态管理：使用@ObservedV2装饰类，类中用于UI更新的数据字段必须加@Trace装饰器"
+          - "@Trace用于标记类中需要被追踪的成员属性，属性变更时通知UI更新"
+        hit_conditions:
+          - "命中场景1（V1）：类使用@Observed装饰，但类中的数据字段（如fontSize、isGridMode等）未用于@ObjectLink/@State关联，却直接在UI绑定处使用（如.fontSize(this.xxx)），缺少必要的@Observed装饰"
+          - "命中场景2（V2）：类使用@ObservedV2装饰，但类中用于UI更新的数据字段缺少@Trace装饰器，导致属性变更时UI不刷新"
+          - "未命中：V1状态下类正确使用@Observed；V2状态下类使用@ObservedV2+@Trace装饰用于UI更新的字段"
+          - "边界情况：若类/结构体数据仅作为普通变量使用，不涉及UI绑定，则不适用（N/A）"
+        examples:
+          correct: |
+            // V2正确：@ObservedV2 + @Trace
+            @ObservedV2
+            class FontSettings {
+              @Trace fontSize: number = 16  // 用于UI更新，必须加@Trace
+            }
+
+            // V1正确：@Observed装饰类
+            @Observed
+            class FontSettings {
+              fontSize: number = 16  // V1不加@Trace
+            }
+          incorrect: |
+            // V2错误：缺少@Trace
+            @ObservedV2
+            class FontSettings {
+              fontSize: number = 16  // 缺少@Trace，UI不刷新
+            }
+
   # ----------------------------------------------------------
   # 维度3：生态与创新 (20%)
   # ----------------------------------------------------------
