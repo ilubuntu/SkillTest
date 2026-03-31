@@ -1,0 +1,43 @@
+schema: case-spec/v1
+version: 1
+
+case:
+  id: bug_fix_004
+  scenario: bug_fix
+  title: "【适老化】@ObservedV2类中@Trace缺失导致PersistentStorage更新不刷新UI"
+
+project:
+  type: HarmonyOS ArkTS
+  project_dir: original_project
+  summary: >
+    这是一个适老化设置工程。首页展示设置列表，
+    点击字体大小进入字体设置页，通过Slider调节字体大小，
+    保存后返回首页，预览文本和入口"设置"文字大小应同步更新。
+
+problem:
+  summary: >
+    当前工程使用@ObservedV2装饰器配合PersistenceV2实现数据持久化，
+    但@ObservedV2类的fontSize属性缺少@Trace修饰，导致属性变更时UI不刷新。
+  related_files:
+    - baseline/SettingsPage_baseline.ets
+    - baseline/FontSettingPage_baseline.ets
+    - enhanced/SettingsPage_enhanced.ets
+    - enhanced/FontSettingPage_enhanced.ets
+  expected_result:
+    - 字体大小Slider调节后，预览区字体大小同步变化
+    - 首页"设置"入口的文字大小同步变化
+    - 数字显示（当前字体大小: XX）同步刷新
+    - 修复后的代码可供后续验证
+
+agent:
+  purpose: 测试 agent 在多页面场景下修复V2状态管理装饰器问题的能力
+  work_mode: 同时修复AppDisplayPage和FontSettingPage中缺失的@Trace装饰器
+  output_requirements:
+    - 修改了哪些文件
+    - 每个文件的主要修改内容
+    - 修复后达到了什么效果
+
+constraints:
+  - 保持现有业务流程不变
+  - 最小必要修改，仅添加@Trace装饰器到需要追踪的字段
+  - 不修改其他业务逻辑
