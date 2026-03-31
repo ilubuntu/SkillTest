@@ -250,17 +250,26 @@ dimensions:
             TextInput({ placeholder: '请输入密码' })
 
       - id: E5
-        name: 组件深度控制
-        name_en: Component Depth Control
-        description: "避免创建过深的组件嵌套层级（建议不超过10层），过深的嵌套会影响性能和维护性"
+        name: 日志输出规范
+        name_en: Logging Convention
+        description: "生产环境代码应使用hilog进行日志输出，禁止使用console.log，便于日志分级管理和性能优化"
         check_points:
-          - "组件嵌套层级过深会增加dyld加载时间和内存占用"
-          - "复杂UI应拆分为更小的自定义组件"
-          - "嵌套深度超过10层应考虑重构"
+          - "应使用hilog API进行日志输出，支持不同日志级别"
+          - "禁止使用console.log、console.warn等console系列API"
+          - "hilog可配合日志域（domain）进行分类管理"
         hit_conditions:
-          - "命中场景：代码中存在超过10层嵌套的组件结构"
-          - "未命中：组件嵌套层级在10层以内"
-          - "边界情况：布局容器（ForEach、LazyForEach自身层级不计入）"
+          - "命中场景：代码中存在console.log、console.info、console.warn、console.error等调用"
+          - "未命中：全部使用hilog进行日志输出，或无日志输出"
+          - "边界情况：第三方库自带的console调用不纳入检查"
+        examples:
+          correct: |
+            // 正确：使用hilog
+            import hilog from '@ohos.hilog'
+            hilog.info(0xFF00, 'ModuleTag', 'User info: %{public}s', userName)
+          incorrect: |
+            // 错误：使用console
+            console.log('User info:', userName)
+            console.warn('Warning: something wrong')
 
   # ----------------------------------------------------------
   # 维度3：生态与创新 (20%)
