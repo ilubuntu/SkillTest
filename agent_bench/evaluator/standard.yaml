@@ -89,6 +89,36 @@ dimensions:
             router.pushUrl({ url: 'pages/Index' })
             router.replaceUrl({ url: 'pages/Index' })
 
+      - id: E2
+        name: ForEach keyGenerator规范
+        name_en: ForEach keyGenerator Convention
+        description: "使用 ForEach 接口时，第三个参数 keyGenerator 必填，且生成的 key 值不能重复，否则会影响列表渲染性能和更新正确性"
+        check_points:
+          - "ForEach 必需指定 keyGenerator 参数作为第三个参数"
+          - "keyGenerator 生成的 key 值必须唯一，不能重复"
+          - "建议使用数据中唯一标识字段或索引组合来生成不重复的 key"
+        hit_conditions:
+          - "命中场景1：代码中使用了 ForEach 但未指定 keyGenerator 参数"
+          - "命中场景2：keyGenerator 返回的值存在重复（如仅使用 index 作为 key）"
+          - "未命中：ForEach 正确指定了 keyGenerator 且生成的 key 值唯一"
+          - "边界情况：若代码中完全未使用 ForEach，则该项不适用（N/A）"
+        examples:
+          correct: |
+            // 正确：指定唯一 keyGenerator
+            ForEach(this.items, (item: Item, index: number) => {
+              // ...
+            }, (item: Item, index: number) => `${item.id}_${index}`)
+          incorrect: |
+            // 错误1：未指定 keyGenerator
+            ForEach(this.items, (item: Item) => {
+              // ...
+            })
+
+            // 错误2：keyGenerator 返回值重复（仅用 index）
+            ForEach(this.items, (item: Item, index: number) => {
+              // ...
+            }, (item: Item, index: number) => `${index}`)
+
   # ----------------------------------------------------------
   # 维度3：生态与创新 (20%)
   # ----------------------------------------------------------
