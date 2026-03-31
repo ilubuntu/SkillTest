@@ -3,5 +3,3 @@ name: "Bug Fix Enhanced"
 description: "Bug修复增强配置：Skill + 定制化最佳实践"
 scenario_ids: [scenario_001]
 enhancement_ids:
-  - skill_001
-  - sp_001

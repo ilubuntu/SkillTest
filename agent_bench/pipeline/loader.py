@@ -89,7 +89,51 @@ def load_case_input_code(case: dict) -> str:
 def load_case_reference_code(case: dict) -> str:
     """读取 case 目录下约定的 expected.ets"""
     return _read_optional_case_file(case, "expected.ets")
-    return ""
+
+
+def get_case_additional_files(case: dict) -> dict:
+    """收集 case 目录下用于补充上下文的额外 .ets 文件。
+
+    规则：
+    - pages/ 子目录下的 .ets 文件全部纳入
+    - case 根目录下除 input.ets / expected.ets 外的 .ets 文件纳入
+    """
+    case_dir = _resolve_case_dir(case)
+    if not case_dir:
+        return {}
+
+    absolute_case_dir = os.path.join(BASE_DIR, case_dir)
+    if not os.path.isdir(absolute_case_dir):
+        return {}
+
+    additional = {}
+
+    pages_dir = os.path.join(absolute_case_dir, "pages")
+    if os.path.isdir(pages_dir):
+        pages_files = {}
+        for filename in sorted(os.listdir(pages_dir)):
+            if not filename.endswith(".ets"):
+                continue
+            file_path = os.path.join(pages_dir, filename)
+            relative_path = os.path.relpath(file_path, BASE_DIR)
+            pages_files[filename] = load_file(relative_path)
+        if pages_files:
+            additional["pages"] = pages_files
+
+    sibling_files = {}
+    for filename in sorted(os.listdir(absolute_case_dir)):
+        if not filename.endswith(".ets"):
+            continue
+        if filename in {"input.ets", "expected.ets"}:
+            continue
+        file_path = os.path.join(absolute_case_dir, filename)
+        if not os.path.isfile(file_path):
+            continue
+        sibling_files[filename] = load_file(os.path.relpath(file_path, BASE_DIR))
+    if sibling_files:
+        additional["sibling_files"] = sibling_files
+
+    return additional
 
 
 def _load_case_spec(case: dict) -> dict:
@@ -370,6 +414,7 @@ def _transform_case(case: dict) -> dict:
     case_spec = _load_case_spec(case)
     case_meta = case_spec.get("case", {})
     project_meta = case_spec.get("project", {})
+    additional_files = get_case_additional_files(case)
 
     prompt = case.get("prompt", "")
     if case_spec:
@@ -382,7 +427,7 @@ def _transform_case(case: dict) -> dict:
     if case_dir and project_dir:
         original_project_dir = os.path.join(case_dir, project_dir)
 
-    return {
+    result = {
         "id": case_meta.get("id", case.get("case_id", case.get("id", ""))),
         "title": case_meta.get("title", case.get("title", "")),
         "category": case.get("category", ""),
@@ -392,6 +437,11 @@ def _transform_case(case: dict) -> dict:
         "original_project_dir": original_project_dir,
         "prompt": prompt,
     }
+
+    if additional_files:
+        result["additional_files"] = additional_files
+
+    return result
 
 
 def get_all_scenarios() -> List[dict]:
@@ -533,6 +583,13 @@ def load_enhancements(scenario: str, profile_name: Optional[str] = None) -> dict
 def _resolve_enhancement_ids(enhancement_ids: List[str]) -> dict:
     """将 enhancement_ids 列表解析为实际的增强配置"""
     result = {"skills": [], "mcp_servers": [], "system_prompt": "", "tools": None}
+
+    if not enhancement_ids:
+        return result
+
+    # 确保是列表而非 None
+    if not isinstance(enhancement_ids, (list, tuple)):
+        enhancement_ids = []
 
     for eid in enhancement_ids:
         enhancement = _get_enhancement_by_id(eid)

@@ -50,6 +50,24 @@ TASK_PROMPT = """请完成以下任务。
 - 不要解释过程
 """
 
+TASK_PROMPT_MULTI_PAGE = """请完成以下任务。
+
+## 任务
+{prompt}
+
+## 代码（主页面：{main_page}）
+```typescript
+{code}
+```
+
+## 关联页面
+{additional_pages}
+
+## 要求
+- 只输出完整的代码
+- 不要解释过程
+"""
+
 MAX_LOGGED_PROMPT_CHARS = 4000
 
 
@@ -106,7 +124,26 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     else:
         input_code = load_case_input_code(case)
         reference_code = load_case_reference_code(case)
-        task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
+        additional_files = case.get("additional_files", {})
+        sibling_files = additional_files.get("sibling_files", {})
+        pages_files = additional_files.get("pages", {})
+
+        if sibling_files or pages_files:
+            all_additional = {**sibling_files, **pages_files}
+            additional_pages_text = "\n\n".join(
+                f"=== {filename} ===\n{content}" for filename, content in all_additional.items()
+            )
+            main_page = "input.ets"
+            task_prompt = TASK_PROMPT_MULTI_PAGE.format(
+                prompt=prompt,
+                main_page=main_page,
+                code=input_code,
+                additional_pages=additional_pages_text
+            )
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"[{case_id}] 多页面场景：检测到 {len(all_additional)} 个额外页面文件"})
+        else:
+            task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
 
     if task_prompt:
         prompt_preview = task_prompt[:MAX_LOGGED_PROMPT_CHARS]
@@ -163,6 +200,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     if "evaluator" in stages:
         result = _run_evaluator_stage(
             case_id, title, scenario, case,
+            prompt,
             input_code, reference_code, rubric,
             baseline_output, enhanced_output,
             llm_judge, case_dir,
@@ -339,6 +377,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
 
 
 def _run_evaluator_stage(case_id, title, scenario, case,
+                         prompt,
                          input_code, reference_code, rubric,
                          baseline_output, enhanced_output,
                          llm_judge, case_dir,
