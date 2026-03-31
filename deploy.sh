@@ -32,6 +32,10 @@ FRONTEND_PORT=5177
 
 BACKEND_DIR="$SCRIPT_DIR/agent_bench/web_ui"
 FRONTEND_DIR="$SCRIPT_DIR/agent_bench/web_ui/frontend"
+LOG_DIR="$SCRIPT_DIR/logs"
+OPENCODE_LOG="$LOG_DIR/opencode.log"
+BACKEND_LOG="$LOG_DIR/backend.log"
+FRONTEND_LOG="$LOG_DIR/frontend.log"
 
 
 # ── 颜色 ──────────────────────────────────────────────────
@@ -73,6 +77,10 @@ check_deps() {
     info "依赖检查通过"
 }
 
+ensure_log_dir() {
+    mkdir -p "$LOG_DIR"
+}
+
 # ── 清理已有进程 ──────────────────────────────────────────
 kill_port() {
     local port=$1
@@ -96,7 +104,7 @@ start_opencode() {
 
     kill_port $OPENCODE_PORT
 
-    opencode serve --port $OPENCODE_PORT &
+    nohup opencode serve --port $OPENCODE_PORT >>"$OPENCODE_LOG" 2>&1 &
 
     # 等待启动
     info "等待 OpenCode Server 启动..."
@@ -133,7 +141,7 @@ start_backend() {
     kill_port $BACKEND_PORT
 
     cd "$BACKEND_DIR"
-    python3 -m uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT &
+    nohup python3 -m uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT >>"$BACKEND_LOG" 2>&1 &
 
     # 等待启动
     for i in $(seq 1 10); do
@@ -165,7 +173,7 @@ start_frontend() {
     fi
 
     cd "$FRONTEND_DIR"
-    npm run dev &
+    nohup npm run dev >>"$FRONTEND_LOG" 2>&1 &
 
     # 等待启动
     for i in $(seq 1 10); do
@@ -227,6 +235,7 @@ case "${1:-start}" in
         echo "=========================================="
         echo ""
         check_deps
+        ensure_log_dir
         start_opencode
         install_python_deps
         start_backend
@@ -235,11 +244,10 @@ case "${1:-start}" in
         status
         echo ""
         info "部署完成! 浏览器打开: http://localhost:$FRONTEND_PORT"
-        echo ""
-        # 保持前台运行，Ctrl+C 退出时自动清理
-        info "按 Ctrl+C 停止所有服务"
-        trap stop_all EXIT INT TERM
-        wait
+        info "日志目录: $LOG_DIR"
+        info "OpenCode 日志: $OPENCODE_LOG"
+        info "Backend 日志:  $BACKEND_LOG"
+        info "Frontend 日志: $FRONTEND_LOG"
         ;;
     stop)
         stop_all
@@ -251,6 +259,7 @@ case "${1:-start}" in
         ;;
     restart-web)
         info "重启 Web 服务（FastAPI + Vue）..."
+        ensure_log_dir
         kill_port $BACKEND_PORT
         kill_port $FRONTEND_PORT
         sleep 1
@@ -266,7 +275,7 @@ case "${1:-start}" in
     *)
         echo "用法: $0 {start|stop|restart|restart-web|status}"
         echo ""
-        echo "  start        启动所有服务（默认），日志直接输出到控制台，Ctrl+C 停止"
+        echo "  start        后台启动所有服务（默认），日志写入 logs/ 目录"
         echo "  stop         停止所有服务"
         echo "  restart      重启所有服务（含 OpenCode）"
         echo "  restart-web  只重启 FastAPI 后端 + Vue 前端（不动 OpenCode）"

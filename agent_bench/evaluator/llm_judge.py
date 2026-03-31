@@ -21,15 +21,8 @@ DEFAULT_SCORE = 50
 
 JUDGE_PROMPT = """你是一个严格的代码评审专家，请对以下ArkTS代码按评分维度打分。
 
-## 原始代码（任务输入）
-```typescript
-{input_code}
-```
-
-## 参考答案
-```typescript
-{reference_code}
-```
+## 任务说明
+{task_context}
 
 ## 代码A（基线输出）
 ```typescript
@@ -46,6 +39,23 @@ JUDGE_PROMPT = """你是一个严格的代码评审专家，请对以下ArkTS代
 
 请分别对代码A（基线）和代码B（增强）的每个维度打分（0-100整数），返回严格的JSON，不要包含其他内容：
 {{"baseline": [{{"name": "维度名", "score": 分数, "reason": "评分理由"}}], "enhanced": [{{"name": "维度名", "score": 分数, "reason": "评分理由"}}]}}
+"""
+
+BASELINE_ONLY_JUDGE_PROMPT = """你是一个严格的代码评审专家，请对以下ArkTS代码按评分维度打分。
+
+## 任务说明
+{task_context}
+
+## 代码A（基线输出）
+```typescript
+{baseline_code}
+```
+
+## 评分维度
+{rubric_text}
+
+请只对代码A（基线）的每个维度打分（0-100整数），返回严格的JSON，不要包含其他内容：
+{{"baseline": [{{"name": "维度名", "score": 分数, "reason": "评分理由"}}]}}
 """
 
 
@@ -65,10 +75,9 @@ class LLMJudge:
             self.on_progress("log", {"level": level, "message": message})
 
     def judge(self,
-              input_code: str,
+              task_context: str,
               baseline_code: str,
               enhanced_code: str,
-              reference_code: str,
               rubric: List[Dict],
               case_id: str = "",
               case_dir: str = None) -> Dict[str, LLMScoringResult]:
@@ -100,8 +109,7 @@ class LLMJudge:
         self._log("INFO", f"{tag}[评分] 构建评分 Prompt，维度：{dim_names}")
 
         prompt = JUDGE_PROMPT.format(
-            input_code=input_code,
-            reference_code=reference_code,
+            task_context=task_context,
             baseline_code=baseline_code or "// 无输出",
             enhanced_code=enhanced_code or "// 无输出",
             rubric_text=rubric_text,
@@ -139,6 +147,60 @@ class LLMJudge:
             self._log("ERROR", f"{tag}[评分] LLM 评分异常: {e}")
             fb = self._make_fallback(rubric, "评分失败")
             return {"baseline": fb, "enhanced": fb}
+
+    def judge_baseline(self,
+                       task_context: str,
+                       baseline_code: str,
+                       rubric: List[Dict],
+                       case_id: str = "",
+                       case_dir: str = None) -> LLMScoringResult:
+        """仅对 baseline 进行评分"""
+        tag = f"[{case_id}]" if case_id else ""
+        fallback = self._make_fallback(rubric, "Agent无输出", score=0)
+
+        if not baseline_code.strip():
+            self._log("WARN", f"{tag} 基线输出为空，跳过 LLM 评分")
+            return fallback
+
+        rubric_text = "\n".join(
+            f"- {r['name']}（权重{r['weight']}%）：{r['criteria']}"
+            for r in rubric
+        )
+        dim_names = ", ".join(r["name"] for r in rubric)
+        self._log("INFO", f"{tag}[评分] 构建基线评分 Prompt，维度：{dim_names}")
+
+        prompt = BASELINE_ONLY_JUDGE_PROMPT.format(
+            task_context=task_context,
+            baseline_code=baseline_code or "// 无输出",
+            rubric_text=rubric_text,
+        )
+        self._log("DEBUG", f"{tag}[评分] Prompt 长度={len(prompt)}字符")
+
+        if case_dir:
+            import os
+            judge_dir = os.path.join(case_dir, "llm_judge")
+            os.makedirs(judge_dir, exist_ok=True)
+            with open(os.path.join(judge_dir, "prompt.txt"), "w", encoding="utf-8") as f:
+                f.write(prompt)
+
+        try:
+            raw = self.llm_fn(prompt, f"{tag}[评分] ")
+            if not raw:
+                self._log("ERROR", f"{tag}[评分] LLM 返回空结果")
+                return self._make_fallback(rubric, "LLM返回为空")
+
+            raw_scores = _parse_baseline_scores(raw, rubric, self.on_progress, tag)
+            result = _build_result(raw_scores["baseline"], rubric)
+
+            for d in result.dimensions:
+                self._log("DEBUG",
+                    f"{tag}[评分] 基线 [{d.name}] = {d.score} — {d.reason[:60]}")
+
+            return result
+
+        except Exception as e:
+            self._log("ERROR", f"{tag}[评分] LLM 评分异常: {e}")
+            return self._make_fallback(rubric, "评分失败")
 
     def _make_fallback(self, rubric: List[Dict],
                        reason: str, score: int = DEFAULT_SCORE) -> LLMScoringResult:
@@ -178,6 +240,32 @@ def _parse_scores(raw_output: str, rubric: List[Dict],
     fallback_dims = [{"name": r["name"], "score": DEFAULT_SCORE, "reason": "解析失败"}
                      for r in rubric]
     return {"baseline": fallback_dims, "enhanced": fallback_dims}
+
+
+def _parse_baseline_scores(raw_output: str, rubric: List[Dict],
+                           on_progress=None, tag: str = "") -> Dict:
+    """解析仅 baseline 的评分 JSON，失败时返回 fallback"""
+    def _log(level, msg):
+        if on_progress:
+            on_progress("log", {"level": level, "message": msg})
+
+    try:
+        m = re.search(r'\{[\s\S]*"baseline"[\s\S]*\}', raw_output)
+        if m:
+            data = json.loads(m.group())
+            if "baseline" in data:
+                _log("DEBUG", f"{tag}[评分] Baseline JSON 解析成功")
+                return data
+    except (json.JSONDecodeError, AttributeError) as e:
+        _log("WARN", f"{tag}[评分] Baseline JSON 解析失败: {e}")
+
+    _log("WARN", f"{tag}[评分] 无法解析，使用默认分数({DEFAULT_SCORE})")
+    if raw_output:
+        _log("DEBUG", f"{tag}[评分] 原始输出前200字符: {raw_output[:200]}")
+
+    fallback_dims = [{"name": r["name"], "score": DEFAULT_SCORE, "reason": "解析失败"}
+                     for r in rubric]
+    return {"baseline": fallback_dims}
 
 
 def _build_result(raw_dims: List[Dict], rubric: List[Dict]) -> LLMScoringResult:

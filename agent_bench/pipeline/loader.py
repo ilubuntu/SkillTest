@@ -45,6 +45,126 @@ def load_file(relative_path: str) -> str:
         return f.read()
 
 
+def _resolve_case_dir(case: dict) -> str:
+    """解析测试用例目录（相对于 agent_bench/）"""
+    explicit_case_dir = case.get("case_dir", "")
+    if explicit_case_dir:
+        return explicit_case_dir
+
+    case_id = case.get("case_id", case.get("id", ""))
+    if not case_id or "_" not in case_id:
+        return ""
+
+    scenario_key, case_no = case_id.rsplit("_", 1)
+    if not scenario_key or not case_no:
+        return ""
+    return os.path.join("test_cases", scenario_key, case_no)
+
+
+def _resolve_case_related_path(case: dict, filename: str) -> str:
+    """按约定解析 case 目录下的关联文件路径（相对于 agent_bench/）"""
+    case_dir = _resolve_case_dir(case)
+    if not case_dir:
+        return ""
+    return os.path.join(case_dir, filename)
+
+
+def _read_optional_case_file(case: dict, filename: str) -> str:
+    """读取 case 目录下的可选文件，不存在时返回空字符串"""
+    relative_path = _resolve_case_related_path(case, filename)
+    if not relative_path:
+        return ""
+    absolute_path = os.path.join(BASE_DIR, relative_path)
+    if not os.path.exists(absolute_path):
+        return ""
+    with open(absolute_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def load_case_input_code(case: dict) -> str:
+    """读取 case 目录下约定的 input.ets"""
+    return _read_optional_case_file(case, "input.ets")
+
+
+def load_case_reference_code(case: dict) -> str:
+    """读取 case 目录下约定的 expected.ets"""
+    return _read_optional_case_file(case, "expected.ets")
+    return ""
+
+
+def _load_case_spec(case: dict) -> dict:
+    """加载 case 目录下的 case.yaml，找不到时返回空 dict"""
+    case_dir = _resolve_case_dir(case)
+    if not case_dir:
+        return {}
+
+    case_yaml_path = os.path.join(BASE_DIR, case_dir, "case.yaml")
+    if not os.path.exists(case_yaml_path):
+        return {}
+
+    return load_yaml(case_yaml_path) or {}
+
+
+def _build_prompt_from_case_spec(case_spec: dict) -> str:
+    """根据最小可用 case.yaml 生成发给 agent 的任务描述"""
+    project = case_spec.get("project", {})
+    problem = case_spec.get("problem", {})
+    agent = case_spec.get("agent", {})
+    constraints = case_spec.get("constraints", []) or []
+
+    lines = [
+        "这是一个已有的 HarmonyOS ArkTS 工程，请直接在当前工程中修改代码完成修复。",
+        "",
+        "## 工程说明",
+        project.get("summary", "").strip(),
+        "",
+        "## 当前问题",
+        problem.get("summary", "").strip(),
+        "",
+        "## 重点相关文件",
+    ]
+
+    for path in problem.get("related_files", []) or []:
+        lines.append(f"- {path}")
+
+    lines.extend([
+        "",
+        "## 期望效果",
+    ])
+    for item in problem.get("expected_result", []) or []:
+        lines.append(f"- {item}")
+
+    lines.extend([
+        "",
+        "## 结果输出要求",
+    ])
+    for item in agent.get("output_requirements", []) or []:
+        lines.append(f"- {item}")
+
+    if constraints:
+        lines.extend([
+            "",
+            "## 约束",
+        ])
+        for item in constraints:
+            lines.append(f"- {item}")
+
+    return "\n".join([line for line in lines if line is not None]).strip()
+
+
+def resolve_case_original_project(case: dict) -> Optional[str]:
+    """解析测试用例对应的 original_project 路径（绝对路径）"""
+    explicit_dir = case.get("original_project_dir")
+    if explicit_dir:
+        return os.path.join(BASE_DIR, explicit_dir)
+
+    case_dir = case.get("case_dir", "") or _resolve_case_dir(case)
+    if case_dir:
+        return os.path.join(BASE_DIR, case_dir, "original_project")
+
+    return None
+
+
 # ── 全局配置 ─────────────────────────────────────────────────
 
 def load_config() -> dict:
@@ -227,7 +347,7 @@ def load_test_cases(scenario: str) -> list:
     """加载指定场景下的所有测试用例
 
     从 test_cases.yaml 总表读取，路径已相对于 agent_bench/ 目录。
-    返回的 case 格式统一为 {id, title, input: {prompt, code_file}, expected: {reference_file}, ...}
+    返回的 case 格式统一为 {id, title, prompt, case_dir, case_spec, ...}
     """
     registry = load_test_cases_registry()
     for s in registry.get("scenarios", []):
@@ -240,24 +360,37 @@ def load_test_cases(scenario: str) -> list:
 def _transform_case(case: dict) -> dict:
     """将 registry 格式转换为运行时格式
 
-    registry 格式: {case_id, prompt, input_file, expected_file, ...}
-    运行时格式: {id, title, input: {prompt, code_file}, expected: {reference_file}, ...}
+    registry 格式: {case_id, prompt, ...}
+    运行时格式: {id, title, prompt, case_dir, case_spec, ...}
     """
-    if "input" in case and isinstance(case["input"], dict):
+    if "prompt" in case and "case_dir" in case and "case_spec" in case:
         return case
 
+    case_dir = _resolve_case_dir(case)
+    case_spec = _load_case_spec(case)
+    case_meta = case_spec.get("case", {})
+    project_meta = case_spec.get("project", {})
+
+    prompt = case.get("prompt", "")
+    if case_spec:
+        generated_prompt = _build_prompt_from_case_spec(case_spec)
+        if generated_prompt:
+            prompt = generated_prompt
+
+    original_project_dir = case.get("original_project_dir", "")
+    project_dir = project_meta.get("project_dir", "")
+    if case_dir and project_dir:
+        original_project_dir = os.path.join(case_dir, project_dir)
+
     return {
-        "id": case.get("case_id", case.get("id", "")),
-        "title": case.get("title", ""),
+        "id": case_meta.get("id", case.get("case_id", case.get("id", ""))),
+        "title": case_meta.get("title", case.get("title", "")),
         "category": case.get("category", ""),
-        "scenario": case.get("scenario", ""),
-        "input": {
-            "prompt": case.get("prompt", ""),
-            "code_file": case.get("input_file", ""),
-        },
-        "expected": {
-            "reference_file": case.get("expected_file", ""),
-        },
+        "scenario": case_meta.get("scenario", case.get("scenario", "")),
+        "case_dir": case_dir,
+        "case_spec": case_spec,
+        "original_project_dir": original_project_dir,
+        "prompt": prompt,
     }
 
 

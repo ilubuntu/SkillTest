@@ -6,9 +6,7 @@ from typing import List
 
 from fastapi import APIRouter
 
-from agent_bench.pipeline.loader import (
-    BASE_DIR, load_test_cases_registry, load_file,
-)
+from agent_bench.pipeline.loader import load_test_cases_registry, load_test_cases
 
 router = APIRouter(prefix="/api", tags=["cases"])
 
@@ -44,37 +42,15 @@ def _load_all_cases() -> tuple:
             "tags": s.get("tags", []),
         })
 
-        for c in raw_cases:
-            case_id = c.get("case_id", c.get("id", ""))
-            input_file = c.get("input_file", "")
-            expected_file = c.get("expected_file", "")
-
-            input_code = ""
-            if input_file:
-                try:
-                    input_code = load_file(input_file)
-                except Exception:
-                    input_code = f"(文件不存在: {input_file})"
-
-            reference_code = ""
-            if expected_file:
-                try:
-                    reference_code = load_file(expected_file)
-                except Exception:
-                    reference_code = f"(文件不存在: {expected_file})"
-
+        for c in load_test_cases(scenario_name):
             all_cases.append({
-                "id": case_id,
+                "id": c.get("id", ""),
                 "title": c.get("title", ""),
                 "scenario": scenario_name,
                 "category": c.get("category", ""),
                 "difficulty": s.get("difficulty", "medium"),
                 "tags": s.get("tags", []),
                 "prompt": c.get("prompt", ""),
-                "input_code": input_code,
-                "input_file": input_file,
-                "reference_code": reference_code,
-                "expected_file": expected_file,
             })
 
     return all_cases, scenarios

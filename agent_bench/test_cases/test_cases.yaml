@@ -11,27 +11,9 @@ scenarios:
     cases:
       - id: case_001
         case_id: bug_fix_001
-        title: "List组件ForEach性能崩溃修复"
+        title: "商品列表与详情编辑工程缺陷修复"
         category: specialized
-        input_file: test_cases/bug_fix/001/input.ets
-        expected_file: test_cases/bug_fix/001/expected.ets
-        prompt: "以下ArkTS代码在List组件中使用ForEach渲染大量数据，快速滑动时会崩溃，请修复"
-
-      - id: case_002
-        case_id: bug_fix_002
-        title: "State数组修改未触发UI刷新"
-        category: specialized
-        input_file: test_cases/bug_fix/002/input.ets
-        expected_file: test_cases/bug_fix/002/expected.ets
-        prompt: "以下ArkTS代码中，点击添加按钮后新增的数据不会显示在界面上，请修复"
-
-      - id: case_003
-        case_id: bug_fix_003
-        title: "组件销毁后定时器未清除导致内存泄漏"
-        category: specialized
-        input_file: test_cases/bug_fix/003/input.ets
-        expected_file: test_cases/bug_fix/003/expected.ets
-        prompt: "以下ArkTS代码中，组件使用了setInterval定时刷新数据，但页面退出后定时器仍在运行导致内存泄漏，请修复"
+        prompt: "这是一个已有的 HarmonyOS ArkTS 商品管理工程：首页展示商品列表，点击添加或编辑会进入详情页，保存后返回首页并更新列表。请基于现有工程修复其中的缺陷，包括列表渲染稳定性、详情页保存与返回逻辑、列表回刷、异常处理，以及明显不合理的废弃 API 或可编译性问题，保持原有业务流程和页面结构不变。"
 
   # ── Code Compile ─────────────────────────────────────────────
   - id: scenario_002
@@ -44,16 +26,12 @@ scenarios:
         case_id: compilable_001
         title: "生成可编译的List组件代码"
         category: specialized
-        input_file: test_cases/compilable/001/input.ets
-        expected_file: test_cases/compilable/001/expected.ets
         prompt: "请生成一个包含List组件的ArkTS页面，要求代码可以通过ArkTS编译器检查"
 
       - id: case_005
         case_id: compilable_002
         title: "生成可编译的Form表单代码"
         category: specialized
-        input_file: test_cases/compilable/002/input.ets
-        expected_file: test_cases/compilable/002/expected.ets
         prompt: "请生成一个包含TextInput和Button组件的ArkTS表单页面，要求代码可以通过ArkTS编译器检查"
 
   # ── Performance ─────────────────────────────────────────────
@@ -67,16 +45,12 @@ scenarios:
         case_id: performance_001
         title: "List组件滑动性能优化"
         category: specialized
-        input_file: test_cases/performance/001/input.ets
-        expected_file: test_cases/performance/001/expected.ets
         prompt: "请优化以下List组件代码，使其支持大数据量滑动时的流畅性能（需要使用LazyForEach和cachedCount）"
 
       - id: case_007
         case_id: performance_002
         title: "Swiper组件滑动性能优化"
         category: specialized
-        input_file: test_cases/performance/002/input.ets
-        expected_file: test_cases/performance/002/expected.ets
         prompt: "请优化以下Swiper组件代码，使其在自动播放和手动滑动时保持流畅性能"
 
   # ── Project Gen ─────────────────────────────────────────────
@@ -90,16 +64,12 @@ scenarios:
         case_id: project_gen_001
         title: "生成ArkTS List页面工程"
         category: specialized
-        input_file: test_cases/project_gen/001/input.ets
-        expected_file: test_cases/project_gen/001/expected.ets
         prompt: "请生成一个包含List组件的ArkTS页面工程，包含完整的项目目录结构和必要的配置文件"
 
       - id: case_009
         case_id: project_gen_002
         title: "生成ArkTS Navigation路由工程"
         category: specialized
-        input_file: test_cases/project_gen/002/input.ets
-        expected_file: test_cases/project_gen/002/expected.ets
         prompt: "请生成一个使用Navigation组件实现路由的ArkTS工程，包含主页、详情页和设置页"
 
   # ── General ─────────────────────────────────────────────────
@@ -113,6 +83,7 @@ scenarios:
         case_id: general_001
         title: "通用编译检查"
         category: general
+        original_project_dir: test_cases/general/001/original_project
         prompt: "请确保代码可编译"
 
   # ── Multimodal ──────────────────────────────────────────────
@@ -126,8 +97,6 @@ scenarios:
         case_id: multimodal_001
         title: "商品卡片多模态组件"
         category: specialized
-        input_file: test_cases/multimodal/001/input.ets
-        expected_file: test_cases/multimodal/001/expected.ets
         prompt: "请实现一个商品卡片组件，显示图片、标题和价格，使用多模态布局"
 
   # ── Code Refactor ────────────────────────────────────────────
@@ -141,8 +110,6 @@ scenarios:
         case_id: refactor_001
         title: "登录页面代码重构"
         category: specialized
-        input_file: test_cases/refactor/001/input.ets
-        expected_file: test_cases/refactor/001/expected.ets
         prompt: "以下登录页面代码结构混乱，请进行重构使其更清晰易维护，保留原有功能"
 
   # ── Requirement ─────────────────────────────────────────────
@@ -156,8 +123,6 @@ scenarios:
         case_id: requirement_001
         title: "待办事项列表"
         category: specialized
-        input_file: test_cases/requirement/001/input.ets
-        expected_file: test_cases/requirement/001/expected.ets
         prompt: "请根据需求实现一个待办事项列表：1.添加待办 2.标记完成 3.删除事项 4.分开显示未完成/已完成"
 
   # ── Test Gen ────────────────────────────────────────────────
@@ -171,6 +136,4 @@ scenarios:
         case_id: test_gen_001
         title: "数学函数单元测试生成"
         category: specialized
-        input_file: test_cases/test_gen/001/input.ets
-        expected_file: test_cases/test_gen/001/expected.ets
         prompt: "请为以下数学函数生成完整的单元测试用例，覆盖正常情况和边界情况"

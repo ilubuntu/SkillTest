@@ -12,7 +12,7 @@ agent:
   args: ["run"]
   format: "json"
   quiet: true
-  timeout: 120
+  timeout: 240
   # 模型配置（留空则使用 OpenCode 默认配置）
   # 格式: "provider/model" 如 "opencode/mimo-v2-pro-free"
   model: null

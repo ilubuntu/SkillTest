@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """ArkTS 编译验证模块
 
-每次编译将 empty_hos_project 模板复制到独立沙箱目录，支持并行编译。
+每次编译将测试用例自带的 original_project 模板复制到独立沙箱目录，支持并行编译。
 """
 
 import os
+import json
 import shutil
 import subprocess
 import tempfile
 from typing import Dict, Tuple, Any
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATE_PROJECT_PATH = os.path.join(BASE_DIR, "empty_hos_project")
 INDEX_ETS_REL = os.path.join("entry", "src", "main", "ets", "pages", "Index.ets")
+IGNORED_COMPARE_DIRS = {"build", ".hvigor", "node_modules", "oh_modules"}
 
 
 def _clean_markdown_code_blocks(code: str) -> str:
@@ -39,7 +39,7 @@ def _clean_markdown_code_blocks(code: str) -> str:
     return '\n'.join(cleaned_lines).strip()
 
 
-def _copy_template(dest: str):
+def _copy_template(src: str, dest: str):
     """复制模板工程到目标目录，跳过 build 产物和缓存"""
     def _ignore(directory, files):
         ignored = set()
@@ -51,7 +51,49 @@ def _copy_template(dest: str):
                 ignored.add(f)
         return ignored
 
-    shutil.copytree(TEMPLATE_PROJECT_PATH, dest, ignore=_ignore)
+    shutil.copytree(src, dest, ignore=_ignore)
+
+
+def _collect_project_files(root: str) -> Dict[str, str]:
+    """收集工程文件快照（相对路径 -> 绝对路径）"""
+    file_map: Dict[str, str] = {}
+    for current_root, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in IGNORED_COMPARE_DIRS]
+        for name in files:
+            if name == "oh-package-lock.json5":
+                continue
+            abs_path = os.path.join(current_root, name)
+            rel_path = os.path.relpath(abs_path, root)
+            file_map[rel_path] = abs_path
+    return file_map
+
+
+def _diff_project_files(original_root: str, final_root: str) -> list:
+    """比较原始工程和最终工程，返回发生变化的相对路径列表"""
+    before_files = _collect_project_files(original_root)
+    after_files = _collect_project_files(final_root)
+    changed = set()
+
+    for rel_path in sorted(set(before_files) | set(after_files)):
+        before_path = before_files.get(rel_path)
+        after_path = after_files.get(rel_path)
+        if before_path is None or after_path is None:
+            changed.add(rel_path)
+            continue
+        with open(before_path, "rb") as f:
+            before_bytes = f.read()
+        with open(after_path, "rb") as f:
+            after_bytes = f.read()
+        if before_bytes != after_bytes:
+            changed.add(rel_path)
+
+    return sorted(changed)
+
+
+def _save_changed_files(case_dir: str, changed_files: list):
+    """保存最简版 changed_files 产物"""
+    with open(os.path.join(case_dir, "changed_files.json"), "w", encoding="utf-8") as f:
+        json.dump({"changed_files": changed_files}, f, ensure_ascii=False, indent=2)
 
 
 def _find_deveco_base() -> str:
@@ -179,7 +221,8 @@ def _compile_project(project_path: str, timeout: int = 300) -> Tuple[bool, str]:
 
 
 def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
-                     is_general_check: bool = False) -> Dict[str, Any]:
+                     is_general_check: bool = False,
+                     template_project_path: str = None) -> Dict[str, Any]:
     """检查代码是否可编译
 
     将模板工程复制到临时沙箱，写入代码后编译，编译完清理沙箱。
@@ -190,6 +233,7 @@ def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
         timeout: 编译超时时间（秒）
         case_dir: 用例产物目录，用于保存 Index.ets 副本
         is_general_check: True 时直接编译模板（不替换代码）
+        template_project_path: 当前用例的 original_project 路径
     """
     # 沙箱放在 case_dir/compile_sandbox 下便于调试，无 case_dir 时用临时目录
     if case_dir:
@@ -203,7 +247,21 @@ def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
     try:
         if os.path.exists(sandbox):
             shutil.rmtree(sandbox)
-        _copy_template(sandbox)
+        if not template_project_path:
+            return {
+                "compilable": False,
+                "error": "未提供测试用例 original_project 模板路径",
+                "checked": True,
+            }
+        if not os.path.isdir(template_project_path):
+            return {
+                "compilable": False,
+                "error": f"测试用例 original_project 模板不存在: {template_project_path}",
+                "checked": True,
+            }
+
+        template_path = template_project_path
+        _copy_template(template_path, sandbox)
 
         if not is_general_check:
             cleaned_code = _clean_markdown_code_blocks(code)
@@ -212,6 +270,9 @@ def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
                 f.write(cleaned_code)
 
         is_success, error_msg = _compile_project(sandbox, timeout=timeout)
+        if case_dir:
+            changed_files = _diff_project_files(template_path, sandbox)
+            _save_changed_files(case_dir, changed_files)
 
         if not is_success:
             print(f"[COMPILE ERROR] error_msg={error_msg[:200]}")

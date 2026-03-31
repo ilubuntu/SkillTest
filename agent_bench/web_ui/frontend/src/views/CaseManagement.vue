@@ -106,22 +106,6 @@
 
         <h4 style="margin: 20px 0 10px;">Prompt</h4>
         <div class="code-block">{{ detailCase.prompt || '（无）' }}</div>
-
-        <template v-if="detailCase.input_code">
-          <h4 style="margin: 20px 0 10px;">
-            输入代码
-            <span class="file-path">{{ detailCase.input_file }}</span>
-          </h4>
-          <div class="code-block">{{ detailCase.input_code }}</div>
-        </template>
-
-        <template v-if="detailCase.reference_code">
-          <h4 style="margin: 20px 0 10px;">
-            参考代码
-            <span class="file-path">{{ detailCase.expected_file }}</span>
-          </h4>
-          <div class="code-block">{{ detailCase.reference_code }}</div>
-        </template>
       </template>
     </el-drawer>
   </div>
