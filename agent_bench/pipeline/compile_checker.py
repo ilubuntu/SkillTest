@@ -12,7 +12,8 @@ import tempfile
 from typing import Dict, Tuple, Any
 
 INDEX_ETS_REL = os.path.join("entry", "src", "main", "ets", "pages", "Index.ets")
-IGNORED_COMPARE_DIRS = {"build", ".hvigor", "node_modules", "oh_modules"}
+META_DIR_NAME = ".agent_bench"
+IGNORED_COMPARE_DIRS = {"build", ".hvigor", "node_modules", "oh_modules", META_DIR_NAME}
 
 
 def _clean_markdown_code_blocks(code: str) -> str:
@@ -90,10 +91,50 @@ def _diff_project_files(original_root: str, final_root: str) -> list:
     return sorted(changed)
 
 
-def _save_changed_files(case_dir: str, changed_files: list):
+def _save_changed_files(project_root: str, changed_files: list):
     """保存最简版 changed_files 产物"""
-    with open(os.path.join(case_dir, "changed_files.json"), "w", encoding="utf-8") as f:
+    meta_dir = os.path.join(project_root, META_DIR_NAME)
+    os.makedirs(meta_dir, exist_ok=True)
+    with open(os.path.join(meta_dir, "changed_files.json"), "w", encoding="utf-8") as f:
         json.dump({"changed_files": changed_files}, f, ensure_ascii=False, indent=2)
+
+
+def prepare_project_workspace(template_project_path: str, workspace_dir: str):
+    """将 original_project 复制到指定 side 目录。"""
+    if not template_project_path:
+        raise ValueError("未提供测试用例 original_project 模板路径")
+    if not os.path.isdir(template_project_path):
+        raise FileNotFoundError(f"测试用例 original_project 模板不存在: {template_project_path}")
+
+    if os.path.exists(workspace_dir):
+        shutil.rmtree(workspace_dir)
+    _copy_template(template_project_path, workspace_dir)
+
+
+def check_project_compilable(project_path: str,
+                             timeout: int = 300,
+                             template_project_path: str = None) -> Dict[str, Any]:
+    """直接编译 side 工程目录，并基于 original_project 记录 changed_files。"""
+    if not os.path.isdir(project_path):
+        return {
+            "compilable": False,
+            "error": f"待编译工程目录不存在: {project_path}",
+            "checked": True,
+        }
+
+    is_success, error_msg = _compile_project(project_path, timeout=timeout)
+    if template_project_path and os.path.isdir(template_project_path):
+        changed_files = _diff_project_files(template_project_path, project_path)
+        _save_changed_files(project_path, changed_files)
+
+    if not is_success:
+        print(f"[COMPILE ERROR] error_msg={error_msg[:200]}")
+
+    return {
+        "compilable": is_success,
+        "error": error_msg,
+        "checked": True,
+    }
 
 
 def _find_deveco_base() -> str:

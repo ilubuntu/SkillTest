@@ -1,0 +1,15 @@
+agents:
+  - id: opencode_default
+    name: "OpenCode Default"
+    adapter: opencode
+    api_base: "http://127.0.0.1:4096"
+    model: null
+    enabled: true
+
+  # 需要对比第二个 Agent 时，按同样结构继续添加。
+  # - id: another_agent
+  #   name: "Another Agent"
+  #   adapter: opencode
+  #   api_base: "http://127.0.0.1:4100"
+  #   model: null
+  #   enabled: true

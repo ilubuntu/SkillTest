@@ -22,6 +22,19 @@ class ScenarioInfo(BaseModel):
     case_count: int
 
 
+class AgentInfo(BaseModel):
+    id: str
+    name: str
+    adapter: str
+    api_base: str
+    model: Optional[str] = None
+
+
+class AgentSideConfig(BaseModel):
+    agent_id: str
+    label: Optional[str] = None
+
+
 class EvaluationStatus(str, Enum):
     IDLE = "idle"
     RUNNING = "running"
@@ -31,8 +44,13 @@ class EvaluationStatus(str, Enum):
 
 
 class EvaluationConfig(BaseModel):
-    profiles: List[str]
+    mode: str = "agent_compare"
+    run_target: str = "both"
+    profiles: List[str] = []
     scenarios: List[str]
+    case_ids: List[str] = []
+    agent_a: Optional[AgentSideConfig] = None
+    agent_b: Optional[AgentSideConfig] = None
     skip_baseline: bool = False
     only_run_baseline: bool = False
 
@@ -45,39 +63,41 @@ class LogEntry(BaseModel):
 
 
 class CompileResult(BaseModel):
-    baseline_compilable: Optional[bool] = None
-    baseline_error: str = ""
-    enhanced_compilable: Optional[bool] = None
-    enhanced_error: str = ""
+    side_a_compilable: Optional[bool] = None
+    side_a_error: str = ""
+    side_b_compilable: Optional[bool] = None
+    side_b_error: str = ""
 
 
 class CaseResult(BaseModel):
     case_id: str
     title: str
     scenario: str
-    baseline_rule: float
-    enhanced_rule: float
-    baseline_total: float
-    enhanced_total: float
+    side_a_rule: float
+    side_b_rule: float
+    side_a_total: float
+    side_b_total: float
     gain: float
-    dimension_scores: Dict[str, Any]  # {dimId: {name, baseline: {llm, internal}, enhanced: {llm, internal}}}
+    dimension_scores: Dict[str, Any]  # {dimId: {name, side_a: {llm, internal}, side_b: {llm, internal}}}
     compile_results: Optional[CompileResult] = None
 
 
 class GeneralResult(BaseModel):
-    baseline_compile_pass_rate: str = "N/A"
-    enhanced_compile_pass_rate: str = "N/A"
+    side_a_compile_pass_rate: str = "N/A"
+    side_b_compile_pass_rate: str = "N/A"
     note: Optional[str] = None
+    comparison_labels: Dict[str, str] = {}
+    active_sides: List[str] = []
 
 
 class EvaluationSummary(BaseModel):
     total_cases: int
-    baseline_avg: float
-    enhanced_avg: float
+    side_a_avg: float
+    side_b_avg: float
     gain: float
-    baseline_pass_rate: str
-    enhanced_pass_rate: str
-    dimensions: Dict[str, Any]  # {dimId: {name, baseline_llm_avg, baseline_internal_avg, enhanced_llm_avg, enhanced_internal_avg, gain}}
+    side_a_pass_rate: str
+    side_b_pass_rate: str
+    dimensions: Dict[str, Any]  # {dimId: {name, side_a_llm_avg, side_a_internal_avg, side_b_llm_avg, side_b_internal_avg, gain}}
 
 
 class EvaluationResult(BaseModel):
@@ -87,6 +107,8 @@ class EvaluationResult(BaseModel):
     summary: EvaluationSummary
     cases: List[CaseResult]
     general: Optional[GeneralResult] = None
+    comparison_labels: Dict[str, str] = {}
+    active_sides: List[str] = []
 
 
 class CaseStage(BaseModel):
@@ -100,8 +122,8 @@ class CaseProgress(BaseModel):
     scenario: str
     status: str = "pending"       # pending, running, done, error
     stages: List[CaseStage] = []
-    baseline_total: Optional[float] = None
-    enhanced_total: Optional[float] = None
+    side_a_total: Optional[float] = None
+    side_b_total: Optional[float] = None
     gain: Optional[float] = None
     error: Optional[str] = None
 
@@ -120,3 +142,5 @@ class EvaluationProgress(BaseModel):
     results: List[EvaluationResult] = []
     elapsed_time: int = 0
     general_result: Optional[EvaluationResult] = None
+    comparison_labels: Dict[str, str] = {}
+    active_sides: List[str] = []

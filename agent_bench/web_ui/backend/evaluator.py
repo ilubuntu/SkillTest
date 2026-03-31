@@ -21,7 +21,38 @@ from backend.models import (
 )
 
 # case 执行的阶段顺序
-CASE_STAGES = ["基线运行", "增强运行", "规则检查", "LLM评分"]
+CASE_STAGES = ["A侧运行", "B侧运行", "规则检查", "LLM评分"]
+
+
+def _normalize_dimension_scores(dimensions: Dict) -> Dict:
+    normalized = {}
+    for dim_id, scores in (dimensions or {}).items():
+        if not isinstance(scores, dict):
+            continue
+        normalized[dim_id] = {
+            "name": scores.get("name", dim_id),
+            "side_a": scores.get("side_a", scores.get("baseline", {})),
+            "side_b": scores.get("side_b", scores.get("enhanced", {})),
+        }
+    return normalized
+
+
+def _normalize_summary_dimensions(dimensions: Dict) -> Dict:
+    normalized = {}
+    for dim_id, data in (dimensions or {}).items():
+        if not isinstance(data, dict):
+            continue
+        normalized[dim_id] = {
+            "name": data.get("name", dim_id),
+            "side_a_avg": data.get("side_a_avg", data.get("baseline_avg")),
+            "side_b_avg": data.get("side_b_avg", data.get("enhanced_avg")),
+            "side_a_llm_avg": data.get("side_a_llm_avg", data.get("baseline_llm_avg")),
+            "side_b_llm_avg": data.get("side_b_llm_avg", data.get("enhanced_llm_avg")),
+            "side_a_internal_avg": data.get("side_a_internal_avg", data.get("baseline_internal_avg")),
+            "side_b_internal_avg": data.get("side_b_internal_avg", data.get("enhanced_internal_avg")),
+            "gain": data.get("gain"),
+        }
+    return normalized
 
 
 class EvaluatorManager:
@@ -55,6 +86,8 @@ class EvaluatorManager:
         self._current_case: Optional[str] = None
         self._current_profile: Optional[str] = None
         self._current_scenario: Optional[str] = None
+        self._comparison_labels: Dict[str, str] = {}
+        self._active_sides: List[str] = ["side_a", "side_b"]
         self._scenarios: List[str] = []
         self._case_progresses: Dict[str, CaseProgress] = {}
         self._logs: List[LogEntry] = []
@@ -111,6 +144,13 @@ class EvaluatorManager:
         if status == "running":
             cp.status = "running"
 
+    def _side_label(self, side: str) -> str:
+        defaults = {
+            "side_a": "Agent A",
+            "side_b": "Agent B",
+        }
+        return self._comparison_labels.get(side, defaults.get(side, side))
+
     # ── Pipeline 回调 ─────────────────────────────────────────
 
     def _pipeline_callback(self, event: str, data: dict):
@@ -122,7 +162,14 @@ class EvaluatorManager:
             self._current_profile = data.get("profile")
             self._scenarios = data.get("scenarios", [])
             self._run_id = data.get("run_id")
-            self._add_log("INFO", f"评测启动: profile={data['profile']}, "
+            raw_labels = data.get("comparison_labels", {}) or self._comparison_labels
+            self._comparison_labels = {
+                "side_a": raw_labels.get("side_a") or raw_labels.get("baseline") or "Agent A",
+                "side_b": raw_labels.get("side_b") or raw_labels.get("enhanced") or "Agent B",
+            }
+            raw_active_sides = data.get("active_sides", self._active_sides) or ["side_a", "side_b"]
+            self._active_sides = ["side_a" if s in ("baseline", "side_a") else "side_b" for s in raw_active_sides]
+            self._add_log("INFO", f"评测启动: mode={data['profile']}, "
                           f"scenarios={','.join(data['scenarios'])}")
 
         elif event == "scenario_start":
@@ -143,6 +190,13 @@ class EvaluatorManager:
                     self._update_case_stage(case_id, stage, "done", elapsed)
                     self._add_log("INFO", f"[{case_id}] {stage} 完成 ({elapsed:.0f}s)")
 
+        elif event == "stage_start":
+            case_id = data.get("case_id", "")
+            stage = data.get("stage")
+            if case_id and stage:
+                self._ensure_case(case_id)
+                self._update_case_stage(case_id, stage, "running")
+
         elif event == "case_done":
             self._done_cases += 1
             case_id = data["case_id"]
@@ -150,15 +204,16 @@ class EvaluatorManager:
             self._ensure_case(case_id, data.get("title", ""), data.get("scenario", ""))
             cp = self._case_progresses[case_id]
             cp.status = "done"
-            cp.baseline_total = data.get("baseline_total")
-            cp.enhanced_total = data.get("enhanced_total")
+            cp.side_a_total = data.get("side_a_total")
+            cp.side_b_total = data.get("side_b_total")
             cp.gain = data.get("gain")
             gain = data["gain"]
             sign = "+" if gain >= 0 else ""
             self._add_log("INFO",
                           f"用例完成: {case_id} - {data['title']} "
-                          f"(基线={data['baseline_total']:.1f}, 增强={data['enhanced_total']:.1f}, "
-                          f"增益={sign}{gain:.1f})")
+                          f"({self._side_label('side_a')}={cp.side_a_total:.1f}, "
+                          f"{self._side_label('side_b')}={cp.side_b_total:.1f}, "
+                          f"差值={sign}{gain:.1f})")
 
         elif event == "scenario_done":
             self._add_log("INFO", f"场景完成: {data['scenario']} ({data['case_count']} 用例)")
@@ -184,13 +239,13 @@ class EvaluatorManager:
     def _infer_case_stage_from_log(self, message: str):
         """从 log message 推断 case 当前正在执行的阶段"""
         # 匹配 [case_id] 开始基线运行/增强运行/规则检查/LLM评分
-        m = re.match(r'\[(\w+)\]\s+开始(基线运行|增强运行|规则检查|LLM)', message)
+        m = re.match(r'\[(\w+)\]\s+开始(A侧运行|B侧运行|规则检查|LLM)', message)
         if m:
             case_id = m.group(1)
             stage_keyword = m.group(2)
             stage_map = {
-                "基线运行": "基线运行",
-                "增强运行": "增强运行",
+                "A侧运行": "A侧运行",
+                "B侧运行": "B侧运行",
                 "规则检查": "规则检查",
                 "LLM": "LLM评分",
             }
@@ -209,7 +264,9 @@ class EvaluatorManager:
 
     # ── 工作线程 ──────────────────────────────────────────────
 
-    def _run_pipeline_thread(self, profiles, scenarios, skip_baseline, only_run_baseline, generation):
+    def _run_pipeline_thread(self, mode, run_target, profiles, scenarios, case_ids,
+                             agent_a, agent_b, skip_baseline,
+                             only_run_baseline, generation):
         """工作线程，generation 用于防止旧线程回写状态到新评测"""
         def is_stale():
             return self._run_generation != generation
@@ -222,21 +279,90 @@ class EvaluatorManager:
             api_base = ensure_opencode_server()
             self._add_log("INFO", f"OpenCode Server 已连接: {api_base}")
 
-            profile_arg = "all" if "all" in profiles else ",".join(profiles)
             scenario_arg = "all" if "all" in scenarios else ",".join(scenarios)
+            case_ids = list(dict.fromkeys(case_ids or []))
+            case_ids_arg = ",".join(case_ids) if case_ids else "ALL"
+            if mode == "agent_compare":
+                if run_target == "both":
+                    if not agent_a or not agent_b:
+                        raise ValueError("请选择 Agent A 和 Agent B")
+                    baseline_agent_id = agent_a.get("agent_id")
+                    enhanced_agent_id = agent_b.get("agent_id")
+                    comparison_labels = {
+                        "side_a": agent_a.get("label") or agent_a.get("agent_id") or "Agent A",
+                        "side_b": agent_b.get("label") or agent_b.get("agent_id") or "Agent B",
+                    }
+                    active_sides = ["side_a", "side_b"]
+                    effective_only_run_baseline = False
+                elif run_target == "agent_a":
+                    if not agent_a:
+                        raise ValueError("请选择 Agent A")
+                    baseline_agent_id = agent_a.get("agent_id")
+                    enhanced_agent_id = None
+                    comparison_labels = {
+                        "side_a": agent_a.get("label") or agent_a.get("agent_id") or "Agent A",
+                        "side_b": "",
+                    }
+                    active_sides = ["side_a"]
+                    effective_only_run_baseline = True
+                elif run_target == "agent_b":
+                    if not agent_b:
+                        raise ValueError("请选择 Agent B")
+                    baseline_agent_id = agent_b.get("agent_id")
+                    enhanced_agent_id = None
+                    comparison_labels = {
+                        "side_a": agent_b.get("label") or agent_b.get("agent_id") or "Agent B",
+                        "side_b": "",
+                    }
+                    active_sides = ["side_a"]
+                    effective_only_run_baseline = True
+                else:
+                    raise ValueError(f"不支持的 run_target: {run_target}")
 
-            self._add_log("INFO", f"评测参数: profiles={profile_arg}, scenarios={scenario_arg}, "
-                          f"skip_baseline={skip_baseline}, only_run_baseline={only_run_baseline}")
+                self._comparison_labels = comparison_labels
+                self._active_sides = active_sides
+                self._add_log("INFO", f"评测参数: mode={mode}, run_target={run_target}, scenarios={scenario_arg}, "
+                              f"case_ids={case_ids_arg}, side_a={comparison_labels['side_a'] or '-'}, "
+                              f"side_b={comparison_labels['side_b'] or '-'}")
 
-            result = run_pipeline(
-                profile=profile_arg,
-                cases_override=scenario_arg,
-                api_base=api_base,
-                dry_run=False,
-                skip_baseline=skip_baseline,
-                only_run_baseline=only_run_baseline,
-                on_progress=self._pipeline_callback,
-            )
+                result = run_pipeline(
+                    profile=mode,
+                    cases_override=scenario_arg,
+                    case_ids=case_ids,
+                    api_base=api_base,
+                    dry_run=False,
+                    skip_baseline=False,
+                    only_run_baseline=effective_only_run_baseline,
+                    baseline_agent_id=baseline_agent_id,
+                    enhanced_agent_id=enhanced_agent_id,
+                    comparison_labels=comparison_labels,
+                    active_sides=active_sides,
+                    on_progress=self._pipeline_callback,
+                )
+            else:
+                if not profiles:
+                    raise ValueError("未选择 Profile")
+
+                profile_arg = profiles[0]
+                if len(profiles) > 1:
+                    self._add_log("WARN", f"检测到多个 Profile，仅使用第一个: {profile_arg}")
+
+                self._comparison_labels = {}
+                self._active_sides = ["side_a", "side_b"]
+                self._add_log("INFO", f"评测参数: profile={profile_arg}, scenarios={scenario_arg}, "
+                              f"case_ids={case_ids_arg}, skip_baseline={skip_baseline}, "
+                              f"only_run_baseline={only_run_baseline}")
+
+                result = run_pipeline(
+                    profile=profile_arg,
+                    cases_override=scenario_arg,
+                    case_ids=case_ids,
+                    api_base=api_base,
+                    dry_run=False,
+                    skip_baseline=skip_baseline,
+                    only_run_baseline=only_run_baseline,
+                    on_progress=self._pipeline_callback,
+                )
 
             if is_stale():
                 return
@@ -268,35 +394,37 @@ class EvaluatorManager:
             return None
 
         try:
-            baseline_compilable_count = 0
-            baseline_compilable_total = 0
-            enhanced_compilable_count = 0
-            enhanced_compilable_total = 0
+            side_a_compilable_count = 0
+            side_a_compilable_total = 0
+            side_b_compilable_count = 0
+            side_b_compilable_total = 0
 
             for r in general_results:
                 compile_results = r.get("compile_results")
                 if compile_results:
-                    if compile_results.get("baseline_compilable") is not None:
-                        baseline_compilable_total += 1
-                        if compile_results.get("baseline_compilable"):
-                            baseline_compilable_count += 1
-                    if compile_results.get("enhanced_compilable") is not None:
-                        enhanced_compilable_total += 1
-                        if compile_results.get("enhanced_compilable"):
-                            enhanced_compilable_count += 1
+                    if compile_results.get("side_a_compilable") is not None:
+                        side_a_compilable_total += 1
+                        if compile_results.get("side_a_compilable"):
+                            side_a_compilable_count += 1
+                    if compile_results.get("side_b_compilable") is not None:
+                        side_b_compilable_total += 1
+                        if compile_results.get("side_b_compilable"):
+                            side_b_compilable_count += 1
 
-            baseline_rate = f"{baseline_compilable_count}/{baseline_compilable_total}" if baseline_compilable_total > 0 else "N/A"
-            enhanced_rate = f"{enhanced_compilable_count}/{enhanced_compilable_total}" if enhanced_compilable_total > 0 else "N/A"
+            side_a_rate = f"{side_a_compilable_count}/{side_a_compilable_total}" if side_a_compilable_total > 0 else "N/A"
+            side_b_rate = f"{side_b_compilable_count}/{side_b_compilable_total}" if side_b_compilable_total > 0 else "N/A"
 
             general_data = {
-                "baseline_compile_pass_rate": baseline_rate,
-                "enhanced_compile_pass_rate": enhanced_rate,
+                "side_a_compile_pass_rate": side_a_rate,
+                "side_b_compile_pass_rate": side_b_rate,
             }
 
             general = GeneralResult(
-                baseline_compile_pass_rate=baseline_rate,
-                enhanced_compile_pass_rate=enhanced_rate,
-                note="通用用例编译检查结果" if baseline_compilable_total > 0 or enhanced_compilable_total > 0 else None,
+                side_a_compile_pass_rate=side_a_rate,
+                side_b_compile_pass_rate=side_b_rate,
+                note="通用用例编译检查结果" if side_a_compilable_total > 0 or side_b_compilable_total > 0 else None,
+                comparison_labels=self._comparison_labels.copy(),
+                active_sides=self._active_sides.copy(),
             )
 
             cases = []
@@ -305,20 +433,20 @@ class EvaluatorManager:
                 compile_results = None
                 if compile_results_data:
                     compile_results = CompileResult(
-                        baseline_compilable=compile_results_data.get("baseline_compilable"),
-                        baseline_error=compile_results_data.get("baseline_error", ""),
-                        enhanced_compilable=compile_results_data.get("enhanced_compilable"),
-                        enhanced_error=compile_results_data.get("enhanced_error", ""),
+                        side_a_compilable=compile_results_data.get("side_a_compilable"),
+                        side_a_error=compile_results_data.get("side_a_error", ""),
+                        side_b_compilable=compile_results_data.get("side_b_compilable"),
+                        side_b_error=compile_results_data.get("side_b_error", ""),
                     )
                 cases.append(CaseResult(
                     case_id=c.get("case_id", ""),
                     title=c.get("title", ""),
                     scenario=c.get("scenario", "general"),
-                    baseline_rule=c.get("baseline_rule", 0),
-                    enhanced_rule=c.get("enhanced_rule", 0),
-                    baseline_total=c.get("baseline_total", 0),
-                    enhanced_total=c.get("enhanced_total", 0),
-                    gain=c.get("enhanced_total", 0) - c.get("baseline_total", 0),
+                    side_a_rule=c.get("side_a_rule", 0),
+                    side_b_rule=c.get("side_b_rule", 0),
+                    side_a_total=c.get("side_a_total", 0),
+                    side_b_total=c.get("side_b_total", 0),
+                    gain=c.get("gain", c.get("side_b_total", 0) - c.get("side_a_total", 0)),
                     dimension_scores=c.get("dimension_scores", {}),
                     compile_results=compile_results,
                 ))
@@ -329,15 +457,17 @@ class EvaluatorManager:
                 scenario="general",
                 summary=EvaluationSummary(
                     total_cases=len(cases),
-                    baseline_avg=0,
-                    enhanced_avg=0,
+                    side_a_avg=0,
+                    side_b_avg=0,
                     gain=0,
-                    baseline_pass_rate="0/0",
-                    enhanced_pass_rate="0/0",
+                    side_a_pass_rate="0/0",
+                    side_b_pass_rate="0/0",
                     dimensions={},
                 ),
                 cases=cases,
                 general=general,
+                comparison_labels=self._comparison_labels.copy(),
+                active_sides=self._active_sides.copy(),
             )
         except Exception as e:
             self._add_log("ERROR", f"构建通用用例结果失败: {str(e)}")
@@ -356,36 +486,41 @@ class EvaluatorManager:
             summary = data.get("summary", {})
             cases = []
             for c in data.get("cases", []):
-                gain = c.get("enhanced_total", 0) - c.get("baseline_total", 0)
+                gain = c.get("gain", c.get("side_b_total", 0) - c.get("side_a_total", 0))
                 compile_results_data = c.get("compile_results")
                 compile_results = None
                 if compile_results_data:
                     compile_results = CompileResult(
-                        baseline_compilable=compile_results_data.get("baseline_compilable"),
-                        baseline_error=compile_results_data.get("baseline_error", ""),
-                        enhanced_compilable=compile_results_data.get("enhanced_compilable"),
-                        enhanced_error=compile_results_data.get("enhanced_error", ""),
+                        side_a_compilable=compile_results_data.get("side_a_compilable"),
+                        side_a_error=compile_results_data.get("side_a_error", ""),
+                        side_b_compilable=compile_results_data.get("side_b_compilable"),
+                        side_b_error=compile_results_data.get("side_b_error", ""),
                     )
                 cases.append(CaseResult(
                     case_id=c.get("case_id", ""),
                     title=c.get("title", ""),
                     scenario=c.get("scenario", ""),
-                    baseline_rule=c.get("baseline_rule", 0),
-                    enhanced_rule=c.get("enhanced_rule", 0),
-                    baseline_total=c.get("baseline_total", 0),
-                    enhanced_total=c.get("enhanced_total", 0),
+                    side_a_rule=c.get("side_a_rule", 0),
+                    side_b_rule=c.get("side_b_rule", 0),
+                    side_a_total=c.get("side_a_total", 0),
+                    side_b_total=c.get("side_b_total", 0),
                     gain=gain,
-                    dimension_scores=c.get("dimension_scores", {}),
+                    dimension_scores=_normalize_dimension_scores(c.get("dimension_scores", {})),
                     compile_results=compile_results,
                 ))
+
+            comparison_labels = data.get("comparison_labels", {}) or pipeline_result.get("comparison_labels", {}) or self._comparison_labels.copy()
+            active_sides = data.get("active_sides", []) or pipeline_result.get("active_sides", []) or self._active_sides.copy()
 
             general_data = data.get("general", {})
             general = None
             if general_data:
                 general = GeneralResult(
-                    baseline_compile_pass_rate=general_data.get("baseline_compile_pass_rate", "N/A"),
-                    enhanced_compile_pass_rate=general_data.get("enhanced_compile_pass_rate", "N/A"),
+                    side_a_compile_pass_rate=general_data.get("side_a_compile_pass_rate", "N/A"),
+                    side_b_compile_pass_rate=general_data.get("side_b_compile_pass_rate", "N/A"),
                     note=general_data.get("note"),
+                    comparison_labels=comparison_labels,
+                    active_sides=active_sides,
                 )
 
             eval_result = EvaluationResult(
@@ -394,15 +529,17 @@ class EvaluatorManager:
                 scenario=data.get("scenario", ""),
                 summary=EvaluationSummary(
                     total_cases=summary.get("total_cases", 0),
-                    baseline_avg=summary.get("baseline_avg", 0),
-                    enhanced_avg=summary.get("enhanced_avg", 0),
+                    side_a_avg=summary.get("side_a_avg", 0),
+                    side_b_avg=summary.get("side_b_avg", 0),
                     gain=summary.get("gain", 0),
-                    baseline_pass_rate=summary.get("baseline_pass_rate", "0/0"),
-                    enhanced_pass_rate=summary.get("enhanced_pass_rate", "0/0"),
-                    dimensions=summary.get("dimensions", {}),
+                    side_a_pass_rate=summary.get("side_a_pass_rate", "0/0"),
+                    side_b_pass_rate=summary.get("side_b_pass_rate", "0/0"),
+                    dimensions=_normalize_summary_dimensions(summary.get("dimensions", {})),
                 ),
                 cases=cases,
                 general=general,
+                comparison_labels=comparison_labels,
+                active_sides=active_sides,
             )
             self._results.append(eval_result)
             return eval_result
@@ -412,10 +549,26 @@ class EvaluatorManager:
 
     # ── 公开接口 ──────────────────────────────────────────────
 
-    def start_evaluation(self, profiles: List[str], scenarios: List[str],
+    def start_evaluation(self, mode: str, run_target: str, profiles: List[str], scenarios: List[str],
+                         case_ids: List[str] = None,
+                         agent_a: Dict = None,
+                         agent_b: Dict = None,
                          skip_baseline: bool = False, only_run_baseline: bool = False):
         if self._status == EvaluationStatus.RUNNING:
             return False, "评测正在进行中"
+        if not scenarios:
+            return False, "请选择场景"
+        if not case_ids:
+            return False, "请选择用例"
+        if mode == "agent_compare":
+            if run_target == "both" and (not agent_a or not agent_b):
+                return False, "请选择 Agent A 和 Agent B"
+            if run_target == "agent_a" and not agent_a:
+                return False, "请选择 Agent A"
+            if run_target == "agent_b" and not agent_b:
+                return False, "请选择 Agent B"
+        elif not profiles:
+            return False, "请选择 Profile"
 
         self._stop_event.clear()
         self._reset_state()
@@ -432,7 +585,8 @@ class EvaluatorManager:
 
         self._worker_thread = threading.Thread(
             target=self._run_pipeline_thread,
-            args=(profiles, scenarios, skip_baseline, only_run_baseline, self._run_generation),
+            args=(mode, run_target, profiles, scenarios, case_ids or [], agent_a, agent_b,
+                  skip_baseline, only_run_baseline, self._run_generation),
             daemon=True,
         )
         self._worker_thread.start()
@@ -466,6 +620,8 @@ class EvaluatorManager:
             results=self._results.copy(),
             elapsed_time=elapsed,
             general_result=self._general_result,
+            comparison_labels=self._comparison_labels.copy(),
+            active_sides=self._active_sides.copy(),
         )
 
     def get_log_queue(self) -> queue.Queue:

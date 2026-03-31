@@ -16,16 +16,19 @@ from typing import List, Optional, Dict
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
 PROFILES_DIR = os.path.join(BASE_DIR, "profiles")
+AGENTS_DIR = os.path.join(BASE_DIR, "agents")
 INTERNAL_RULES_PATH = os.path.join(BASE_DIR, "config", "internal_rules.yaml")
 TEST_CASES_REGISTRY_PATH = os.path.join(BASE_DIR, "test_cases", "test_cases.yaml")
 ENHANCEMENTS_REGISTRY_PATH = os.path.join(BASE_DIR, "enhancements", "enhancements.yaml")
 SCORING_STANDARDS_PATH = os.path.join(BASE_DIR, "evaluator", "standard.yaml")
+AGENTS_REGISTRY_PATH = os.path.join(AGENTS_DIR, "agents.yaml")
 
 # ── 缓存（避免重复加载） ─────────────────────────────────────
 
 _registry_cache = {
     "test_cases": None,       # test_cases.yaml 内容
     "enhancements": None,     # enhancements.yaml 内容
+    "agents": None,           # agents.yaml 内容
 }
 
 
@@ -238,6 +241,49 @@ def load_enhancements_registry() -> dict:
         else:
             _registry_cache["enhancements"] = {}
     return _registry_cache["enhancements"]
+
+
+def load_agents_registry() -> dict:
+    """加载 agents/agents.yaml，总是返回带 agents 列表的 dict。"""
+    if _registry_cache["agents"] is None:
+        if os.path.exists(AGENTS_REGISTRY_PATH):
+            data = load_yaml(AGENTS_REGISTRY_PATH) or {}
+            _registry_cache["agents"] = data if isinstance(data, dict) else {}
+        else:
+            _registry_cache["agents"] = {}
+
+    registry = _registry_cache["agents"] or {}
+    agents = registry.get("agents")
+    if isinstance(agents, list):
+        return registry
+
+    config = load_config()
+    fallback_agent = {
+        "id": "opencode_default",
+        "name": "OpenCode Default",
+        "adapter": "opencode",
+        "api_base": "http://localhost:4096",
+        "model": config.get("agent", {}).get("model"),
+        "enabled": True,
+    }
+    return {"agents": [fallback_agent]}
+
+
+def load_agents() -> List[dict]:
+    """返回可用 Agent 列表。"""
+    registry = load_agents_registry()
+    agents = registry.get("agents", [])
+    return [agent for agent in agents if agent.get("enabled", True)]
+
+
+def load_agent(agent_id: str) -> Optional[dict]:
+    """根据 agent_id 获取 Agent 定义。"""
+    if not agent_id:
+        return None
+    for agent in load_agents():
+        if agent.get("id") == agent_id:
+            return agent
+    return None
 
 
 def _get_scenario_by_id(scenario_id: str) -> Optional[dict]:

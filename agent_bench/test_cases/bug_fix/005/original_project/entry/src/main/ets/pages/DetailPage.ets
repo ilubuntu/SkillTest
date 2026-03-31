@@ -1,4 +1,4 @@
-import { promptAction, router } from '@kit.ArkUI'
+import { prompt, router } from '@kit.ArkUI'
 
 interface Goods {
   id: number
@@ -65,8 +65,8 @@ struct DetailPage {
   aboutToAppear() {
     const params = router.getParams() as DetailPageParams | undefined
     if (!params) {
-      promptAction.showToast({ message: '参数错误' })
-      router.back()
+      prompt.showToast({ message: '参数错误' })
+      router.back({ params: { saved: false } })
       return
     }
     this.goodsId = params.id
@@ -76,14 +76,12 @@ struct DetailPage {
     }
   }
 
-  async loadGoods() {
+  private async loadGoods() {
     this.isLoading = true
     const goods = DB.queryOne('goods', this.goodsId)
     this.editName = goods.name
     this.editPrice = goods.price.toString()
-    setTimeout(() => {
-      this.isLoading = false
-    }, 100)
+    this.isLoading = false
   }
 
   build() {
@@ -95,7 +93,7 @@ struct DetailPage {
           .fontColor('#333')
           .onClick(() => {
             const backParams: DetailBackParams = { saved: false }
-            router.back({ url: 'pages/Index', params: backParams })
+            router.back({ params: backParams })
           })
 
         Text(this.goodsId === -1 ? '新增商品' : '编辑商品')
@@ -176,11 +174,11 @@ struct DetailPage {
     .backgroundColor('#fff')
   }
 
-  saveGoods() {
+  async saveGoods() {
     const name = this.editName.trim()
     const price = Number(this.editPrice)
     if (!name || Number.isNaN(price) || price <= 0) {
-      promptAction.showToast({ message: '请填写有效的商品名称和价格' })
+      prompt.showToast({ message: '请填写有效的商品名称和价格' })
       return
     }
 
@@ -198,13 +196,12 @@ struct DetailPage {
       changeToken: changeToken
     }
 
-    DB.update('goods', savedGoods)
-      .then(() => {
-        router.back({ url: 'pages/Index', params: backParams })
-      })
-      .catch((err: Error) => {
-        promptAction.showToast({ message: `保存失败: ${err.message}` })
-        this.isSaving = false
-      })
+    try {
+      await DB.update('goods', savedGoods)
+      router.back({ params: backParams })
+    } catch (err) {
+      prompt.showToast({ message: '保存失败' })
+      this.isSaving = false
+    }
   }
 }

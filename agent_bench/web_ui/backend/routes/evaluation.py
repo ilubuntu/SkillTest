@@ -16,8 +16,13 @@ async def start_evaluation(config: EvaluationConfig):
         raise HTTPException(status_code=400, detail="评测正在进行中")
 
     success, message = evaluator_manager.start_evaluation(
+        config.mode,
+        config.run_target,
         config.profiles,
         config.scenarios,
+        case_ids=config.case_ids,
+        agent_a=config.agent_a.model_dump() if config.agent_a else None,
+        agent_b=config.agent_b.model_dump() if config.agent_b else None,
         skip_baseline=config.skip_baseline,
         only_run_baseline=config.only_run_baseline,
     )

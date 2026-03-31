@@ -20,7 +20,7 @@ from agent_bench.evaluator.llm_judge import LLMJudge
 from agent_bench.report.reporter import generate as generate_report
 
 from agent_bench.pipeline.loader import (
-    load_config, load_test_cases, resolve_scenarios,
+    load_config, load_test_cases, resolve_scenarios, load_agent,
 )
 from agent_bench.pipeline.artifacts import load_evaluator_result
 from agent_bench.pipeline.case_runner import run_scenario
@@ -36,6 +36,25 @@ def _notify(on_progress, event: str, data: dict):
         on_progress(event, data)
 
 
+def _normalize_side_labels(labels: dict = None) -> dict:
+    labels = labels or {}
+    return {
+        "side_a": labels.get("side_a") or labels.get("baseline") or "Agent A",
+        "side_b": labels.get("side_b") or labels.get("enhanced") or "Agent B",
+    }
+
+
+def _normalize_active_sides(active_sides: list = None) -> list:
+    active_sides = active_sides or ["side_a", "side_b"]
+    normalized = []
+    for side in active_sides:
+        if side in ("baseline", "side_a"):
+            normalized.append("side_a")
+        elif side in ("enhanced", "side_b"):
+            normalized.append("side_b")
+    return normalized or ["side_a", "side_b"]
+
+
 def run_pipeline(profile: str,
                  cases_override: str = None,
                  api_base: str = DEFAULT_API_BASE,
@@ -46,6 +65,11 @@ def run_pipeline(profile: str,
                  skip_baseline: bool = False,
                  only_run_baseline: bool = False,
                  case_id_filter: str = None,
+                 case_ids: list = None,
+                 baseline_agent_id: str = None,
+                 enhanced_agent_id: str = None,
+                 comparison_labels: dict = None,
+                 active_sides: list = None,
                  run_id: str = None,
                  output_dir: str = None,
                  stages: list = None,
@@ -62,6 +86,10 @@ def run_pipeline(profile: str,
         dry_run: 干跑模式
         skip_baseline: 跳过基线
         case_id_filter: 只跑指定用例
+        case_ids: 只跑指定用例列表
+        baseline_agent_id: A 侧 Agent ID
+        enhanced_agent_id: B 侧 Agent ID
+        comparison_labels: 两侧展示标签
         run_id: 运行 ID（重跑时指定已有的）
         output_dir: 输出目录
         stages: 要执行的阶段 ["runner", "evaluator", "reporter"]
@@ -112,27 +140,54 @@ def run_pipeline(profile: str,
 
     # ── 解析场景 ──
     scenarios_to_run = resolve_scenarios(profile, cases_override)
+    selected_case_ids = case_ids or []
+    if not selected_case_ids and case_id_filter:
+        selected_case_ids = [item.strip() for item in str(case_id_filter).split(",") if item.strip()]
     _notify(on_progress, "log", {"level": "INFO",
         "message": f"待评测场景: {', '.join(scenarios_to_run)} (共{len(scenarios_to_run)}个)"})
 
     os.makedirs(os.path.join(output_dir, "cases"), exist_ok=True)
 
+    baseline_agent = None
+    enhanced_agent = None
+    if baseline_agent_id:
+        baseline_agent = load_agent(baseline_agent_id)
+        if not baseline_agent:
+            raise ValueError(f"未找到 Agent: {baseline_agent_id}")
+    if enhanced_agent_id:
+        enhanced_agent = load_agent(enhanced_agent_id)
+        if not enhanced_agent:
+            raise ValueError(f"未找到 Agent: {enhanced_agent_id}")
+
+    if not baseline_agent:
+        baseline_agent = {
+            "id": "default_baseline",
+            "name": "Baseline",
+            "adapter": "opencode",
+            "api_base": api_base,
+            "model": agent_model,
+        }
+    if not enhanced_agent:
+        enhanced_agent = {
+            "id": "default_enhanced",
+            "name": "Enhanced",
+            "adapter": "opencode",
+            "api_base": api_base,
+            "model": agent_model,
+        }
+
+    comparison_labels = _normalize_side_labels(comparison_labels or {
+        "side_a": baseline_agent.get("name", "Agent A"),
+        "side_b": enhanced_agent.get("name", "Agent B"),
+    })
+    active_sides = _normalize_active_sides(active_sides)
+    agent_compare_mode = bool(baseline_agent_id or enhanced_agent_id)
+
     # ── 初始化组件 ──
     need_runner_or_evaluator = "runner" in stages or "evaluator" in stages
-    adapter = None
     llm_judge = None
 
     if need_runner_or_evaluator:
-        # Agent 适配器（当前使用 OpenCode，后续可替换为其他 Agent）
-        _notify(on_progress, "log", {"level": "INFO",
-            "message": f"初始化 OpenCodeAdapter (API: {api_base}, timeout: {agent_timeout}s)..."})
-        adapter = OpenCodeAdapter(
-            api_base=api_base,
-            model=agent_model,
-            timeout=agent_timeout,
-            on_progress=on_progress,
-        )
-
         # LLM Judge（评分用的 LLM 调用，通过 adapter 提供）
         _notify(on_progress, "log", {"level": "INFO", "message": "初始化 LLMJudge..."})
         judge_temperature = config.get("judge", {}).get("temperature", 0)
@@ -162,6 +217,8 @@ def run_pipeline(profile: str,
         "agent_model": agent_model or "默认",
         "judge_model": judge_model or "默认",
         "max_workers": max_workers,
+        "comparison_labels": comparison_labels,
+        "active_sides": active_sides,
     })
 
     # ── 按场景串行执行 ──
@@ -170,21 +227,27 @@ def run_pipeline(profile: str,
     for scenario in scenarios_to_run:
         if case_stages:
             results = run_scenario(
-                scenario, adapter, llm_judge, output_dir,
+                scenario, llm_judge, output_dir,
                 profile_name=profile,
                 stages=case_stages, max_workers=max_workers,
                 dry_run=dry_run, skip_baseline=skip_baseline,
                 only_run_baseline=only_run_baseline,
-                case_id_filter=case_id_filter,
+                case_ids=selected_case_ids,
                 on_progress=on_progress,
                 phase_weights=phase_weights,
+                baseline_agent=baseline_agent,
+                enhanced_agent=enhanced_agent,
+                comparison_labels=comparison_labels,
+                active_sides=active_sides,
+                agent_compare_mode=agent_compare_mode,
             )
             all_results.extend(results)
         else:
             # reporter-only: 从磁盘加载所有用例结果
             cases = load_test_cases(scenario)
-            if case_id_filter:
-                cases = [c for c in cases if c["id"] == case_id_filter]
+            if selected_case_ids:
+                selected_case_id_set = set(selected_case_ids)
+                cases = [c for c in cases if c["id"] in selected_case_id_set]
             for case in cases:
                 case_dir = os.path.join(output_dir, "cases", case["id"])
                 try:
@@ -201,7 +264,9 @@ def run_pipeline(profile: str,
             "message": f"开始生成报告 ({len(all_results)} 个用例结果)..."})
         scenarios_str = ",".join(scenarios_to_run)
         json_path, md_path = generate_report(
-            all_results, scenarios_str, profile, output_dir
+            all_results, scenarios_str, profile, output_dir,
+            comparison_labels=comparison_labels,
+            active_sides=active_sides,
         )
         if json_path:
             _notify(on_progress, "log", {"level": "INFO", "message": f"JSON 报告: {json_path}"})
@@ -212,12 +277,12 @@ def run_pipeline(profile: str,
 
     # ── 汇总统计 ──
     if all_results:
-        baseline_avg = sum(r["baseline_total"] for r in all_results) / len(all_results)
-        enhanced_avg = sum(r["enhanced_total"] for r in all_results) / len(all_results)
-        gain = enhanced_avg - baseline_avg
+        side_a_avg = sum(r["side_a_total"] for r in all_results) / len(all_results)
+        side_b_avg = sum(r["side_b_total"] for r in all_results) / len(all_results)
+        gain = side_b_avg - side_a_avg
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"评测汇总: 用例数={len(all_results)}, "
-                       f"基线均分={baseline_avg:.1f}, 增强均分={enhanced_avg:.1f}, "
+                       f"A侧均分={side_a_avg:.1f}, B侧均分={side_b_avg:.1f}, "
                        f"平均增益={'+' if gain >= 0 else ''}{gain:.1f}"})
 
     _notify(on_progress, "pipeline_done", {
@@ -233,4 +298,6 @@ def run_pipeline(profile: str,
         "results": all_results,
         "json_path": json_path,
         "md_path": md_path,
+        "comparison_labels": comparison_labels,
+        "active_sides": active_sides,
     }

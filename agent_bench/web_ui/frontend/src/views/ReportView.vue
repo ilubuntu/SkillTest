@@ -5,7 +5,7 @@
       <div class="report-header">
         <h3>评测报告</h3>
         <div class="report-actions">
-          <el-select v-model="filterProfile" placeholder="全部 Profile" clearable style="width: 180px;">
+          <el-select v-model="filterProfile" placeholder="全部标签" clearable style="width: 220px;">
             <el-option v-for="p in profileOptions" :key="p" :label="p" :value="p" />
           </el-select>
           <el-button :icon="Refresh" @click="loadReports" :loading="loading">刷新</el-button>
@@ -27,19 +27,29 @@
             <span class="run-id">{{ row.run_id }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="profile" label="Profile" width="160" />
-        <el-table-column prop="scenario" label="场景" width="120" />
-        <el-table-column prop="summary.total_cases" label="用例数" width="80" />
-        <el-table-column label="基线 / 增强" width="130">
+        <el-table-column label="模式 / 标签" width="220">
           <template #default="{ row }">
-            {{ fmt(row.summary.baseline_avg) }} / {{ fmt(row.summary.enhanced_avg) }}
+            {{ reportLabel(row) }}
           </template>
         </el-table-column>
-        <el-table-column prop="summary.gain" label="增益" width="80" sortable>
+        <el-table-column prop="scenario" label="场景" width="120" />
+        <el-table-column prop="summary.total_cases" label="用例数" width="80" />
+        <el-table-column :label="scoreHeader" width="180">
           <template #default="{ row }">
-            <span :class="row.summary.gain >= 0 ? 'gain-positive' : 'gain-negative'">
+            <template v-if="showEnhanced(row)">
+              {{ fmt(row.summary.side_a_avg) }} / {{ fmt(row.summary.side_b_avg) }}
+            </template>
+            <template v-else>
+              {{ fmt(row.summary.side_a_avg) }}
+            </template>
+          </template>
+        </el-table-column>
+        <el-table-column prop="summary.gain" label="差值" width="80" sortable>
+          <template #default="{ row }">
+            <span v-if="showEnhanced(row)" :class="row.summary.gain >= 0 ? 'gain-positive' : 'gain-negative'">
               {{ row.summary.gain >= 0 ? '+' : '' }}{{ fmt(row.summary.gain) }}
             </span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column prop="generated_at" label="时间" width="180">
@@ -60,33 +70,33 @@
     <template v-if="selectedReport">
       <!-- 增益概览 -->
       <div class="card">
-        <h3 class="section-title">增益概览 — {{ selectedReport.profile }}</h3>
+        <h3 class="section-title">结果概览 — {{ reportLabel(selectedReport) }}</h3>
         <div class="overview-grid">
           <div class="overview-item">
             <div class="overview-value">{{ selectedReport.summary.total_cases }}</div>
             <div class="overview-label">用例总数</div>
           </div>
           <div class="overview-item">
-            <div class="overview-value">{{ fmt(selectedReport.summary.baseline_avg) }}</div>
-            <div class="overview-label">基线均分</div>
+            <div class="overview-value">{{ fmt(selectedReport.summary.side_a_avg) }}</div>
+            <div class="overview-label">{{ baselineLabel(selectedReport) }}均分</div>
           </div>
-          <div class="overview-item">
-            <div class="overview-value highlight">{{ fmt(selectedReport.summary.enhanced_avg) }}</div>
-            <div class="overview-label">增强均分</div>
+          <div class="overview-item" v-if="showEnhanced(selectedReport)">
+            <div class="overview-value highlight">{{ fmt(selectedReport.summary.side_b_avg) }}</div>
+            <div class="overview-label">{{ enhancedLabel(selectedReport) }}均分</div>
           </div>
-          <div class="overview-item">
+          <div class="overview-item" v-if="showEnhanced(selectedReport)">
             <div class="overview-value" :class="selectedReport.summary.gain >= 0 ? 'gain-positive' : 'gain-negative'">
               {{ selectedReport.summary.gain >= 0 ? '+' : '' }}{{ fmt(selectedReport.summary.gain) }}
             </div>
-            <div class="overview-label">整体增益</div>
+            <div class="overview-label">整体差值</div>
           </div>
           <div class="overview-item">
-            <div class="overview-value">{{ selectedReport.summary.baseline_pass_rate }}</div>
-            <div class="overview-label">基线通过率</div>
+            <div class="overview-value">{{ selectedReport.summary.side_a_pass_rate }}</div>
+            <div class="overview-label">{{ baselineLabel(selectedReport) }}通过率</div>
           </div>
-          <div class="overview-item">
-            <div class="overview-value highlight">{{ selectedReport.summary.enhanced_pass_rate }}</div>
-            <div class="overview-label">增强通过率</div>
+          <div class="overview-item" v-if="showEnhanced(selectedReport)">
+            <div class="overview-value highlight">{{ selectedReport.summary.side_b_pass_rate }}</div>
+            <div class="overview-label">{{ enhancedLabel(selectedReport) }}通过率</div>
           </div>
         </div>
       </div>
@@ -103,35 +113,35 @@
             <div class="dim-bar-label">{{ data.name || dimensionLabel(dimId) }}</div>
             <div class="dim-bars">
               <div class="dim-bar-row">
-                <span class="bar-label">基线LLM</span>
+                <span class="bar-label">{{ baselineShort(selectedReport) }}LLM</span>
                 <div class="bar-track">
-                  <div class="bar-fill baseline" :style="{ width: (data.baseline_llm_avg ?? 0) + '%' }"></div>
+                  <div class="bar-fill baseline" :style="{ width: (data.side_a_llm_avg ?? 0) + '%' }"></div>
                 </div>
-                <span class="bar-value">{{ fmt(data.baseline_llm_avg ?? data.baseline_avg) }}</span>
+                <span class="bar-value">{{ fmt(data.side_a_llm_avg ?? data.side_a_avg) }}</span>
               </div>
               <div class="dim-bar-row">
-                <span class="bar-label">基线内部</span>
+                <span class="bar-label">{{ baselineShort(selectedReport) }}本地</span>
                 <div class="bar-track">
-                  <div class="bar-fill baseline-internal" :style="{ width: (data.baseline_internal_avg ?? 0) + '%' }"></div>
+                  <div class="bar-fill baseline-internal" :style="{ width: (data.side_a_internal_avg ?? 0) + '%' }"></div>
                 </div>
-                <span class="bar-value">{{ fmt(data.baseline_internal_avg) }}</span>
+                <span class="bar-value">{{ fmt(data.side_a_internal_avg) }}</span>
               </div>
-              <div class="dim-bar-row">
-                <span class="bar-label">增强LLM</span>
+              <div class="dim-bar-row" v-if="showEnhanced(selectedReport)">
+                <span class="bar-label">{{ enhancedShort(selectedReport) }}LLM</span>
                 <div class="bar-track">
-                  <div class="bar-fill enhanced" :style="{ width: (data.enhanced_llm_avg ?? 0) + '%' }"></div>
+                  <div class="bar-fill enhanced" :style="{ width: (data.side_b_llm_avg ?? 0) + '%' }"></div>
                 </div>
-                <span class="bar-value">{{ fmt(data.enhanced_llm_avg ?? data.enhanced_avg) }}</span>
+                <span class="bar-value">{{ fmt(data.side_b_llm_avg ?? data.side_b_avg) }}</span>
               </div>
-              <div class="dim-bar-row">
-                <span class="bar-label">增强内部</span>
+              <div class="dim-bar-row" v-if="showEnhanced(selectedReport)">
+                <span class="bar-label">{{ enhancedShort(selectedReport) }}本地</span>
                 <div class="bar-track">
-                  <div class="bar-fill enhanced-internal" :style="{ width: (data.enhanced_internal_avg ?? 0) + '%' }"></div>
+                  <div class="bar-fill enhanced-internal" :style="{ width: (data.side_b_internal_avg ?? 0) + '%' }"></div>
                 </div>
-                <span class="bar-value">{{ fmt(data.enhanced_internal_avg) }}</span>
+                <span class="bar-value">{{ fmt(data.side_b_internal_avg) }}</span>
               </div>
             </div>
-            <div class="dim-gain" :class="data.gain >= 0 ? 'gain-positive' : 'gain-negative'">
+            <div v-if="showEnhanced(selectedReport)" class="dim-gain" :class="data.gain >= 0 ? 'gain-positive' : 'gain-negative'">
               {{ data.gain >= 0 ? '+' : '' }}{{ fmt(data.gain) }}
             </div>
           </div>
@@ -149,30 +159,30 @@
           </el-table-column>
           <el-table-column prop="title" label="标题" min-width="200" />
           <el-table-column prop="scenario" label="场景" width="120" />
-          <el-table-column prop="baseline_rule" label="基线规则分" width="110" sortable>
+          <el-table-column prop="side_a_rule" :label="`${baselineLabel(selectedReport)}规则分`" width="130" sortable>
             <template #default="{ row }">
-              {{ fmt(row.baseline_rule) }}
+              {{ fmt(row.side_a_rule) }}
             </template>
           </el-table-column>
-          <el-table-column prop="enhanced_rule" label="增强规则分" width="110" sortable>
+          <el-table-column v-if="showEnhanced(selectedReport)" prop="side_b_rule" :label="`${enhancedLabel(selectedReport)}规则分`" width="130" sortable>
             <template #default="{ row }">
-              {{ fmt(row.enhanced_rule) }}
+              {{ fmt(row.side_b_rule) }}
             </template>
           </el-table-column>
-          <el-table-column prop="baseline_total" label="基线总分" width="100" sortable>
+          <el-table-column prop="side_a_total" :label="`${baselineLabel(selectedReport)}总分`" width="120" sortable>
             <template #default="{ row }">
-              {{ fmt(row.baseline_total) }}
+              {{ fmt(row.side_a_total) }}
             </template>
           </el-table-column>
-          <el-table-column prop="enhanced_total" label="增强总分" width="100" sortable>
+          <el-table-column v-if="showEnhanced(selectedReport)" prop="side_b_total" :label="`${enhancedLabel(selectedReport)}总分`" width="120" sortable>
             <template #default="{ row }">
-              {{ fmt(row.enhanced_total) }}
+              {{ fmt(row.side_b_total) }}
             </template>
           </el-table-column>
-          <el-table-column label="增益" width="100" sortable :sort-by="row => row.enhanced_total - row.baseline_total">
+          <el-table-column v-if="showEnhanced(selectedReport)" label="差值" width="100" sortable :sort-by="row => row.side_b_total - row.side_a_total">
             <template #default="{ row }">
-              <span :class="(row.enhanced_total - row.baseline_total) >= 0 ? 'gain-positive' : 'gain-negative'">
-                {{ (row.enhanced_total - row.baseline_total) >= 0 ? '+' : '' }}{{ fmt(row.enhanced_total - row.baseline_total) }}
+              <span :class="(row.side_b_total - row.side_a_total) >= 0 ? 'gain-positive' : 'gain-negative'">
+                {{ (row.side_b_total - row.side_a_total) >= 0 ? '+' : '' }}{{ fmt(row.side_b_total - row.side_a_total) }}
               </span>
             </template>
           </el-table-column>
@@ -185,10 +195,10 @@
             <div v-for="(scores, dim) in selectedCase.dimension_scores" :key="dim" class="case-dim-item">
               <div class="case-dim-name">{{ dimensionLabel(dim) }}</div>
               <div class="case-dim-scores">
-                <span class="baseline-score">基线: {{ scores.baseline }}</span>
-                <span class="enhanced-score">增强: {{ scores.enhanced }}</span>
-                <span :class="(scores.enhanced - scores.baseline) >= 0 ? 'gain-positive' : 'gain-negative'">
-                  {{ (scores.enhanced - scores.baseline) >= 0 ? '+' : '' }}{{ scores.enhanced - scores.baseline }}
+                <span class="baseline-score">A侧: {{ scores.side_a }}</span>
+                <span class="enhanced-score">B侧: {{ scores.side_b }}</span>
+                <span :class="(scores.side_b - scores.side_a) >= 0 ? 'gain-positive' : 'gain-negative'">
+                  {{ (scores.side_b - scores.side_a) >= 0 ? '+' : '' }}{{ scores.side_b - scores.side_a }}
                 </span>
               </div>
             </div>
@@ -225,13 +235,20 @@ const formatTime = (t) => {
 }
 
 const profileOptions = computed(() => {
-  const set = new Set(reports.value.map(r => r.profile))
+  const set = new Set(reports.value.map(r => reportLabel(r)))
   return Array.from(set).sort()
 })
 
 const filteredReports = computed(() => {
   if (!filterProfile.value) return reports.value
-  return reports.value.filter(r => r.profile === filterProfile.value)
+  return reports.value.filter(r => reportLabel(r) === filterProfile.value)
+})
+
+const scoreHeader = computed(() => {
+  if (!selectedReport.value) return '得分'
+  return showEnhanced(selectedReport.value)
+    ? `${baselineLabel(selectedReport.value)} / ${enhancedLabel(selectedReport.value)}`
+    : baselineLabel(selectedReport.value)
 })
 
 const hasDimensions = computed(() => {
@@ -283,36 +300,63 @@ const exportMD = (report) => {
   URL.revokeObjectURL(url)
 }
 
+const reportLabels = (report) => report?.comparison_labels || {}
+const showEnhanced = (report) => (report?.active_sides || ['side_a', 'side_b']).includes('side_b')
+const baselineLabel = (report) => reportLabels(report).side_a || '基线'
+const enhancedLabel = (report) => reportLabels(report).side_b || '增强'
+const reportLabel = (report) => {
+  if (!report) return ''
+  if (showEnhanced(report)) return `${baselineLabel(report)} vs ${enhancedLabel(report)}`
+  return baselineLabel(report)
+}
+const baselineShort = (report) => baselineLabel(report).slice(0, 2)
+const enhancedShort = (report) => enhancedLabel(report).slice(0, 2)
+
 const generateMarkdown = (report) => {
+  const baseline = baselineLabel(report)
+  const enhanced = enhancedLabel(report)
+  const twoSides = showEnhanced(report)
   let md = `# 评测报告: ${report.run_id}\n\n`
-  md += `- **Profile**: ${report.profile}\n`
+  md += `- **标签**: ${reportLabel(report)}\n`
   md += `- **场景**: ${report.scenario}\n`
   md += `- **时间**: ${formatTime(report.generated_at)}\n\n`
   md += `## 概览\n\n`
   md += `| 指标 | 值 |\n|------|----|\n`
   md += `| 用例数 | ${report.summary.total_cases} |\n`
-  md += `| 基线均分 | ${fmt(report.summary.baseline_avg)} |\n`
-  md += `| 增强均分 | ${fmt(report.summary.enhanced_avg)} |\n`
-  md += `| 增益 | ${report.summary.gain >= 0 ? '+' : ''}${fmt(report.summary.gain)} |\n`
-  md += `| 基线通过率 | ${report.summary.baseline_pass_rate} |\n`
-  md += `| 增强通过率 | ${report.summary.enhanced_pass_rate} |\n\n`
+  md += `| ${baseline}均分 | ${fmt(report.summary.side_a_avg)} |\n`
+  if (twoSides) md += `| ${enhanced}均分 | ${fmt(report.summary.side_b_avg)} |\n`
+  if (twoSides) md += `| 差值 | ${report.summary.gain >= 0 ? '+' : ''}${fmt(report.summary.gain)} |\n`
+  md += `| ${baseline}通过率 | ${report.summary.side_a_pass_rate} |\n`
+  if (twoSides) md += `| ${enhanced}通过率 | ${report.summary.side_b_pass_rate} |\n`
+  md += `\n`
 
   if (report.summary.dimensions) {
     md += `## 维度分析\n\n`
-    md += `| 维度 | 基线LLM | 基线内部 | 增强LLM | 增强内部 | 增益 |\n|------|---------|----------|---------|----------|------|\n`
+    md += twoSides
+      ? `| 维度 | ${baseline}LLM | ${baseline}本地 | ${enhanced}LLM | ${enhanced}本地 | 差值 |\n|------|---------|----------|---------|----------|------|\n`
+      : `| 维度 | ${baseline}LLM | ${baseline}本地 |\n|------|---------|----------|\n`
     for (const [dimId, data] of Object.entries(report.summary.dimensions)) {
       const name = data.name || dimensionLabel(dimId)
-      md += `| ${name} | ${fmt(data.baseline_llm_avg ?? data.baseline_avg)} | ${fmt(data.baseline_internal_avg)} | ${fmt(data.enhanced_llm_avg ?? data.enhanced_avg)} | ${fmt(data.enhanced_internal_avg)} | ${data.gain >= 0 ? '+' : ''}${fmt(data.gain)} |\n`
+      if (twoSides) {
+        md += `| ${name} | ${fmt(data.side_a_llm_avg ?? data.side_a_avg)} | ${fmt(data.side_a_internal_avg)} | ${fmt(data.side_b_llm_avg ?? data.side_b_avg)} | ${fmt(data.side_b_internal_avg)} | ${data.gain >= 0 ? '+' : ''}${fmt(data.gain)} |\n`
+      } else {
+        md += `| ${name} | ${fmt(data.side_a_llm_avg ?? data.side_a_avg)} | ${fmt(data.side_a_internal_avg)} |\n`
+      }
     }
     md += '\n'
   }
 
   md += `## 用例明细\n\n`
-  md += `| 用例 | 标题 | 基线规则 | 增强规则 | 基线总分 | 增强总分 | 增益 |\n`
-  md += `|------|------|----------|----------|----------|----------|------|\n`
+  md += twoSides
+    ? `| 用例 | 标题 | ${baseline}规则 | ${enhanced}规则 | ${baseline}总分 | ${enhanced}总分 | 差值 |\n|------|------|----------|----------|----------|----------|------|\n`
+    : `| 用例 | 标题 | ${baseline}规则 | ${baseline}总分 |\n|------|------|----------|----------|\n`
   for (const c of report.cases) {
-    const gain = c.enhanced_total - c.baseline_total
-    md += `| ${c.case_id} | ${c.title} | ${fmt(c.baseline_rule)} | ${fmt(c.enhanced_rule)} | ${fmt(c.baseline_total)} | ${fmt(c.enhanced_total)} | ${gain >= 0 ? '+' : ''}${fmt(gain)} |\n`
+    const gain = c.side_b_total - c.side_a_total
+    if (twoSides) {
+      md += `| ${c.case_id} | ${c.title} | ${fmt(c.side_a_rule)} | ${fmt(c.side_b_rule)} | ${fmt(c.side_a_total)} | ${fmt(c.side_b_total)} | ${gain >= 0 ? '+' : ''}${fmt(gain)} |\n`
+    } else {
+      md += `| ${c.case_id} | ${c.title} | ${fmt(c.side_a_rule)} | ${fmt(c.side_a_total)} |\n`
+    }
   }
   return md
 }

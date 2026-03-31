@@ -28,7 +28,49 @@ def _normalize_report_payload(data: dict, run_id: str) -> dict:
         else:
             report["summary"] = {}
 
+    summary = report.get("summary", {}) or {}
+    if "side_a_avg" not in summary and "baseline_avg" in summary:
+        summary["side_a_avg"] = summary.get("baseline_avg")
+        summary["side_b_avg"] = summary.get("enhanced_avg")
+        summary["side_a_pass_rate"] = summary.get("baseline_pass_rate", "N/A")
+        summary["side_b_pass_rate"] = summary.get("enhanced_pass_rate", "N/A")
+        dimensions = summary.get("dimensions", {}) or {}
+        for _, dim in dimensions.items():
+            dim["side_a_avg"] = dim.get("side_a_avg", dim.get("baseline_avg"))
+            dim["side_b_avg"] = dim.get("side_b_avg", dim.get("enhanced_avg"))
+            dim["side_a_llm_avg"] = dim.get("side_a_llm_avg", dim.get("baseline_llm_avg"))
+            dim["side_b_llm_avg"] = dim.get("side_b_llm_avg", dim.get("enhanced_llm_avg"))
+            dim["side_a_internal_avg"] = dim.get("side_a_internal_avg", dim.get("baseline_internal_avg"))
+            dim["side_b_internal_avg"] = dim.get("side_b_internal_avg", dim.get("enhanced_internal_avg"))
+        report["summary"] = summary
+
     report["cases"] = report.get("cases", [])
+    for case in report["cases"]:
+        if "side_a_total" not in case and "baseline_total" in case:
+            case["side_a_rule"] = case.get("baseline_rule", 0)
+            case["side_b_rule"] = case.get("enhanced_rule", 0)
+            case["side_a_total"] = case.get("baseline_total", 0)
+            case["side_b_total"] = case.get("enhanced_total", 0)
+            case["gain"] = case.get("gain", case.get("side_b_total", 0) - case.get("side_a_total", 0))
+            for _, dim in (case.get("dimension_scores", {}) or {}).items():
+                dim["side_a"] = dim.get("side_a", dim.get("baseline", {}))
+                dim["side_b"] = dim.get("side_b", dim.get("enhanced", {}))
+
+    raw_labels = report.get("comparison_labels") or {}
+    report["comparison_labels"] = {
+        "side_a": raw_labels.get("side_a") or raw_labels.get("baseline") or "基线",
+        "side_b": raw_labels.get("side_b") or raw_labels.get("enhanced") or "增强",
+    }
+    raw_active_sides = report.get("active_sides") or ["side_a", "side_b"]
+    report["active_sides"] = ["side_a" if side in ("baseline", "side_a") else "side_b" for side in raw_active_sides]
+    if not report["active_sides"]:
+        report["active_sides"] = ["side_a", "side_b"]
+
+    if "general" in report and isinstance(report["general"], dict):
+        general = report["general"]
+        general["side_a_compile_pass_rate"] = general.get("side_a_compile_pass_rate", general.get("baseline_compile_pass_rate", "N/A"))
+        general["side_b_compile_pass_rate"] = general.get("side_b_compile_pass_rate", general.get("enhanced_compile_pass_rate", "N/A"))
+        report["general"] = general
     return report
 
 
@@ -69,7 +111,7 @@ async def get_report(run_id: str):
 
 # ── 用例阶段产物浏览 ────────────────────────────────────────
 
-STAGE_NAMES = ["baseline", "enhanced", "rule_check", "llm_judge"]
+STAGE_NAMES = ["side_a", "side_b", "rule_check", "llm_judge"]
 
 
 @router.get("/results/{run_id}/cases/{case_id}/stages")
@@ -82,9 +124,11 @@ async def get_case_stages(run_id: str, case_id: str):
     stages = {}
     for stage in STAGE_NAMES:
         stage_path = os.path.join(case_dir, stage)
+        meta_dir = os.path.join(stage_path, ".agent_bench")
         if os.path.isdir(stage_path):
-            files = [f for f in os.listdir(stage_path)
-                     if os.path.isfile(os.path.join(stage_path, f))]
+            list_root = meta_dir if os.path.isdir(meta_dir) else stage_path
+            files = [f for f in os.listdir(list_root)
+                     if os.path.isfile(os.path.join(list_root, f))]
             stages[stage] = sorted(files)
         else:
             stages[stage] = []
@@ -102,7 +146,9 @@ async def get_stage_file(run_id: str, case_id: str, stage: str, filename: str):
         return PlainTextResponse("无效的阶段名", status_code=400)
 
     safe_filename = os.path.basename(filename)
-    file_path = os.path.join(RESULTS_DIR, run_id, "cases", case_id, stage, safe_filename)
+    stage_root = os.path.join(RESULTS_DIR, run_id, "cases", case_id, stage)
+    meta_file_path = os.path.join(stage_root, ".agent_bench", safe_filename)
+    file_path = meta_file_path if os.path.isfile(meta_file_path) else os.path.join(stage_root, safe_filename)
 
     if not os.path.isfile(file_path):
         return PlainTextResponse("文件不存在", status_code=404)

@@ -54,7 +54,7 @@ class AgentAdapter(ABC):
         pass
 
     @abstractmethod
-    def execute(self, prompt: str, tag: str = "") -> str:
+    def execute(self, prompt: str, tag: str = "", workspace_dir: Optional[str] = None) -> str:
         """执行一次任务
 
         发送用户 prompt 给 Agent，返回 Agent 的响应文本。
@@ -63,6 +63,7 @@ class AgentAdapter(ABC):
         Args:
             prompt: 用户任务提示词（含代码等上下文）
             tag: 日志前缀标识
+            workspace_dir: 供 Agent 直接修改的工程目录
 
         Returns:
             Agent 响应的文本内容，失败返回空字符串

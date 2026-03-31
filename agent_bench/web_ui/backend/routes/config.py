@@ -53,16 +53,21 @@ def _load_scenarios() -> List[ScenarioInfo]:
     return scenarios
 
 
-def _build_cascader_options(profiles: List[ProfileInfo]) -> List[Dict]:
-    """构建前端级联选择器数据：场景 → Profile"""
-    scenario_profiles: Dict[str, List[ProfileInfo]] = {}
-    for p in profiles:
-        for s in p.scenarios:
-            scenario_profiles.setdefault(s, []).append(p)
-
+def _build_cascader_options() -> List[Dict]:
+    """构建前端级联选择器数据：场景 → 用例"""
+    registry = load_test_cases_registry()
     options = []
-    for scenario, ps in sorted(scenario_profiles.items()):
-        children = [{"value": p.name, "label": p.name} for p in ps]
+    for scenario_entry in registry.get("scenarios", []):
+        scenario = scenario_entry.get("name", scenario_entry.get("id", ""))
+        cases = load_test_cases(scenario)
+        children = [
+            {
+                "value": c.get("id", ""),
+                "label": f"{c.get('id', '')} - {c.get('title', '')}",
+            }
+            for c in cases
+            if c.get("id")
+        ]
         if children:
             options.append({
                 "value": scenario,
@@ -84,7 +89,7 @@ def init_cache():
     """应用启动时调用，加载配置数据"""
     _cache["profiles"] = _load_profiles()
     _cache["scenarios"] = _load_scenarios()
-    _cache["cascader_options"] = _build_cascader_options(_cache["profiles"])
+    _cache["cascader_options"] = _build_cascader_options()
 
 
 # ── 路由 ──────────────────────────────────────────────────────

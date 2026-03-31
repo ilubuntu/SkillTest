@@ -1,5 +1,4 @@
 // Bug: AppDisplayPage 存在以下问题：
-// 1. 使用 eventhub.on 监听事件名 'modeChange' 与 SettingsPage 发送的 'displayModeChange' 不匹配
 // 2. ForEach 未指定 keyGenerator 参数，可能导致列表渲染性能问题
 // 页面A：应用展示页面
 
@@ -20,12 +19,12 @@ struct AppDisplayPage {
   }
 
   aboutToAppear() {
-    // Bug1: 监听的事件名 'modeChange' 与 SettingsPage 发送的 'displayModeChange' 不匹配
-    eventhub.on('modeChange', this.modeChangeCallback)
+    // 修复1: 监听的事件名改为 'displayModeChange'
+    eventhub.on('displayModeChange', this.modeChangeCallback)
   }
 
   aboutToDisappear() {
-    eventhub.off('modeChange', this.modeChangeCallback)
+    eventhub.off('displayModeChange', this.modeChangeCallback)
   }
 
   build() {
@@ -53,8 +52,8 @@ struct AppDisplayPage {
       // 应用展示区
       if (this.isGridMode) {
         Grid() {
-          // Bug2: ForEach 未指定 keyGenerator
-          ForEach(this.appList, (appName: string) => {
+          // 修复2: 为 ForEach 添加 keyGenerator
+          ForEach(this.appList, (appName: string, index: number) => {
             GridItem() {
               Column() {
                 Text(appName.charAt(0))
@@ -73,7 +72,7 @@ struct AppDisplayPage {
               }
               .padding(12)
             }
-          })
+          }, (appName: string, index: number) => `${appName}_${index}`)
         }
         .columnsTemplate('1fr 1fr 1fr 1fr')
         .columnsGap(8)
@@ -83,8 +82,8 @@ struct AppDisplayPage {
         .layoutWeight(1)
       } else {
         List() {
-          // Bug2: ForEach 未指定 keyGenerator
-          ForEach(this.appList, (appName: string) => {
+          // 修复2: 为 ForEach 添加 keyGenerator
+          ForEach(this.appList, (appName: string, index: number) => {
             ListItem() {
               Row() {
                 Text(appName.charAt(0))
@@ -105,7 +104,7 @@ struct AppDisplayPage {
               .width('100%')
               .padding({ left: 16, right: 16, top: 12, bottom: 12 })
             }
-          })
+          }, (appName: string, index: number) => `${appName}_${index}`)
         }
         .width('100%')
         .layoutWeight(1)

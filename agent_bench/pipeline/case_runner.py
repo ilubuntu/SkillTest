@@ -6,8 +6,8 @@
 - 场景执行（run_scenario）：并行调度多个用例
 
 Runner 阶段通过 AgentAdapter 与 Agent 交互：
-- 基线运行：adapter.setup({}) → execute(task_prompt)
-- 增强运行：adapter.setup(enhancements) → execute(task_prompt)
+- A 侧运行：adapter.setup({}) → 在 side_a 工程中直接修改文件
+- B 侧运行：adapter.setup(enhancements) → 在 side_b 工程中直接修改文件
 """
 
 import concurrent.futures
@@ -15,60 +15,107 @@ import os
 import time
 from typing import Callable
 
-from agent_bench.runner.adapter import AgentAdapter
+from agent_bench.runner.factory import create_adapter
 from agent_bench.evaluator.llm_judge import LLMJudge
 from agent_bench.evaluator import internal_scorer, aggregator
-from dataclasses import asdict
 
 from agent_bench.pipeline.loader import (
-    load_test_cases, load_enhancements,
+    load_test_cases, load_enhancements, load_config,
     load_internal_rules, load_rubric, resolve_case_original_project,
     load_case_input_code, load_case_reference_code,
 )
 from agent_bench.pipeline.artifacts import (
     save_runner_artifacts, load_runner_artifacts,
     save_evaluator_artifacts, load_evaluator_result,
-    stage_dir,
+    stage_dir, stage_meta_dir, META_DIR_NAME,
 )
-from agent_bench.pipeline.compile_checker import check_compilable
+from agent_bench.pipeline.compile_checker import (
+    prepare_project_workspace,
+    check_project_compilable,
+)
 
 
 # ── 任务 Prompt 模板 ─────────────────────────────────────────
 
-TASK_PROMPT = """请完成以下任务。
+TASK_PROMPT = """请直接在指定工程目录中修改代码完成任务。
+
+## 工作方式
+- 这是一个已经准备好的 HarmonyOS ArkTS 工程
+- 你应直接修改工程目录中的文件，而不是只返回单个代码片段
+- 完成后请简要说明修改了哪些文件、主要修改内容和最终效果
 
 ## 任务
 {prompt}
-
-## 代码
-```typescript
-{code}
-```
-
-## 要求
-- 只输出完整的代码
-- 不要解释过程
 """
 
-TASK_PROMPT_MULTI_PAGE = """请完成以下任务。
+TASK_PROMPT_MULTI_PAGE = """请直接在指定工程目录中修改代码完成任务。
+
+## 工作方式
+- 这是一个已经准备好的 HarmonyOS ArkTS 工程
+- 你应直接修改工程目录中的文件，而不是只返回单个代码片段
+- 完成后请简要说明修改了哪些文件、主要修改内容和最终效果
 
 ## 任务
 {prompt}
 
-## 代码（主页面：{main_page}）
-```typescript
-{code}
-```
-
-## 关联页面
+## 参考补充文件
 {additional_pages}
-
-## 要求
-- 只输出完整的代码
-- 不要解释过程
 """
 
 MAX_LOGGED_PROMPT_CHARS = 4000
+
+
+def _case_related_files(case: dict) -> list:
+    case_spec = case.get("case_spec", {}) or {}
+    problem = case_spec.get("problem", {}) or {}
+    related = []
+    for item in problem.get("related_files", []) or []:
+        path = item.get("path") if isinstance(item, dict) else item
+        if not path:
+            continue
+        if path.startswith("original_project/"):
+            path = path[len("original_project/"):]
+        related.append(path)
+    return related
+
+
+def _load_changed_files(side_dir: str) -> list:
+    changed_path = os.path.join(side_dir, META_DIR_NAME, "changed_files.json")
+    if not os.path.exists(changed_path):
+        return []
+    try:
+        import json
+        with open(changed_path, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+        return data.get("changed_files", []) or []
+    except Exception:
+        return []
+
+
+def _build_scoring_text(case: dict, side_dir: str, fallback_output: str = "") -> str:
+    paths = []
+    seen = set()
+    for path in _load_changed_files(side_dir) + _case_related_files(case):
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        paths.append(path)
+
+    chunks = []
+    for rel_path in paths:
+        abs_path = os.path.join(side_dir, rel_path)
+        if not os.path.isfile(abs_path):
+            continue
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            chunks.append(f"// FILE: {rel_path}\n{content}")
+        except Exception:
+            continue
+
+    if chunks:
+        return "\n\n".join(chunks)
+    return fallback_output or ""
 
 
 def _notify(on_progress, event: str, data: dict):
@@ -80,7 +127,7 @@ def _notify(on_progress, event: str, data: dict):
 # ── 单用例执行 ───────────────────────────────────────────────
 
 def run_single_case(case: dict, scenario: str, enhancements: dict,
-                    adapter: AgentAdapter, llm_judge: LLMJudge,
+                    llm_judge: LLMJudge,
                     case_dir: str,
                     stages: list = None,
                     dry_run: bool = False,
@@ -88,6 +135,12 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                     only_run_baseline: bool = False,
                     on_progress: Callable = None,
                     phase_weights: dict = None,
+                    baseline_agent: dict = None,
+                    enhanced_agent: dict = None,
+                    comparison_labels: dict = None,
+                    active_sides: list = None,
+                    agent_timeout: int = 180,
+                    agent_temperature: float = None,
                     is_general_case: bool = False) -> dict:
     """执行单个测试用例的指定阶段
 
@@ -95,7 +148,6 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
         case: 用例配置 dict
         scenario: 场景名
         enhancements: 增强配置（已加载 skill 内容）
-        adapter: AgentAdapter 实例
         llm_judge: LLMJudge 实例
         case_dir: 产物存放目录
         stages: 要执行的阶段列表，默认 ["runner", "evaluator"]
@@ -136,14 +188,12 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             main_page = "input.ets"
             task_prompt = TASK_PROMPT_MULTI_PAGE.format(
                 prompt=prompt,
-                main_page=main_page,
-                code=input_code,
                 additional_pages=additional_pages_text
             )
             _notify(on_progress, "log", {"level": "INFO",
                 "message": f"[{case_id}] 多页面场景：检测到 {len(all_additional)} 个额外页面文件"})
         else:
-            task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
+            task_prompt = TASK_PROMPT.format(prompt=prompt)
 
     if task_prompt:
         prompt_preview = task_prompt[:MAX_LOGGED_PROMPT_CHARS]
@@ -166,35 +216,41 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     # ── Runner 阶段 ──
     if "runner" in stages:
         # 若产物已存在则直接复用，避免重复调用 Agent 引入随机性
-        baseline_path = os.path.join(case_dir, "baseline", "output.txt")
-        enhanced_path = os.path.join(case_dir, "enhanced", "output.txt")
-        if os.path.exists(baseline_path) and os.path.exists(enhanced_path):
+        side_a_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "output.txt")
+        side_b_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "output.txt")
+        if os.path.exists(side_a_path) and os.path.exists(side_b_path):
             _notify(on_progress, "log", {"level": "INFO",
                 "message": f"[{case_id}] Runner 产物已存在，跳过 Agent 执行（复用缓存）"})
-            baseline_output, enhanced_output = load_runner_artifacts(case_dir)
+            side_a_output, side_b_output = load_runner_artifacts(case_dir)
             compile_results = {
-                "baseline_compilable": None, "baseline_error": "",
-                "enhanced_compilable": None, "enhanced_error": "",
+                "side_a_compilable": None, "side_a_error": "",
+                "side_b_compilable": None, "side_b_error": "",
             }
         else:
-            baseline_output, enhanced_output, compile_results = _run_runner_stage(
+            side_a_output, side_b_output, compile_results = _run_runner_stage(
                 case, case_id, task_prompt, enhancements,
-                adapter, reference_code, input_code,
+                reference_code, input_code,
                 dry_run=dry_run, skip_baseline=skip_baseline,
                 only_run_baseline=only_run_baseline,
                 on_progress=on_progress,
                 scenario=scenario,
                 case_dir=case_dir,
+                baseline_agent=baseline_agent,
+                enhanced_agent=enhanced_agent,
+                comparison_labels=comparison_labels,
+                active_sides=active_sides,
+                agent_timeout=agent_timeout,
+                agent_temperature=agent_temperature,
                 is_general_case=is_general_case or _scenario_key == "general",
             )
             _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Runner 产物..."})
-            save_runner_artifacts(case_dir, baseline_output, enhanced_output,
+            save_runner_artifacts(case_dir, side_a_output, side_b_output,
                                   task_prompt=task_prompt, enhancements=enhancements)
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Runner 产物..."})
-        baseline_output, enhanced_output = load_runner_artifacts(case_dir)
+        side_a_output, side_b_output = load_runner_artifacts(case_dir)
         _notify(on_progress, "log", {"level": "DEBUG",
-            "message": f"[{case_id}] 已加载: 基线={len(baseline_output)}字符, 增强={len(enhanced_output)}字符"})
+            "message": f"[{case_id}] 已加载: side_a={len(side_a_output)}字符, side_b={len(side_b_output)}字符"})
 
     # ── Evaluator 阶段 ──
     if "evaluator" in stages:
@@ -202,12 +258,14 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             case_id, title, scenario, case,
             prompt,
             input_code, reference_code, rubric,
-            baseline_output, enhanced_output,
+            side_a_output, side_b_output,
             llm_judge, case_dir,
             dry_run=dry_run, on_progress=on_progress,
             only_run_baseline=only_run_baseline,
             phase_weights=phase_weights,
             compile_results=compile_results,
+            comparison_labels=comparison_labels,
+            active_sides=active_sides,
         )
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Evaluator 产物..."})
@@ -220,14 +278,18 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
 
 
 def _run_runner_stage(case, case_id, task_prompt, enhancements,
-                      adapter, reference_code, input_code,
+                      reference_code, input_code,
                       dry_run, skip_baseline, only_run_baseline, on_progress,
                       scenario: str = None, case_dir: str = None,
+                      baseline_agent: dict = None, enhanced_agent: dict = None,
+                      comparison_labels: dict = None,
+                      active_sides: list = None,
+                      agent_timeout: int = 180, agent_temperature: float = None,
                       is_general_case: bool = False):
-    """执行 Runner 阶段，返回 (baseline_output, enhanced_output, compile_results)
+    """执行 Runner 阶段，返回 (side_a_output, side_b_output, compile_results)
 
-    基线运行：adapter.setup({}) → 无增强
-    增强运行：adapter.setup(enhancements) → 注入 skill/system_prompt/mcp
+    A 侧运行：adapter.setup({}) → 在 side_a 工程目录直接修改
+    B 侧运行：adapter.setup(enhancements) → 在 side_b 工程目录直接修改
     
     对于非 project_gen 场景，还会在生成代码后进行编译检查。
     对于 general 场景，直接编译当前用例的 original_project 验证可编译性。
@@ -239,41 +301,45 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
     }
     """
     compile_results = {
-        "baseline_compilable": None,
-        "baseline_error": "",
-        "enhanced_compilable": None,
-        "enhanced_error": "",
+        "side_a_compilable": None,
+        "side_a_error": "",
+        "side_b_compilable": None,
+        "side_b_error": "",
     }
+    side_a_label = (comparison_labels or {}).get("side_a") or (comparison_labels or {}).get("baseline", "Agent A")
+    side_b_label = (comparison_labels or {}).get("side_b") or (comparison_labels or {}).get("enhanced", "Agent B")
     template_project_path = resolve_case_original_project(case) if case else None
     if not template_project_path:
         missing_msg = f"[{case_id}] 未找到 original_project 模板，请在测试用例目录下提供 original_project"
-        compile_results["baseline_compilable"] = False
-        compile_results["baseline_error"] = missing_msg
-        compile_results["enhanced_compilable"] = False
-        compile_results["enhanced_error"] = missing_msg
+        compile_results["side_a_compilable"] = False
+        compile_results["side_a_error"] = missing_msg
+        compile_results["side_b_compilable"] = False
+        compile_results["side_b_error"] = missing_msg
         _notify(on_progress, "log", {"level": "ERROR", "message": missing_msg})
         if is_general_case:
             return "", "", compile_results
 
+    side_a_dir = stage_dir(case_dir, "side_a")
+    side_b_dir = stage_dir(case_dir, "side_b")
+
     # general 场景：直接编译当前用例的 original_project 验证
     if is_general_case:
+        prepare_project_workspace(template_project_path, side_a_dir)
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例：直接编译验证模板工程 {template_project_path}"})
         t0 = time.time()
-        compile_result = check_compilable(
-            "",
-            case_dir=stage_dir(case_dir, "baseline"),
-            is_general_check=True,
+        compile_result = check_project_compilable(
+            side_a_dir,
             template_project_path=template_project_path,
         )
         elapsed = time.time() - t0
-        compile_results["baseline_compilable"] = compile_result["compilable"]
-        compile_results["baseline_error"] = compile_result.get("error", "")
+        compile_results["side_a_compilable"] = compile_result["compilable"]
+        compile_results["side_a_error"] = compile_result.get("error", "")
         if compile_result["compilable"]:
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例编译成功"})
         else:
             _notify(on_progress, "log", {"level": "ERROR", 
                 "message": f"[{case_id}] 通用用例编译失败: {compile_result.get('error', '未知错误')[:200]}"})
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "通用编译检查", "elapsed": elapsed})
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": elapsed})
         return "", "", compile_results
 
     _skey = scenario.lower().replace(" ", "_") if scenario else ""
@@ -281,110 +347,126 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
     _notify(on_progress, "log", {"level": "DEBUG",
         "message": f"[{case_id}] 编译检查配置: scenario={scenario}, need_compile_check={need_compile_check}"})
 
-    # ── 基线运行 ──
+    # ── A 侧运行 ──
     if dry_run:
-        baseline_output = "// dry run - no output"
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": 0, "skipped": True})
+        prepare_project_workspace(template_project_path, side_a_dir)
+        side_a_output = "// dry run - no output"
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": 0, "skipped": True})
     elif skip_baseline:
-        baseline_output = ""
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 跳过基线运行 (skip_baseline)"})
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": 0, "skipped": True})
+        prepare_project_workspace(template_project_path, side_a_dir)
+        side_a_output = ""
+        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 跳过 {side_a_label} 运行 (skip_baseline)"})
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": 0, "skipped": True})
     else:
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 配置基线模式 (无增强)..."})
-        adapter.setup({}, on_progress=on_progress)
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始基线运行..."})
-        _notify(on_progress, "log", {"level": "DEBUG",
-            "message": f"[{case_id}] Task Prompt={len(task_prompt)}字符"})
-        t0 = time.time()
-        tag = f"[{case_id}][基线] "
+        prepare_project_workspace(template_project_path, side_a_dir)
+        baseline_adapter = create_adapter(
+            baseline_agent or enhanced_agent,
+            timeout=agent_timeout,
+            on_progress=on_progress,
+            temperature=agent_temperature,
+        )
         try:
-            baseline_output = adapter.execute(task_prompt, tag=tag)
+            _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "A侧运行"})
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 配置 {side_a_label} 运行..."})
+            baseline_adapter.setup({}, on_progress=on_progress)
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始 {side_a_label} 运行..."})
+            _notify(on_progress, "log", {"level": "DEBUG",
+                "message": f"[{case_id}] Task Prompt={len(task_prompt)}字符, workspace={side_a_dir}"})
+            t0 = time.time()
+            tag = f"[{case_id}][{side_a_label}] "
+            side_a_output = baseline_adapter.execute(task_prompt, tag=tag, workspace_dir=side_a_dir)
         except TimeoutError as e:
-            adapter.teardown()
             _notify(on_progress, "error", {"case_id": case_id, "message": str(e)})
             raise
+        finally:
+            baseline_adapter.teardown()
         elapsed = time.time() - t0
-        adapter.teardown()
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"[{case_id}] 基线运行完成, 输出={len(baseline_output)}字符, 耗时={elapsed:.1f}s"})
+            "message": f"[{case_id}] {side_a_label} 运行完成, 输出={len(side_a_output)}字符, 耗时={elapsed:.1f}s"})
         
         if need_compile_check:
-            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查基线代码可编译性..."})
-            code_to_check = baseline_output if baseline_output.strip() else input_code
-            if not baseline_output.strip():
-                _notify(on_progress, "log", {"level": "WARNING",
-                    "message": f"[{case_id}] 基线未生成有效代码({len(baseline_output)}字符), 使用输入代码检查编译"})
-            compile_result = check_compilable(
-                code_to_check,
-                case_dir=stage_dir(case_dir, "baseline"),
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查 {side_a_label} 工程可编译性..."})
+            compile_result = check_project_compilable(
+                side_a_dir,
                 template_project_path=template_project_path,
             )
-            compile_results["baseline_compilable"] = compile_result["compilable"]
-            compile_results["baseline_error"] = compile_result.get("error", "")
+            compile_results["side_a_compilable"] = compile_result["compilable"]
+            compile_results["side_a_error"] = compile_result.get("error", "")
             if compile_result["compilable"]:
-                _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 基线代码可编译"})
+                _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] {side_a_label} 工程可编译"})
             else:
                 _notify(on_progress, "log", {"level": "WARNING", 
-                    "message": f"[{case_id}] 基线代码编译失败: {compile_result.get('error', '未知错误')[:100]}"})
+                    "message": f"[{case_id}] {side_a_label} 工程编译失败: {compile_result.get('error', '未知错误')[:100]}"})
         
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "基线运行", "elapsed": elapsed})
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": elapsed})
 
-    # ── 增强运行 ──
+    # ── B 侧运行 ──
     if only_run_baseline:
-        enhanced_output = baseline_output
-        compile_results["enhanced_compilable"] = compile_results.get("baseline_compilable")
-        compile_results["enhanced_error"] = compile_results.get("baseline_error", "")
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 仅运行基线，增强复用基线输出 (only_run_baseline)"})
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": 0, "skipped": True})
+        prepare_project_workspace(template_project_path, side_b_dir)
+        side_b_output = side_a_output
+        compile_results["side_b_compilable"] = compile_results.get("side_a_compilable")
+        compile_results["side_b_error"] = compile_results.get("side_a_error", "")
+        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 仅运行 {side_a_label}，{side_b_label} 跳过执行"})
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": 0, "skipped": True})
     elif dry_run:
-        enhanced_output = reference_code
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": 0, "skipped": True})
+        prepare_project_workspace(template_project_path, side_b_dir)
+        side_b_output = reference_code
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": 0, "skipped": True})
     else:
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 配置增强模式..."})
-        adapter.setup(enhancements, on_progress=on_progress)
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始增强运行..."})
-        t0 = time.time()
-        tag = f"[{case_id}][增强] "
+        prepare_project_workspace(template_project_path, side_b_dir)
+        enhanced_adapter = create_adapter(
+            enhanced_agent or baseline_agent,
+            timeout=agent_timeout,
+            on_progress=on_progress,
+            temperature=agent_temperature,
+        )
         try:
-            enhanced_output = adapter.execute(task_prompt, tag=tag)
+            _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "B侧运行"})
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 配置 {side_b_label} 运行..."})
+            enhanced_adapter.setup(enhancements or {}, on_progress=on_progress)
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始 {side_b_label} 运行..."})
+            t0 = time.time()
+            tag = f"[{case_id}][{side_b_label}] "
+            side_b_output = enhanced_adapter.execute(task_prompt, tag=tag, workspace_dir=side_b_dir)
         except TimeoutError as e:
-            adapter.teardown()
             _notify(on_progress, "error", {"case_id": case_id, "message": str(e)})
             raise
+        finally:
+            enhanced_adapter.teardown()
         elapsed = time.time() - t0
-        adapter.teardown()
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"[{case_id}] 增强运行完成, 输出={len(enhanced_output)}字符, 耗时={elapsed:.1f}s"})
+            "message": f"[{case_id}] {side_b_label} 运行完成, 输出={len(side_b_output)}字符, 耗时={elapsed:.1f}s"})
         
         if need_compile_check:
-            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查增强代码可编译性..."})
-            compile_result = check_compilable(
-                enhanced_output,
-                case_dir=stage_dir(case_dir, "enhanced"),
+            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查 {side_b_label} 工程可编译性..."})
+            compile_result = check_project_compilable(
+                side_b_dir,
                 template_project_path=template_project_path,
             )
-            compile_results["enhanced_compilable"] = compile_result["compilable"]
-            compile_results["enhanced_error"] = compile_result.get("error", "")
+            compile_results["side_b_compilable"] = compile_result["compilable"]
+            compile_results["side_b_error"] = compile_result.get("error", "")
             if compile_result["compilable"]:
-                _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 增强代码可编译"})
+                _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] {side_b_label} 工程可编译"})
             else:
                 _notify(on_progress, "log", {"level": "WARNING", 
-                    "message": f"[{case_id}] 增强代码编译失败: {compile_result.get('error', '未知错误')[:100]}"})
+                    "message": f"[{case_id}] {side_b_label} 工程编译失败: {compile_result.get('error', '未知错误')[:100]}"})
         
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "增强运行", "elapsed": elapsed})
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": elapsed})
 
-    return baseline_output, enhanced_output, compile_results
+    return side_a_output, side_b_output, compile_results
 
 
 def _run_evaluator_stage(case_id, title, scenario, case,
                          prompt,
                          input_code, reference_code, rubric,
-                         baseline_output, enhanced_output,
+                         side_a_output, side_b_output,
                          llm_judge, case_dir,
                          dry_run, on_progress,
                          only_run_baseline: bool = False,
                          phase_weights=None,
-                         compile_results=None):
+                         compile_results=None,
+                         comparison_labels: dict = None,
+                         active_sides: list = None):
     """执行 Evaluator 阶段，返回结果 dict
 
     流程：内部评分（全局规则）→ LLM 评分 → 聚合 → 编译结果附加
@@ -392,20 +474,27 @@ def _run_evaluator_stage(case_id, title, scenario, case,
     对于 general 场景：直接返回编译结果，跳过 LLM 评分。
     
     Args:
-        compile_results: 编译检查结果，包含 baseline_compilable, baseline_error,
-                        enhanced_compilable, enhanced_error
+        compile_results: 编译检查结果，包含 side_a_compilable, side_a_error,
+                        side_b_compilable, side_b_error
     """
+    side_a_label = (comparison_labels or {}).get("side_a") or (comparison_labels or {}).get("baseline", "Agent A")
+    side_b_label = (comparison_labels or {}).get("side_b") or (comparison_labels or {}).get("enhanced", "Agent B")
+    side_a_dir = stage_dir(case_dir, "side_a")
+    side_b_dir = stage_dir(case_dir, "side_b")
+    side_a_scoring_text = _build_scoring_text(case, side_a_dir, fallback_output=side_a_output)
+    side_b_scoring_text = _build_scoring_text(case, side_b_dir, fallback_output=side_b_output)
+
     # general 场景：只返回编译结果
     if scenario.lower().replace(" ", "_") == "general":
-        is_compilable = compile_results.get("baseline_compilable", False) if compile_results else False
+        is_compilable = compile_results.get("side_a_compilable", False) if compile_results else False
         result = {
             "case_id": case_id,
             "title": title,
             "scenario": scenario,
-            "baseline_rule": 0,
-            "enhanced_rule": 0,
-            "baseline_total": 100 if is_compilable else 0,
-            "enhanced_total": 100 if is_compilable else 0,
+            "side_a_rule": 0,
+            "side_b_rule": 0,
+            "side_a_total": 100 if is_compilable else 0,
+            "side_b_total": 100 if is_compilable else 0,
             "dimension_scores": {},
             "general_pass": is_compilable,
         }
@@ -419,6 +508,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
     all_dim_names = [r["name"] for r in rubric]
 
     # ── 内部评分（全局规则库）──────────────────────────────────
+    _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "规则检查"})
     _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始规则检查..."})
     rules_config = load_internal_rules()
 
@@ -427,12 +517,12 @@ def _run_evaluator_stage(case_id, title, scenario, case,
     with open(os.path.join(rc_dir, "rules.json"), "w", encoding="utf-8") as f:
         _json.dump(rules_config, f, ensure_ascii=False, indent=2)
 
-    baseline_internal = internal_scorer.score(baseline_output, rules_config)
-    enhanced_internal = internal_scorer.score(enhanced_output, rules_config) if not only_run_baseline else baseline_internal
+    side_a_internal = internal_scorer.score(side_a_scoring_text, rules_config)
+    side_b_internal = internal_scorer.score(side_b_scoring_text, rules_config) if not only_run_baseline else side_a_internal
 
-    sides_to_log = [("baseline", baseline_internal, "基线")]
+    sides_to_log = [("side_a", side_a_internal, side_a_label)]
     if not only_run_baseline:
-        sides_to_log.append(("enhanced", enhanced_internal, "增强"))
+        sides_to_log.append(("side_b", side_b_internal, side_b_label))
     for side, result, label in sides_to_log:
         for dim_name, dim in result.dimensions.items():
             for rule in dim.rules:
@@ -445,15 +535,15 @@ def _run_evaluator_stage(case_id, title, scenario, case,
 
     if only_run_baseline:
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"[{case_id}] 规则检查完成: 基线={baseline_internal.total:.1f}/30"})
+            "message": f"[{case_id}] 规则检查完成: {side_a_label}={side_a_internal.total:.1f}/30"})
     else:
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"[{case_id}] 规则检查完成: 基线={baseline_internal.total:.1f}/30, "
-                       f"增强={enhanced_internal.total:.1f}/30"})
+            "message": f"[{case_id}] 规则检查完成: {side_a_label}={side_a_internal.total:.1f}/30, "
+                       f"{side_b_label}={side_b_internal.total:.1f}/30"})
     _notify(on_progress, "stage_done", {
         "case_id": case_id, "stage": "规则检查",
-        "baseline_rule": baseline_internal.total,
-        "enhanced_rule": enhanced_internal.total,
+        "side_a_rule": side_a_internal.total,
+        "side_b_rule": side_b_internal.total,
     })
 
     # ── LLM 评分 ──────────────────────────────────────────────
@@ -464,80 +554,81 @@ def _run_evaluator_stage(case_id, title, scenario, case,
                                      weight=r["weight"], reason="dry-run")
                     for r in rubric]
             return LLMScoringResult(dimensions=dims, weighted_avg=float(score_val))
-        baseline_llm = _mock_llm_result(30)
-        enhanced_llm = baseline_llm if only_run_baseline else _mock_llm_result(85)
+        side_a_llm = _mock_llm_result(30)
+        side_b_llm = side_a_llm if only_run_baseline else _mock_llm_result(85)
         judge_raw = {
-            "baseline": [{"name": r["name"], "score": 30, "reason": "dry-run"} for r in rubric],
-            "enhanced": [{"name": r["name"], "score": 30 if only_run_baseline else 85, "reason": "dry-run"} for r in rubric],
+            "side_a": [{"name": r["name"], "score": 30, "reason": "dry-run"} for r in rubric],
+            "side_b": [{"name": r["name"], "score": 30 if only_run_baseline else 85, "reason": "dry-run"} for r in rubric],
         }
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "elapsed": 0, "skipped": True})
     else:
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"[{case_id}] 开始{'基线' if only_run_baseline else ''} LLM 评分 ({len(rubric)} 个维度)..."})
+            "message": f"[{case_id}] 开始{'单侧' if only_run_baseline else '双侧'} LLM 评分 ({len(rubric)} 个维度)..."})
+        _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "LLM评分"})
         t0 = time.time()
         if only_run_baseline:
-            baseline_llm = llm_judge.judge_baseline(
-                prompt, baseline_output,
+            side_a_llm = llm_judge.judge_baseline(
+                prompt, side_a_scoring_text,
                 rubric, case_id=case_id, case_dir=case_dir,
             )
-            enhanced_llm = baseline_llm
+            side_b_llm = side_a_llm
             judge_raw = {
-                "baseline": [{"name": d.name, "score": d.score, "reason": d.reason}
-                             for d in baseline_llm.dimensions],
-                "enhanced": [],
+                "side_a": [{"name": d.name, "score": d.score, "reason": d.reason}
+                           for d in side_a_llm.dimensions],
+                "side_b": [],
             }
         else:
             judge_scores = llm_judge.judge(
-                prompt, baseline_output, enhanced_output,
+                prompt, side_a_scoring_text, side_b_scoring_text,
                 rubric, case_id=case_id,
                 case_dir=case_dir,
             )
-            baseline_llm = judge_scores["baseline"]
-            enhanced_llm = judge_scores["enhanced"]
+            side_a_llm = judge_scores["baseline"]
+            side_b_llm = judge_scores["enhanced"]
             judge_raw = {
-                "baseline": [{"name": d.name, "score": d.score, "reason": d.reason}
-                             for d in baseline_llm.dimensions],
-                "enhanced": [{"name": d.name, "score": d.score, "reason": d.reason}
-                             for d in enhanced_llm.dimensions],
+                "side_a": [{"name": d.name, "score": d.score, "reason": d.reason}
+                           for d in side_a_llm.dimensions],
+                "side_b": [{"name": d.name, "score": d.score, "reason": d.reason}
+                           for d in side_b_llm.dimensions],
             }
         elapsed = time.time() - t0
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"[{case_id}] {'基线' if only_run_baseline else ''}LLM 评分完成, 耗时={elapsed:.1f}s"})
+            "message": f"[{case_id}] LLM 评分完成, 耗时={elapsed:.1f}s"})
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "elapsed": elapsed})
 
     # ── 聚合最终分数 ───────────────────────────────────────────
-    baseline_total = aggregator.compute(baseline_internal, baseline_llm, all_dim_names, phase_weights)
-    enhanced_total = aggregator.compute(enhanced_internal, enhanced_llm, all_dim_names, phase_weights)
+    side_a_total = aggregator.compute(side_a_internal, side_a_llm, all_dim_names, phase_weights)
+    side_b_total = aggregator.compute(side_b_internal, side_b_llm, all_dim_names, phase_weights)
 
     # 维度得分明细（同时包含 LLM 和内部评分）
     dimension_scores = {}
-    llm_b_map = {d.name: d.score for d in baseline_llm.dimensions}
-    llm_e_map = {d.name: d.score for d in enhanced_llm.dimensions}
-    internal_b_map = {k: v.score for k, v in baseline_internal.dimensions.items()}
-    internal_e_map = {k: v.score for k, v in enhanced_internal.dimensions.items()}
+    llm_a_map = {d.name: d.score for d in side_a_llm.dimensions}
+    llm_b_map = {d.name: d.score for d in side_b_llm.dimensions}
+    internal_a_map = {k: v.score for k, v in side_a_internal.dimensions.items()}
+    internal_b_map = {k: v.score for k, v in side_b_internal.dimensions.items()}
     for r_item in rubric:
         name = r_item["name"]
         dim_id = r_item.get("dimension_id", name)
+        llm_a = llm_a_map.get(name, 50)
         llm_b = llm_b_map.get(name, 50)
-        llm_e = llm_e_map.get(name, 50)
-        internal_b = internal_b_map.get(dim_id, 100)  # 内部评分归一化后是0-100
-        internal_e = internal_e_map.get(dim_id, 100)
+        internal_a = internal_a_map.get(dim_id, 100)
+        internal_b = internal_b_map.get(dim_id, 100)
         dimension_scores[dim_id] = {
             "name": name,
-            "baseline": {"llm": llm_b, "internal": internal_b},
-            "enhanced": {"llm": llm_e, "internal": internal_e},
+            "side_a": {"llm": llm_a, "internal": internal_a},
+            "side_b": {"llm": llm_b, "internal": internal_b},
         }
         _notify(on_progress, "log", {"level": "DEBUG",
-            "message": f"[{case_id}]   维度 [{name}]: 基线(LLM={llm_b},内部={internal_b}), 增强(LLM={llm_e},内部={internal_e})"})
+            "message": f"[{case_id}]   维度 [{name}]: {side_a_label}(LLM={llm_a},本地={internal_a}), {side_b_label}(LLM={llm_b},本地={internal_b})"})
 
-    gain = enhanced_total - baseline_total
+    gain = side_b_total - side_a_total
     if only_run_baseline:
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"[{case_id}] 综合评分: 基线={baseline_total:.1f}"})
+            "message": f"[{case_id}] 综合评分: {side_a_label}={side_a_total:.1f}"})
     else:
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"[{case_id}] 综合评分: 基线={baseline_total:.1f}, 增强={enhanced_total:.1f}, "
-                       f"增益={'+' if gain >= 0 else ''}{gain:.1f}"})
+            "message": f"[{case_id}] 综合评分: {side_a_label}={side_a_total:.1f}, {side_b_label}={side_b_total:.1f}, "
+                       f"差值={'+' if gain >= 0 else ''}{gain:.1f}"})
 
     # ── 序列化内部评分结果 ─────────────────────────────────────
     def _serialize_internal(r):
@@ -563,18 +654,19 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         }
 
     internal_artifact = {
-        "baseline": _serialize_internal(baseline_internal),
-        "enhanced": _serialize_internal(enhanced_internal),
+        "side_a": _serialize_internal(side_a_internal),
+        "side_b": _serialize_internal(side_b_internal),
     }
 
     result = {
         "case_id": case_id,
         "title": title,
         "scenario": case.get("scenario", scenario),
-        "baseline_rule": baseline_internal.total,
-        "enhanced_rule": enhanced_internal.total,
-        "baseline_total": baseline_total,
-        "enhanced_total": enhanced_total,
+        "side_a_rule": side_a_internal.total,
+        "side_b_rule": side_b_internal.total,
+        "side_a_total": side_a_total,
+        "side_b_total": side_b_total,
+        "gain": gain,
         "dimension_scores": dimension_scores,
     }
 
@@ -590,7 +682,6 @@ def _run_evaluator_stage(case_id, title, scenario, case,
 # ── 场景执行 ─────────────────────────────────────────────────
 
 def run_scenario(scenario: str,
-                 adapter: AgentAdapter,
                  llm_judge: LLMJudge,
                  output_dir: str,
                  profile_name: str = None,
@@ -600,8 +691,14 @@ def run_scenario(scenario: str,
                  skip_baseline: bool = False,
                  only_run_baseline: bool = False,
                  case_id_filter: str = None,
+                 case_ids: list = None,
                  on_progress: Callable = None,
-                 phase_weights: dict = None) -> list:
+                 phase_weights: dict = None,
+                 baseline_agent: dict = None,
+                 enhanced_agent: dict = None,
+                 comparison_labels: dict = None,
+                 active_sides: list = None,
+                 agent_compare_mode: bool = False) -> list:
     """执行单个场景下的所有用例
 
     Returns:
@@ -610,29 +707,42 @@ def run_scenario(scenario: str,
     stages = stages or ["runner", "evaluator"]
 
     # 加载增强配置
-    _notify(on_progress, "log", {"level": "INFO", "message": f"加载场景 [{scenario}] 的增强配置..."})
-    enhancements = load_enhancements(scenario, profile_name=profile_name)
-    if enhancements:
-        parts = []
-        if enhancements.get("skills"):
-            parts.append(f"{len(enhancements['skills'])} skills")
-        if enhancements.get("mcp_servers"):
-            parts.append(f"{len(enhancements['mcp_servers'])} mcp")
-        if enhancements.get("system_prompt"):
-            parts.append("system_prompt")
-        _notify(on_progress, "log", {"level": "INFO",
-            "message": f"增强配置已加载: {', '.join(parts)}"})
+    enhancements = {}
+    if agent_compare_mode:
+        _notify(on_progress, "log", {"level": "INFO", "message": f"场景 [{scenario}] 使用 Agent 对比模式，跳过 Profile 增强配置"})
     else:
-        _notify(on_progress, "log", {"level": "INFO", "message": f"场景 [{scenario}] 无增强配置"})
+        _notify(on_progress, "log", {"level": "INFO", "message": f"加载场景 [{scenario}] 的增强配置..."})
+        enhancements = load_enhancements(scenario, profile_name=profile_name)
+        if enhancements:
+            parts = []
+            if enhancements.get("skills"):
+                parts.append(f"{len(enhancements['skills'])} skills")
+            if enhancements.get("mcp_servers"):
+                parts.append(f"{len(enhancements['mcp_servers'])} mcp")
+            if enhancements.get("system_prompt"):
+                parts.append("system_prompt")
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"增强配置已加载: {', '.join(parts)}"})
+        else:
+            _notify(on_progress, "log", {"level": "INFO", "message": f"场景 [{scenario}] 无增强配置"})
+
+    config = load_config()
+    agent_timeout = config.get("agent", {}).get("timeout", 180)
+    agent_temperature = config.get("agent", {}).get("temperature")
 
     cases = load_test_cases(scenario)
     _notify(on_progress, "log", {"level": "INFO",
         "message": f"场景 [{scenario}] 加载了 {len(cases)} 个测试用例"})
 
-    if case_id_filter:
-        cases = [c for c in cases if c["id"] == case_id_filter]
+    selected_case_ids = case_ids or []
+    if not selected_case_ids and case_id_filter:
+        selected_case_ids = [item.strip() for item in str(case_id_filter).split(",") if item.strip()]
+
+    if selected_case_ids:
+        selected_case_id_set = set(selected_case_ids)
+        cases = [c for c in cases if c["id"] in selected_case_id_set]
         _notify(on_progress, "log", {"level": "INFO",
-            "message": f"过滤后保留 {len(cases)} 个用例 (filter={case_id_filter})"})
+            "message": f"过滤后保留 {len(cases)} 个用例 (filter={','.join(selected_case_ids)})"})
 
     _notify(on_progress, "scenario_start", {
         "scenario": scenario,
@@ -652,12 +762,18 @@ def run_scenario(scenario: str,
             case_dir = os.path.join(output_dir, "cases", case["id"])
             future = executor.submit(
                 run_single_case, case, scenario, enhancements,
-                adapter, llm_judge, case_dir,
+                llm_judge, case_dir,
                 stages=stages, dry_run=dry_run,
                 skip_baseline=skip_baseline,
                 only_run_baseline=only_run_baseline,
                 on_progress=on_progress,
                 phase_weights=phase_weights,
+                baseline_agent=baseline_agent,
+                enhanced_agent=enhanced_agent,
+                comparison_labels=comparison_labels,
+                active_sides=active_sides,
+                agent_timeout=agent_timeout,
+                agent_temperature=agent_temperature,
             )
             futures[future] = (i, case)
 
@@ -665,15 +781,17 @@ def run_scenario(scenario: str,
             i, case = futures[future]
             try:
                 result = future.result()
-                gain = result["enhanced_total"] - result["baseline_total"]
+                gain = result.get("gain")
+                if gain is None:
+                    gain = result.get("side_b_total", 0) - result.get("side_a_total", 0)
                 _notify(on_progress, "case_done", {
                     "case_id": result["case_id"],
                     "title": result["title"],
                     "index": i + 1,
                     "total": len(cases),
                     "scenario": scenario,
-                    "baseline_total": result["baseline_total"],
-                    "enhanced_total": result["enhanced_total"],
+                    "side_a_total": result.get("side_a_total"),
+                    "side_b_total": result.get("side_b_total"),
                     "gain": gain,
                 })
                 results.append(result)

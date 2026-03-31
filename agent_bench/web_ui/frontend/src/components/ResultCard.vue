@@ -15,18 +15,18 @@
           <div class="summary-label">用例总数</div>
         </div>
         <div class="summary-item">
-          <div class="summary-value">{{ currentResult.summary.baseline_avg.toFixed(1) }}</div>
-          <div class="summary-label">基线均分</div>
+          <div class="summary-value">{{ formatScore(currentResult.summary.side_a_avg) }}</div>
+          <div class="summary-label">{{ effectiveLabels.side_a }}均分</div>
         </div>
-        <div class="summary-item">
-          <div class="summary-value">{{ currentResult.summary.enhanced_avg.toFixed(1) }}</div>
-          <div class="summary-label">增强均分</div>
+        <div v-if="showEnhancedSide" class="summary-item">
+          <div class="summary-value">{{ formatScore(currentResult.summary.side_b_avg) }}</div>
+          <div class="summary-label">{{ effectiveLabels.side_b }}均分</div>
         </div>
-        <div class="summary-item">
+        <div v-if="showEnhancedSide" class="summary-item">
           <div class="summary-value" :class="gainClass">
             {{ gainText }}
           </div>
-          <div class="summary-label">整体增益</div>
+          <div class="summary-label">整体差值</div>
         </div>
       </div>
 
@@ -34,24 +34,24 @@
         <div class="compile-summary-title">编译通过率</div>
         <div class="compile-summary-grid">
           <div class="compile-item">
-            <div class="compile-label">基线</div>
+            <div class="compile-label">{{ effectiveLabels.side_a }}</div>
             <el-tooltip 
-              :content="baselineCompileError || '编译通过'" 
+              :content="sideACompileError || '编译通过'" 
               placement="top" 
-              :disabled="!baselineCompileError">
-              <div class="compile-value" :class="baselineCompileError ? 'compile-failed' : 'compile-pass'">
-                {{ compilePassRateData.baseline }}
+              :disabled="!sideACompileError">
+              <div class="compile-value" :class="sideACompileError ? 'compile-failed' : 'compile-pass'">
+                {{ compilePassRateData.side_a }}
               </div>
             </el-tooltip>
           </div>
-          <div class="compile-item">
-            <div class="compile-label">增强</div>
+          <div v-if="showEnhancedSide" class="compile-item">
+            <div class="compile-label">{{ effectiveLabels.side_b }}</div>
             <el-tooltip 
-              :content="enhancedCompileError || '编译通过'" 
+              :content="sideBCompileError || '编译通过'" 
               placement="top" 
-              :disabled="!enhancedCompileError">
-              <div class="compile-value" :class="enhancedCompileError ? 'compile-failed' : 'compile-pass'">
-                {{ compilePassRateData.enhanced }}
+              :disabled="!sideBCompileError">
+              <div class="compile-value" :class="sideBCompileError ? 'compile-failed' : 'compile-pass'">
+                {{ compilePassRateData.side_b }}
               </div>
             </el-tooltip>
           </div>
@@ -66,52 +66,52 @@
           <el-table :data="currentResult.cases" stripe style="width: 100%" max-height="400">
             <el-table-column prop="case_id" label="用例ID" width="120" />
             <el-table-column prop="title" label="用例名称" min-width="150" />
-            <el-table-column prop="baseline_total" label="基线得分" width="100" sortable>
+            <el-table-column prop="side_a_total" :label="`${effectiveLabels.side_a}得分`" width="120" sortable>
               <template #default="{ row }">
-                {{ row.baseline_total.toFixed(1) }}
+                {{ formatScore(row.side_a_total) }}
               </template>
             </el-table-column>
-            <el-table-column prop="enhanced_total" label="增强得分" width="100" sortable>
+            <el-table-column v-if="showEnhancedSide" prop="side_b_total" :label="`${effectiveLabels.side_b}得分`" width="120" sortable>
               <template #default="{ row }">
-                {{ row.enhanced_total.toFixed(1) }}
+                {{ formatScore(row.side_b_total) }}
               </template>
             </el-table-column>
-            <el-table-column prop="gain" label="增益" width="100" sortable>
+            <el-table-column v-if="showEnhancedSide" prop="gain" label="差值" width="100" sortable>
               <template #default="{ row }">
                 <span :class="row.gain >= 0 ? 'gain-positive' : 'gain-negative'">
-                  {{ row.gain >= 0 ? '+' : '' }}{{ row.gain.toFixed(1) }}
+                  {{ signedScore(row.gain) }}
                 </span>
               </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
         <el-tab-pane label="维度分析" name="dimensions">
-          <el-table :data="dimensionData" stripe style="width: 100%">
+          <el-table :data="currentDimensionData" stripe style="width: 100%">
             <el-table-column prop="name" label="维度" width="140" />
-            <el-table-column label="基线(LLM)" width="100" sortable>
+            <el-table-column :label="`${effectiveLabels.side_a}(LLM)`" width="140" sortable>
               <template #default="{ row }">
-                {{ row.baseline_llm != null ? row.baseline_llm.toFixed(1) : '-' }}
+                {{ formatScore(row.side_a_llm) }}
               </template>
             </el-table-column>
-            <el-table-column label="基线(内部)" width="100">
+            <el-table-column :label="`${effectiveLabels.side_a}(本地)`" width="140">
               <template #default="{ row }">
-                {{ row.baseline_internal != null ? row.baseline_internal.toFixed(1) : '-' }}
+                {{ formatScore(row.side_a_internal) }}
               </template>
             </el-table-column>
-            <el-table-column label="增强(LLM)" width="100" sortable>
+            <el-table-column v-if="showEnhancedSide" :label="`${effectiveLabels.side_b}(LLM)`" width="140" sortable>
               <template #default="{ row }">
-                {{ row.enhanced_llm != null ? row.enhanced_llm.toFixed(1) : '-' }}
+                {{ formatScore(row.side_b_llm) }}
               </template>
             </el-table-column>
-            <el-table-column label="增强(内部)" width="100">
+            <el-table-column v-if="showEnhancedSide" :label="`${effectiveLabels.side_b}(本地)`" width="140">
               <template #default="{ row }">
-                {{ row.enhanced_internal != null ? row.enhanced_internal.toFixed(1) : '-' }}
+                {{ formatScore(row.side_b_internal) }}
               </template>
             </el-table-column>
-            <el-table-column prop="gain" label="增益(LLM)" sortable>
+            <el-table-column v-if="showEnhancedSide" prop="gain" label="差值(LLM)" sortable>
               <template #default="{ row }">
                 <span :class="row.gain >= 0 ? 'gain-positive' : 'gain-negative'">
-                  {{ row.gain >= 0 ? '+' : '' }}{{ row.gain.toFixed(1) }}
+                  {{ signedScore(row.gain) }}
                 </span>
               </template>
             </el-table-column>
@@ -120,12 +120,12 @@
         <el-tab-pane label="通过率" name="passrate">
           <div class="summary-grid" style="flex-wrap: wrap;">
             <div class="summary-item">
-              <div class="summary-value">{{ currentResult.summary.baseline_pass_rate }}</div>
-              <div class="summary-label">基线通过数 (≥60分)</div>
+              <div class="summary-value">{{ currentResult.summary.side_a_pass_rate }}</div>
+              <div class="summary-label">{{ effectiveLabels.side_a }}通过数 (≥60分)</div>
             </div>
-            <div class="summary-item">
-              <div class="summary-value">{{ currentResult.summary.enhanced_pass_rate }}</div>
-              <div class="summary-label">增强通过数 (≥60分)</div>
+            <div v-if="showEnhancedSide" class="summary-item">
+              <div class="summary-value">{{ currentResult.summary.side_b_pass_rate }}</div>
+              <div class="summary-label">{{ effectiveLabels.side_b }}通过数 (≥60分)</div>
             </div>
           </div>
         </el-tab-pane>
@@ -153,9 +153,13 @@ const props = defineProps({
     type: String,
     default: 'cases'
   },
-  dimensionData: {
+  comparisonLabels: {
+    type: Object,
+    default: () => ({})
+  },
+  activeSides: {
     type: Array,
-    default: () => []
+    default: () => ['side_a', 'side_b']
   }
 })
 
@@ -168,6 +172,30 @@ const currentResult = computed(() => {
     return props.results[selectedResultIndex.value] || props.results[0]
   }
   return props.result
+})
+
+const effectiveLabels = computed(() => ({
+  side_a: currentResult.value?.comparison_labels?.side_a || props.comparisonLabels.side_a || 'Agent A',
+  side_b: currentResult.value?.comparison_labels?.side_b || props.comparisonLabels.side_b || 'Agent B',
+}))
+
+const currentActiveSides = computed(() => (
+  currentResult.value?.active_sides?.length ? currentResult.value.active_sides : props.activeSides
+))
+
+const showEnhancedSide = computed(() => currentActiveSides.value.includes('side_b'))
+
+const currentDimensionData = computed(() => {
+  if (!currentResult.value?.summary?.dimensions) return []
+  return Object.entries(currentResult.value.summary.dimensions).map(([dimId, data]) => ({
+    dimId,
+    name: data.name || dimId,
+    side_a_llm: data.side_a_llm_avg ?? data.side_a_avg,
+    side_a_internal: data.side_a_internal_avg,
+    side_b_llm: data.side_b_llm_avg ?? data.side_b_avg,
+    side_b_internal: data.side_b_internal_avg,
+    gain: data.gain,
+  }))
 })
 
 watch(() => props.results, (newResults) => {
@@ -184,40 +212,49 @@ const gainClass = computed(() => {
 const gainText = computed(() => {
   if (!currentResult.value) return '--'
   const gain = currentResult.value.summary.gain
-  return (gain >= 0 ? '+' : '') + gain.toFixed(1)
+  return signedScore(gain)
 })
 
 const compilePassRateData = computed(() => {
   if (!currentResult.value?.general) return null
   const g = currentResult.value.general
-  if (g.baseline_compile_pass_rate === 'N/A' && g.enhanced_compile_pass_rate === 'N/A') {
+  if (g.side_a_compile_pass_rate === 'N/A' && (!showEnhancedSide.value || g.side_b_compile_pass_rate === 'N/A')) {
     return null
   }
   return {
-    baseline: g.baseline_compile_pass_rate || 'N/A',
-    enhanced: g.enhanced_compile_pass_rate || 'N/A',
+    side_a: g.side_a_compile_pass_rate || 'N/A',
+    side_b: g.side_b_compile_pass_rate || 'N/A',
     note: g.note || null
   }
 })
 
-const baselineCompileError = computed(() => {
+const formatScore = (value) => (
+  typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : '-'
+)
+
+const signedScore = (value) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}`
+}
+
+const sideACompileError = computed(() => {
   if (!currentResult.value?.cases?.length) return ''
   const errors = []
   for (const c of currentResult.value.cases) {
-    if (c.compile_results?.baseline_compilable === false && c.compile_results?.baseline_error) {
-      const shortError = c.compile_results.baseline_error.split('\n').slice(-3).join('\n')
+    if (c.compile_results?.side_a_compilable === false && c.compile_results?.side_a_error) {
+      const shortError = c.compile_results.side_a_error.split('\n').slice(-3).join('\n')
       errors.push(`${c.case_id}: ${shortError}`)
     }
   }
   return errors.join('\n\n')
 })
 
-const enhancedCompileError = computed(() => {
+const sideBCompileError = computed(() => {
   if (!currentResult.value?.cases?.length) return ''
   const errors = []
   for (const c of currentResult.value.cases) {
-    if (c.compile_results?.enhanced_compilable === false && c.compile_results?.enhanced_error) {
-      const shortError = c.compile_results.enhanced_error.split('\n').slice(-3).join('\n')
+    if (c.compile_results?.side_b_compilable === false && c.compile_results?.side_b_error) {
+      const shortError = c.compile_results.side_b_error.split('\n').slice(-3).join('\n')
       errors.push(`${c.case_id}: ${shortError}`)
     }
   }

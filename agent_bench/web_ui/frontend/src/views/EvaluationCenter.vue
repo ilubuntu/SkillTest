@@ -1,15 +1,76 @@
 <template>
   <div class="page-container">
-    <!-- 顶部控制栏 -->
-    <div class="card control-bar">
-      <div class="control-main">
-        <div class="control-row">
-          <span class="control-label">场景 / Profile</span>
+    <div class="card control-shell">
+      <div class="control-hero">
+        <div class="hero-copy">
+          <div class="hero-kicker">Agent Compare Lab</div>
+          <h2 class="hero-title">Agent 对比评测</h2>
+          <div class="hero-meta">
+            <span class="hero-pill">{{ runTargetSummary }}</span>
+            <span class="hero-meta-text">{{ selectionSummary }}</span>
+          </div>
+        </div>
+        <div class="control-actions">
+          <el-button
+            :type="isRunning ? 'danger' : 'primary'"
+            size="large"
+            class="launch-button"
+            :disabled="isRunning ? false : !canStart"
+            @click="isRunning ? stopEvaluation() : startEvaluation()"
+            :icon="isRunning ? VideoPause : VideoPlay"
+          >
+            {{ isRunning ? '停止评测' : '启动评测' }}
+          </el-button>
+        </div>
+      </div>
+
+      <div class="control-grid">
+        <div class="control-panel">
+          <div class="panel-heading">
+            <span class="panel-kicker">运行目标</span>
+            <span class="panel-note">决定执行单侧验证还是双侧对照</span>
+          </div>
+          <div class="target-group" :class="{ disabled: isRunning }">
+            <button
+              type="button"
+              class="target-chip"
+              :class="{ active: runTarget === 'both' }"
+              :disabled="isRunning"
+              @click="runTarget = 'both'"
+            >
+              同时运行
+            </button>
+            <button
+              type="button"
+              class="target-chip"
+              :class="{ active: runTarget === 'agent_a' }"
+              :disabled="isRunning"
+              @click="runTarget = 'agent_a'"
+            >
+              仅 Agent A
+            </button>
+            <button
+              type="button"
+              class="target-chip"
+              :class="{ active: runTarget === 'agent_b' }"
+              :disabled="isRunning"
+              @click="runTarget = 'agent_b'"
+            >
+              仅 Agent B
+            </button>
+          </div>
+        </div>
+
+        <div class="control-panel control-panel-wide">
+          <div class="panel-heading">
+            <span class="panel-kicker">场景 / 用例</span>
+            <span class="panel-note">{{ selectionSummary }}</span>
+          </div>
           <el-cascader
             :model-value="selectedOptions"
             :options="cascaderOptions"
             :props="{ checkStrictly: false, emitPath: true, multiple: true }"
-            placeholder="选择评测场景和 Profile"
+            placeholder="选择评测场景和用例"
             class="control-cascader"
             :disabled="isRunning"
             @update:model-value="handleCascaderChange"
@@ -17,20 +78,53 @@
             collapse-tags-tooltip
             :max-collapse-tags="2"
           />
-          <el-checkbox v-model="skipBaseline" :disabled="isRunning" style="margin-left: 16px; white-space: nowrap;">跳过基线</el-checkbox>
-          <el-checkbox v-model="onlyRunBaseline" :disabled="isRunning" style="margin-left: 16px; white-space: nowrap;">仅运行基线</el-checkbox>
         </div>
-      </div>
-      <div class="control-actions">
-        <el-button
-          :type="isRunning ? 'danger' : 'primary'"
-          size="large"
-          :disabled="isRunning ? false : !canStart"
-          @click="isRunning ? stopEvaluation() : startEvaluation()"
-          :icon="isRunning ? VideoPause : VideoPlay"
-        >
-          {{ isRunning ? '停止评测' : '启动评测' }}
-        </el-button>
+
+        <div class="agent-panel agent-panel-a" :class="{ muted: runTarget === 'agent_b' }">
+          <div class="panel-heading">
+            <span class="panel-kicker">Agent A</span>
+            <span class="panel-note">
+              {{ runTarget === 'agent_b' ? '当前模式下不执行' : (selectedAgentALabel || '左侧执行体') }}
+            </span>
+          </div>
+          <el-select
+            v-model="selectedAgentA"
+            placeholder="选择 Agent A"
+            class="control-select"
+            :disabled="isRunning || runTarget === 'agent_b'"
+            filterable
+          >
+            <el-option
+              v-for="agent in agentsData"
+              :key="agent.id"
+              :label="agent.name"
+              :value="agent.id"
+            />
+          </el-select>
+        </div>
+
+        <div class="agent-panel agent-panel-b" :class="{ muted: runTarget === 'agent_a' }">
+          <div class="panel-heading">
+            <span class="panel-kicker">Agent B</span>
+            <span class="panel-note">
+              {{ runTarget === 'agent_a' ? '当前模式下不执行' : (selectedAgentBLabel || '右侧执行体') }}
+            </span>
+          </div>
+          <el-select
+            v-model="selectedAgentB"
+            placeholder="选择 Agent B"
+            class="control-select"
+            :disabled="isRunning || runTarget === 'agent_a'"
+            filterable
+          >
+            <el-option
+              v-for="agent in agentsData"
+              :key="`b-${agent.id}`"
+              :label="agent.name"
+              :value="agent.id"
+            />
+          </el-select>
+        </div>
       </div>
     </div>
 
@@ -84,14 +178,23 @@
         </div>
       </div>
 
-      <!-- 当前 Profile -->
-      <div class="stat-card" v-if="currentProfile || selectedProfile.length">
+      <div class="stat-card" v-if="selectedAgentALabel">
         <div class="stat-icon-area orange">
           <el-icon :size="22"><Setting /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value profile-name">{{ currentProfile || selectedProfile.join(', ') }}</div>
-          <div class="stat-label">Profile</div>
+          <div class="stat-value profile-name">{{ selectedAgentALabel }}</div>
+          <div class="stat-label">Agent A</div>
+        </div>
+      </div>
+
+      <div class="stat-card" v-if="showEnhancedSide && selectedAgentBLabel">
+        <div class="stat-icon-area orange">
+          <el-icon :size="22"><Setting /></el-icon>
+        </div>
+        <div class="stat-info">
+          <div class="stat-value profile-name">{{ selectedAgentBLabel }}</div>
+          <div class="stat-label">Agent B</div>
         </div>
       </div>
     </div>
@@ -121,7 +224,7 @@
 
           <!-- 阶段流水线 -->
           <div class="stage-pipeline">
-            <template v-for="(stage, idx) in cp.stages" :key="stage.name">
+            <template v-for="(stage, idx) in visibleStages(cp.stages)" :key="stage.name">
               <div class="stage-item" :class="[stage.status, { clickable: stage.status === 'done' && runId }]"
                    @click="stage.status === 'done' && runId ? openStageFiles(cp.case_id, stage.name) : null">
                 <div class="stage-dot" :class="stage.status">
@@ -131,25 +234,25 @@
                   <el-icon v-else-if="stage.status === 'error'" :size="10"><Close /></el-icon>
                   <span v-else class="stage-number">{{ idx + 1 }}</span>
                 </div>
-                <div class="stage-label">{{ stage.name }}</div>
+                <div class="stage-label">{{ displayStageLabel(stage.name) }}</div>
                 <div class="stage-time" v-if="stage.elapsed != null">{{ stage.elapsed }}s</div>
               </div>
-              <div class="stage-connector" v-if="idx < cp.stages.length - 1" :class="stage.status === 'done' ? 'done' : ''"></div>
+              <div class="stage-connector" v-if="idx < visibleStages(cp.stages).length - 1" :class="stage.status === 'done' ? 'done' : ''"></div>
             </template>
           </div>
 
           <!-- Case 结果 -->
           <div class="case-result" v-if="cp.status === 'done' && cp.gain != null">
             <div class="result-col">
-              <span class="result-label">基线</span>
-              <span class="result-value">{{ fmtScore(cp.baseline_total) }}</span>
+              <span class="result-label">{{ effectiveComparisonLabels.side_a }}</span>
+              <span class="result-value">{{ fmtScore(cp.side_a_total) }}</span>
             </div>
-            <div class="result-col" v-if="!onlyRunBaseline">
-              <span class="result-label">增强</span>
-              <span class="result-value enhanced">{{ fmtScore(cp.enhanced_total) }}</span>
+            <div class="result-col" v-if="showEnhancedSide">
+              <span class="result-label">{{ effectiveComparisonLabels.side_b }}</span>
+              <span class="result-value enhanced">{{ fmtScore(cp.side_b_total) }}</span>
             </div>
-            <div class="result-col" v-if="!onlyRunBaseline">
-              <span class="result-label">增益</span>
+            <div class="result-col" v-if="showEnhancedSide">
+              <span class="result-label">差值</span>
               <span class="result-value" :class="cp.gain >= 0 ? 'positive' : 'negative'">
                 {{ cp.gain >= 0 ? '+' : '' }}{{ fmtScore(cp.gain) }}
               </span>
@@ -176,12 +279,12 @@
         <div class="compile-summary-title">编译通过率</div>
         <div class="compile-summary-grid">
           <div class="compile-item">
-            <div class="compile-label">基线</div>
-            <div class="compile-value">{{ generalResult.general.baseline_compile_pass_rate }}</div>
+            <div class="compile-label">{{ generalComparisonLabels.side_a }}</div>
+            <div class="compile-value">{{ generalResult.general.side_a_compile_pass_rate }}</div>
           </div>
-          <div class="compile-item">
-            <div class="compile-label">增强</div>
-            <div class="compile-value">{{ generalResult.general.enhanced_compile_pass_rate }}</div>
+          <div class="compile-item" v-if="showEnhancedSide">
+            <div class="compile-label">{{ generalComparisonLabels.side_b }}</div>
+            <div class="compile-value">{{ generalResult.general.side_b_compile_pass_rate }}</div>
           </div>
         </div>
         <div class="compile-note" v-if="generalResult.general.note">
@@ -198,11 +301,11 @@
             <div class="case-title">{{ c.title }}</div>
           </div>
           <div class="case-result">
-            <div class="compile-status" :class="c.compile_results?.baseline_compilable ? 'pass' : 'fail'">
-              基线: {{ c.compile_results?.baseline_compilable ? '可编译' : '不可编译' }}
+            <div class="compile-status" :class="c.compile_results?.side_a_compilable ? 'pass' : 'fail'">
+              {{ generalComparisonLabels.side_a }}: {{ c.compile_results?.side_a_compilable ? '可编译' : '不可编译' }}
             </div>
-            <div class="compile-status" :class="c.compile_results?.enhanced_compilable ? 'pass' : 'fail'">
-              增强: {{ c.compile_results?.enhanced_compilable ? '可编译' : '不可编译' }}
+            <div v-if="showEnhancedSide" class="compile-status" :class="c.compile_results?.side_b_compilable ? 'pass' : 'fail'">
+              {{ generalComparisonLabels.side_b }}: {{ c.compile_results?.side_b_compilable ? '可编译' : '不可编译' }}
             </div>
           </div>
         </div>
@@ -215,7 +318,8 @@
       :result="result"
       :results="results"
       :active-result-tab="activeResultTab"
-      :dimension-data="dimensionData"
+      :comparison-labels="effectiveComparisonLabels"
+      :active-sides="activeSides"
       @update:active-result-tab="val => activeResultTab = val"
     />
 
@@ -385,18 +489,20 @@ import ResultCard from '../components/ResultCard.vue'
 
 // ── 配置 ──
 const cascaderOptions = ref([])
-const scenariosData = ref([])     // [{name, case_count}]
+const agentsData = ref([])
 const selectedOptions = ref([])
 const selectedScenario = ref([])
-const selectedProfile = ref([])
-const skipBaseline = ref(false)
-const onlyRunBaseline = ref(true)
+const selectedCaseIds = ref([])
+const runTarget = ref('both')
+const selectedAgentA = ref('')
+const selectedAgentB = ref('')
+const comparisonLabels = ref({})
+const activeSides = ref(['side_a', 'side_b'])
 
 // ── 状态 ──
 const status = ref('idle')
 const totalCases = ref(0)         // 来自后端实际值
 const doneCases = ref(0)
-const currentProfile = ref('')
 const caseProgresses = ref([])
 const logs = ref([])
 const result = ref(null)
@@ -416,17 +522,28 @@ const userScrolling = ref(false)
 
 const isRunning = computed(() => status.value === 'running')
 const canStart = computed(() =>
-  Array.isArray(selectedScenario.value) && selectedScenario.value.length > 0 && !isRunning.value
+  Array.isArray(selectedCaseIds.value) &&
+  (
+    (runTarget.value === 'both' && !!selectedAgentA.value && !!selectedAgentB.value) ||
+    (runTarget.value === 'agent_a' && !!selectedAgentA.value) ||
+    (runTarget.value === 'agent_b' && !!selectedAgentB.value)
+  ) &&
+  selectedCaseIds.value.length > 0 &&
+  !isRunning.value
 )
+const runTargetSummary = computed(() => ({
+  both: '双侧并行对照',
+  agent_a: '仅验证 Agent A',
+  agent_b: '仅验证 Agent B',
+}[runTarget.value] || '待选择'))
+const selectionSummary = computed(() => {
+  if (!selectedCaseIds.value.length) return '尚未选择用例'
+  return `${selectedScenario.value.length} 个场景 · ${selectedCaseIds.value.length} 个用例`
+})
 
-// 从已选场景预计算用例数（启动前显示）
+// 从已选用例预计算数量（启动前显示）
 const expectedTotal = computed(() => {
-  if (!selectedScenario.value.length || !scenariosData.value.length) return 0
-  const uniqueScenarios = [...new Set(selectedScenario.value)]
-  return uniqueScenarios.reduce((sum, name) => {
-    const s = scenariosData.value.find(s => s.name === name)
-    return sum + (s ? s.case_count : 0)
-  }, 0)
+  return selectedCaseIds.value.length
 })
 
 // 显示用例数：运行中/完成后用后端实际值，否则用预计值
@@ -462,18 +579,41 @@ const filteredLogs = computed(() =>
 const fullscreenFilteredLogs = computed(() =>
   fullscreenLogLevel.value === 'ALL' ? logs.value : logs.value.filter(l => l.level === fullscreenLogLevel.value)
 )
-const dimensionData = computed(() => {
-  if (!result.value?.summary?.dimensions) return []
-  return Object.entries(result.value.summary.dimensions).map(([dimId, data]) => ({
-    dimId,
-    name: data.name || dimId,
-    baseline_llm: data.baseline_llm_avg ?? data.baseline_avg,
-    baseline_internal: data.baseline_internal_avg,
-    enhanced_llm: data.enhanced_llm_avg ?? data.enhanced_avg,
-    enhanced_internal: data.enhanced_internal_avg,
-    gain: data.gain,
-  }))
+const getAgentNameById = (id) => agentsData.value.find(agent => agent.id === id)?.name || id || ''
+
+const previewComparisonLabels = computed(() => {
+  if (runTarget.value === 'agent_b') {
+    return {
+      side_a: getAgentNameById(selectedAgentB.value) || 'Agent B',
+      side_b: '',
+    }
+  }
+  return {
+    side_a: getAgentNameById(selectedAgentA.value) || 'Agent A',
+    side_b: runTarget.value === 'both' ? (getAgentNameById(selectedAgentB.value) || 'Agent B') : '',
+  }
 })
+
+const effectiveComparisonLabels = computed(() => ({
+  side_a: comparisonLabels.value.side_a || previewComparisonLabels.value.side_a || 'Agent A',
+  side_b: comparisonLabels.value.side_b || previewComparisonLabels.value.side_b || '',
+}))
+
+const selectedAgentALabel = computed(() => (
+  runTarget.value !== 'agent_b' && selectedAgentA.value ? effectiveComparisonLabels.value.side_a : ''
+))
+const selectedAgentBLabel = computed(() => (
+  runTarget.value !== 'agent_a' && selectedAgentB.value
+    ? (runTarget.value === 'agent_b' ? previewComparisonLabels.value.side_a : effectiveComparisonLabels.value.side_b)
+    : ''
+))
+const generalComparisonLabels = computed(() => generalResult.value?.comparison_labels || effectiveComparisonLabels.value)
+const effectiveActiveSides = computed(() => (
+  status.value === 'idle'
+    ? (runTarget.value === 'both' ? ['side_a', 'side_b'] : ['side_a'])
+    : activeSides.value
+))
+const showEnhancedSide = computed(() => effectiveActiveSides.value.includes('side_b'))
 
 const fmtScore = (v) => v != null ? v.toFixed(1) : '-'
 
@@ -487,15 +627,28 @@ const stageFileContent = ref(null)
 const activeStageFile = ref('')
 const ruleCheckData = ref(null)
 const judgeData = ref(null)
-const ruleSides = [{ key: 'baseline', label: '基线' }, { key: 'enhanced', label: '增强' }]
+const ruleSides = computed(() => [
+  { key: 'side_a', label: effectiveComparisonLabels.value.side_a },
+  ...(showEnhancedSide.value ? [{ key: 'side_b', label: effectiveComparisonLabels.value.side_b }] : []),
+])
 let currentStageCtx = { caseId: '', stage: '' }
 
 const STAGE_NAME_MAP = {
-  '基线运行': 'baseline',
-  '增强运行': 'enhanced',
+  'A侧运行': 'side_a',
+  'B侧运行': 'side_b',
   '规则检查': 'rule_check',
   'LLM评分': 'llm_judge',
 }
+
+const displayStageLabel = (stageName) => {
+  if (stageName === 'A侧运行') return `${effectiveComparisonLabels.value.side_a}运行`
+  if (stageName === 'B侧运行') return `${effectiveComparisonLabels.value.side_b}运行`
+  return stageName
+}
+
+const visibleStages = (stages = []) => (
+  showEnhancedSide.value ? stages : stages.filter(stage => stage.name !== 'B侧运行')
+)
 
 const openStageFiles = async (caseId, stageName) => {
   const stage = STAGE_NAME_MAP[stageName]
@@ -540,14 +693,22 @@ const loadStageFile = async (filename) => {
     const raw = res.data
     if (filename === 'internal_score.json' && stage === 'rule_check') {
       try {
-        ruleCheckData.value = JSON.parse(raw)
+        const parsed = JSON.parse(raw)
+        ruleCheckData.value = {
+          side_a: parsed.side_a || parsed.baseline || null,
+          side_b: parsed.side_b || parsed.enhanced || null,
+        }
         stageFileContent.value = raw
       } catch {
         stageFileContent.value = raw
       }
     } else if (filename === 'judge.json' && stage === 'llm_judge') {
       try {
-        judgeData.value = JSON.parse(raw)
+        const parsed = JSON.parse(raw)
+        judgeData.value = {
+          side_a: parsed.side_a || parsed.baseline || null,
+          side_b: parsed.side_b || parsed.enhanced || null,
+        }
         stageFileContent.value = raw
       } catch {
         stageFileContent.value = raw
@@ -564,26 +725,35 @@ const loadStageFile = async (filename) => {
 // ── 数据加载 ──
 const loadCascaderOptions = async () => {
   try {
-    const [cascRes, scenRes] = await Promise.all([
+    const [cascRes, agentsRes] = await Promise.all([
       axios.get('/api/cascader-options'),
-      axios.get('/api/scenarios'),
+      axios.get('/api/agents'),
     ])
     cascaderOptions.value = cascRes.data
-    scenariosData.value = scenRes.data
+    agentsData.value = agentsRes.data || []
+    if (!selectedAgentA.value && agentsData.value.length > 0) {
+      selectedAgentA.value = agentsData.value[0].id
+    }
+    if (!selectedAgentB.value && agentsData.value.length > 1) {
+      selectedAgentB.value = agentsData.value[1].id
+    } else if (!selectedAgentB.value && agentsData.value.length > 0) {
+      selectedAgentB.value = agentsData.value[0].id
+    }
   } catch (e) { console.error(e) }
 }
 
 const handleCascaderChange = (value) => {
   selectedOptions.value = value || []
-  const scenarios = [], profiles = []
+  const scenarios = []
+  const caseIds = []
   for (const item of (value || [])) {
     if (Array.isArray(item) && item.length >= 2) {
       scenarios.push(item[0])
-      profiles.push(item[1])
+      caseIds.push(item[1])
     }
   }
-  selectedScenario.value = scenarios
-  selectedProfile.value = profiles
+  selectedScenario.value = [...new Set(scenarios)]
+  selectedCaseIds.value = [...new Set(caseIds)]
 }
 
 const fetchStatus = async () => {
@@ -595,7 +765,8 @@ const fetchStatus = async () => {
     totalCases.value = d.total_cases || 0
     doneCases.value = d.done_cases || 0
     elapsedSeconds.value = d.elapsed_time || 0
-    currentProfile.value = d.current_profile || ''
+    comparisonLabels.value = d.comparison_labels || {}
+    activeSides.value = d.active_sides?.length ? d.active_sides : (runTarget.value === 'both' ? ['side_a', 'side_b'] : ['side_a'])
     if (d.case_progresses) caseProgresses.value = d.case_progresses
     if (d.logs?.length > logs.value.length) logs.value = d.logs
     if (d.result) result.value = d.result
@@ -611,12 +782,24 @@ const fetchStatus = async () => {
 const startEvaluation = async () => {
   try {
     await axios.post('/api/evaluation/start', {
-      profiles: selectedProfile.value,
+      mode: 'agent_compare',
+      run_target: runTarget.value,
+      profiles: [],
       scenarios: selectedScenario.value,
-      skip_baseline: skipBaseline.value,
-      only_run_baseline: onlyRunBaseline.value,
+      case_ids: selectedCaseIds.value,
+      agent_a: {
+        agent_id: selectedAgentA.value,
+        label: effectiveComparisonLabels.value.side_a,
+      },
+      agent_b: {
+        agent_id: selectedAgentB.value,
+        label: effectiveComparisonLabels.value.side_b,
+      },
+      skip_baseline: false,
+      only_run_baseline: false,
     })
     status.value = 'running'
+    runId.value = null
     totalCases.value = 0
     doneCases.value = 0
     elapsedSeconds.value = 0
@@ -625,6 +808,11 @@ const startEvaluation = async () => {
     result.value = null
     results.value = []
     generalResult.value = null
+    comparisonLabels.value = {
+      side_a: effectiveComparisonLabels.value.side_a,
+      side_b: effectiveComparisonLabels.value.side_b,
+    }
+    activeSides.value = runTarget.value === 'both' ? ['side_a', 'side_b'] : ['side_a']
     pollInterval.value = setInterval(fetchStatus, 1000)
   } catch (e) { console.error(e) }
 }
@@ -668,88 +856,178 @@ onUnmounted(() => {
 
 <style scoped>
 .page-container {
+  --surface: #fffdf8;
+  --surface-strong: #fff7ec;
+  --surface-muted: #f7f1e7;
+  --border-soft: rgba(116, 83, 42, 0.14);
+  --ink: #1f1b16;
+  --ink-soft: #6f6558;
+  --accent: #c96d28;
+  --accent-deep: #9f4d16;
+  --accent-cool: #1d7a72;
+  --success: #1f8a52;
+  --danger: #c43f33;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .card {
-  background: #fff;
-  border-radius: 12px;
+  background: var(--surface);
+  border-radius: 20px;
   padding: 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-soft);
+  box-shadow: 0 18px 40px rgba(70, 40, 10, 0.07);
 }
 
-/* ── 控制栏 ── */
-.control-bar {
+/* ── 控制台 ── */
+.control-shell {
+  background:
+    radial-gradient(circle at top left, rgba(255, 215, 160, 0.34), transparent 34%),
+    radial-gradient(circle at top right, rgba(29, 122, 114, 0.12), transparent 28%),
+    linear-gradient(180deg, #fffdf9 0%, #fff8ef 100%);
+}
+.control-hero {
   display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.hero-copy {
+  min-width: 0;
+}
+.hero-kicker {
+  display: inline-flex;
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(201, 109, 40, 0.12);
+  color: var(--accent-deep);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.control-main {
-  flex: 1;
-  min-width: 0;  /* 关键：允许内容收缩 */
+.hero-title {
+  margin: 12px 0 10px;
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: var(--ink);
 }
-.control-row {
+.hero-meta {
   display: flex;
-  align-items: center;
-  gap: 12px;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
-.control-label {
-  font-weight: 500;
-  color: #555;
+.hero-pill {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #1f1b16;
+  color: #fff7ee;
+  font-size: 13px;
+  font-weight: 600;
+}
+.hero-meta-text {
+  color: var(--ink-soft);
   font-size: 14px;
-  white-space: nowrap;
-  flex-shrink: 0;
+}
+.launch-button {
+  min-width: 160px;
+  min-height: 48px;
+  border-radius: 14px;
+  font-weight: 700;
+}
+.control-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.4fr) repeat(2, minmax(220px, 1fr));
+  gap: 14px;
+}
+.control-panel,
+.agent-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(116, 83, 42, 0.12);
+}
+.control-panel-wide {
+  min-width: 0;
+}
+.agent-panel-a {
+  background: linear-gradient(180deg, rgba(29, 122, 114, 0.08), rgba(255, 255, 255, 0.85));
+}
+.agent-panel-b {
+  background: linear-gradient(180deg, rgba(201, 109, 40, 0.08), rgba(255, 255, 255, 0.85));
+}
+.agent-panel.muted {
+  opacity: 0.58;
+}
+.panel-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.panel-kicker {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+.panel-note {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .control-cascader {
-  flex: 1;
-  min-width: 200px;
-  max-width: 480px;
+  width: 100%;
 }
-.control-actions {
-  flex-shrink: 0;
+.control-select {
+  width: 100%;
 }
 
 /* ── 状态卡片行 ── */
 .stats-row {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
 }
 .stat-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff;
-  border-radius: 12px;
-  padding: 14px 18px;
-  flex: 1;
-  min-width: 150px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  background: var(--surface);
+  border-radius: 18px;
+  border: 1px solid var(--border-soft);
+  padding: 16px 18px;
+  min-width: 0;
+  box-shadow: 0 12px 28px rgba(70, 40, 10, 0.05);
 }
 .stat-icon-area {
   width: 44px; height: 44px;
-  border-radius: 10px;
+  border-radius: 14px;
   display: flex; align-items: center; justify-content: center;
-  background: #f0f2f5; color: #999;
+  background: var(--surface-muted);
+  color: var(--ink-soft);
   flex-shrink: 0;
 }
-.stat-icon-area.purple { background: #f0e8fe; color: #667eea; }
-.stat-icon-area.orange { background: #fef3e0; color: #f39c12; }
+.stat-icon-area.purple { background: rgba(29, 122, 114, 0.12); color: var(--accent-cool); }
+.stat-icon-area.orange { background: rgba(201, 109, 40, 0.12); color: var(--accent-deep); }
 
-.stat-value { font-size: 17px; font-weight: 700; color: #1a1a2e; }
-.stat-label { font-size: 12px; color: #999; margin-top: 2px; }
+.stat-value { font-size: 17px; font-weight: 700; color: var(--ink); }
+.stat-label { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
 .profile-name { font-size: 13px; word-break: break-all; }
 
 /* ── 状态卡片 ── */
-.status-card { border-left: 3px solid #ddd; }
-.status-card.status-running { border-left-color: #4285f4; }
-.status-card.status-completed { border-left-color: #34a853; }
-.status-card.status-stopped { border-left-color: #f39c12; }
-.status-card.status-error { border-left-color: #ea4335; }
+.status-card { border-left: 4px solid #d9d2c6; }
+.status-card.status-running { border-left-color: var(--accent-cool); }
+.status-card.status-completed { border-left-color: var(--success); }
+.status-card.status-stopped { border-left-color: var(--accent); }
+.status-card.status-error { border-left-color: var(--danger); }
 
 .status-badge {
   position: relative;
@@ -761,7 +1039,7 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 2px solid #4285f4;
+  border: 2px solid var(--accent-cool);
   animation: ring-pulse 1.5s ease-in-out infinite;
 }
 @keyframes ring-pulse {
@@ -771,19 +1049,19 @@ onUnmounted(() => {
 }
 .status-icon-inner {
   position: relative; z-index: 1;
-  color: #999;
+  color: var(--ink-soft);
 }
-.status-card.status-running .status-icon-inner { color: #4285f4; }
-.status-card.status-completed .status-icon-inner { color: #34a853; }
-.status-card.status-stopped .status-icon-inner { color: #f39c12; }
-.status-card.status-error .status-icon-inner { color: #ea4335; }
+.status-card.status-running .status-icon-inner { color: var(--accent-cool); }
+.status-card.status-completed .status-icon-inner { color: var(--success); }
+.status-card.status-stopped .status-icon-inner { color: var(--accent); }
+.status-card.status-error .status-icon-inner { color: var(--danger); }
 
 .status-text { font-size: 17px; font-weight: 700; }
-.status-idle .status-text { color: #999; }
-.status-running .status-text { color: #4285f4; }
-.status-completed .status-text { color: #34a853; }
-.status-stopped .status-text { color: #f39c12; }
-.status-error .status-text { color: #ea4335; }
+.status-idle .status-text { color: var(--ink-soft); }
+.status-running .status-text { color: var(--accent-cool); }
+.status-completed .status-text { color: var(--success); }
+.status-stopped .status-text { color: var(--accent); }
+.status-error .status-text { color: var(--danger); }
 
 /* ── 进度环 ── */
 .progress-ring-wrap {
@@ -802,7 +1080,7 @@ onUnmounted(() => {
 }
 .ring-fill {
   fill: none;
-  stroke: #667eea;
+  stroke: var(--accent);
   stroke-width: 4;
   stroke-linecap: round;
   stroke-dasharray: 0 100;
@@ -814,7 +1092,7 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; color: #667eea;
+  font-size: 12px; font-weight: 700; color: var(--accent-deep);
 }
 
 /* ── Case 进度面板 ── */
@@ -1119,6 +1397,111 @@ onUnmounted(() => {
   padding: 2px 6px;
   border-radius: 3px;
   word-break: break-all;
+}
+
+.target-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+}
+
+.target-group.disabled {
+  opacity: 0.72;
+}
+
+.target-chip {
+  flex: 1 1 156px;
+  min-height: 56px;
+  padding: 0 20px;
+  border: 1px solid rgba(116, 83, 42, 0.14);
+  border-radius: 16px;
+  background: #fffdf9;
+  color: var(--ink-soft);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.target-chip:hover:not(:disabled) {
+  border-color: rgba(201, 109, 40, 0.42);
+  color: var(--accent-deep);
+  transform: translateY(-1px);
+}
+
+.target-chip.active {
+  background: linear-gradient(135deg, var(--accent) 0%, #d9883b 100%);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 12px 20px rgba(201, 109, 40, 0.24);
+}
+
+.target-chip:disabled {
+  cursor: not-allowed;
+}
+
+:deep(.control-cascader .el-input__wrapper),
+:deep(.control-select .el-input__wrapper) {
+  min-height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(116, 83, 42, 0.1) inset;
+}
+
+:deep(.control-cascader .el-input__wrapper.is-focus),
+:deep(.control-select .el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px rgba(201, 109, 40, 0.38) inset;
+}
+
+@media (max-width: 1280px) {
+  .control-grid {
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .card {
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .control-hero {
+    flex-direction: column;
+  }
+
+  .hero-title {
+    font-size: 24px;
+  }
+
+  .control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .target-chip {
+    flex-basis: 100%;
+    min-height: 50px;
+    font-size: 14px;
+  }
+
+  .case-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .case-info,
+  .stage-pipeline,
+  .case-result {
+    width: 100%;
+  }
+
+  .case-result {
+    margin-left: 0;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 </style>
 

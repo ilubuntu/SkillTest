@@ -150,9 +150,17 @@ class OpenCodeAdapter(AgentAdapter):
 
     # ── execute ──────────────────────────────────────────────
 
-    def execute(self, prompt: str, tag: str = "") -> str:
+    def execute(self, prompt: str, tag: str = "", workspace_dir: Optional[str] = None) -> str:
         """创建 session，发送消息（携带 system/tools 配置），返回响应"""
         try:
+            effective_prompt = prompt
+            if workspace_dir:
+                effective_prompt = (
+                    f"## 工作目录\n{workspace_dir}\n\n"
+                    "请直接在这个目录中修改工程文件完成任务，不要只返回单个代码片段。\n\n"
+                    f"{prompt}"
+                )
+
             # 1. 创建 session
             self._log("DEBUG", "创建 Session...", tag=tag)
             t0 = time.time()
@@ -166,7 +174,7 @@ class OpenCodeAdapter(AgentAdapter):
 
             # 2. 构建 message payload
             message_payload = {
-                "parts": [{"type": "text", "text": prompt}],
+                "parts": [{"type": "text", "text": effective_prompt}],
             }
             if self.model:
                 message_payload["model"] = parse_model(self.model)
@@ -189,7 +197,7 @@ class OpenCodeAdapter(AgentAdapter):
             # payload 详情日志
             payload_summary = {
                 "parts_count": len(message_payload.get("parts", [])),
-                "prompt_length": len(prompt),
+                "prompt_length": len(effective_prompt),
                 "has_system": bool(self._system_message),
                 "system_length": len(self._system_message) if self._system_message else 0,
                 "system_preview": self._system_message[:200] + "..." if self._system_message and len(self._system_message) > 200 else self._system_message,
@@ -197,6 +205,7 @@ class OpenCodeAdapter(AgentAdapter):
                 "tools": self._tools_config,
                 "has_model": bool(self.model),
                 "model": message_payload.get("model"),
+                "workspace_dir": workspace_dir,
             }
             self._log("DEBUG",
                 f"Message Payload 详情: {json.dumps(payload_summary, ensure_ascii=False, indent=2)}",
