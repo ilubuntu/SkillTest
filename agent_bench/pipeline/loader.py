@@ -45,6 +45,33 @@ def load_file(relative_path: str) -> str:
         return f.read()
 
 
+def get_case_additional_files(input_file: str) -> dict:
+    """检测用例是否存在 pages 子目录，返回额外需要加载的文件
+
+    对于多页面用例（如 004），input_file 指向 baseline/input.ets，
+    同级目录下可能存在 pages 子目录包含其他页面文件。
+
+    Returns:
+        {"pages": {"baseline_FontSettingPage.ets": "...", "expected_FontSettingPage.ets": "..."}}
+    """
+    input_path = os.path.join(BASE_DIR, input_file)
+    case_dir = os.path.dirname(input_path)
+    pages_dir = os.path.join(case_dir, "pages")
+
+    additional = {}
+    if os.path.isdir(pages_dir):
+        pages_files = {}
+        for filename in os.listdir(pages_dir):
+            if filename.endswith(".ets"):
+                file_path = os.path.join(pages_dir, filename)
+                relative_path = os.path.relpath(file_path, BASE_DIR)
+                pages_files[filename] = load_file(relative_path)
+        if pages_files:
+            additional["pages"] = pages_files
+
+    return additional
+
+
 # ── 全局配置 ─────────────────────────────────────────────────
 
 def load_config() -> dict:
@@ -246,19 +273,27 @@ def _transform_case(case: dict) -> dict:
     if "input" in case and isinstance(case["input"], dict):
         return case
 
-    return {
+    input_file = case.get("input_file", "")
+    additional_files = get_case_additional_files(input_file)
+
+    result = {
         "id": case.get("case_id", case.get("id", "")),
         "title": case.get("title", ""),
         "category": case.get("category", ""),
         "scenario": case.get("scenario", ""),
         "input": {
             "prompt": case.get("prompt", ""),
-            "code_file": case.get("input_file", ""),
+            "code_file": input_file,
         },
         "expected": {
             "reference_file": case.get("expected_file", ""),
         },
     }
+
+    if additional_files:
+        result["additional_files"] = additional_files
+
+    return result
 
 
 def get_all_scenarios() -> List[dict]:

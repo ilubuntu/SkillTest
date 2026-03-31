@@ -37,8 +37,8 @@ scenarios:
         case_id: bug_fix_004
         title: "@ObservedV2类中@Trace缺失导致PersistentStorage更新不刷新UI"
         category: specialized
-        input_file: test_cases/bug_fix/004/input.ets
-        expected_file: test_cases/bug_fix/004/expected.ets
+        input_file: test_cases/bug_fix/004/baseline/input.ets
+        expected_file: test_cases/bug_fix/004/enhanced/input.ets
         prompt: "以下ArkTS代码中，@ObservedV2类的fontSize属性缺少@Trace修饰，导致PersistentStorage持久化的对象属性变更时，预览区字体大小和大小数字文本不刷新，请修复"
 
   # ── Code Compile ─────────────────────────────────────────────
