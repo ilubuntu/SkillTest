@@ -401,6 +401,13 @@ def _resolve_enhancement_ids(enhancement_ids: List[str]) -> dict:
     """将 enhancement_ids 列表解析为实际的增强配置"""
     result = {"skills": [], "mcp_servers": [], "system_prompt": "", "tools": None}
 
+    if not enhancement_ids:
+        return result
+
+    # 确保是列表而非 None
+    if not isinstance(enhancement_ids, (list, tuple)):
+        enhancement_ids = []
+
     for eid in enhancement_ids:
         enhancement = _get_enhancement_by_id(eid)
         if not enhancement:
