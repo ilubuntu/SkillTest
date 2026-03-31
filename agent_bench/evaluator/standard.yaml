@@ -250,28 +250,38 @@ dimensions:
             TextInput({ placeholder: '请输入密码' })
 
       - id: E5
-        name: 魔法值禁用规范
-        name_en: No Magic Numbers Convention
-        description: "代码中不应存在未命名的数字或字符串常量（魔法值），应提取为有意义的常量或枚举，提升代码可读性和可维护性"
+        name: 异步操作规范
+        name_en: Async Operation Convention
+        description: "异步操作应使用async/await方式，避免回调地狱，提升代码可读性和可维护性"
         check_points:
-          - "数字常量（如1、20、100等）应提取为命名常量"
-          - "重复出现的数字或字符串应定义为常量"
-          - "状态码、类型码等应使用枚举替代"
+          - "异步API调用应使用async函数配合await"
+          - "避免多层嵌套的回调函数"
+          - "异步操作应包含适当的错误处理（try-catch）"
         hit_conditions:
-          - "命中场景1：代码中存在未定义直接使用的数字字面量（如 this.slider.value = 16）"
-          - "命中场景2：同一数字或字符串在代码中出现2次以上且未提取为常量"
-          - "未命中：所有数字/字符串都定义为常量或枚举"
-          - "边界情况：0、1、-1作为边界判断、索引初始值等通用场景不计入"
+          - "命中场景1：代码中存在超过3层的回调嵌套"
+          - "命中场景2：异步API调用未使用await而直接使用.then()链式调用"
+          - "未命中：异步操作全部使用async/await写法"
+          - "边界情况：简单的一次性异步调用或第三方回调API不纳入检查"
         examples:
           correct: |
-            // 正确：使用常量
-            const DEFAULT_FONT_SIZE: number = 16
-            const MAX_RETRY_COUNT: number = 3
-            TextInput().fontSize(DEFAULT_FONT_SIZE)
+            // 正确：使用async/await
+            async function fetchData(): Promise<string> {
+              try {
+                let result = await this.getData()
+                return result
+              } catch (err) {
+                hilog.error(0, 'Tag', 'Fetch failed')
+              }
+            }
           incorrect: |
-            // 错误：魔法值
-            TextInput().fontSize(16)  // 16未定义
-            if (retryCount > 3) { }  // 3重复出现
+            // 错误：回调地狱
+            this.getData((result) => {
+              this.process(result, (processed) => {
+                this.save(processed, (saved) => {
+                  // 嵌套过深
+                })
+              })
+            })
 
   # ----------------------------------------------------------
   # 维度3：生态与创新 (20%)
