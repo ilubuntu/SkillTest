@@ -64,42 +64,12 @@ def _resolve_case_dir(case: dict) -> str:
     return os.path.join("test_cases", scenario_key, case_no)
 
 
-def _resolve_case_related_path(case: dict, filename: str) -> str:
-    """按约定解析 case 目录下的关联文件路径（相对于 agent_bench/）"""
-    case_dir = _resolve_case_dir(case)
-    if not case_dir:
-        return ""
-    return os.path.join(case_dir, filename)
-
-
-def _read_optional_case_file(case: dict, filename: str) -> str:
-    """读取 case 目录下的可选文件，不存在时返回空字符串"""
-    relative_path = _resolve_case_related_path(case, filename)
-    if not relative_path:
-        return ""
-    absolute_path = os.path.join(BASE_DIR, relative_path)
-    if not os.path.exists(absolute_path):
-        return ""
-    with open(absolute_path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-def load_case_input_code(case: dict) -> str:
-    """读取 case 目录下约定的 input.ets"""
-    return _read_optional_case_file(case, "input.ets")
-
-
-def load_case_reference_code(case: dict) -> str:
-    """读取 case 目录下约定的 expected.ets"""
-    return _read_optional_case_file(case, "expected.ets")
-
-
 def get_case_additional_files(case: dict) -> dict:
     """收集 case 目录下用于补充上下文的额外 .ets 文件。
 
     规则：
     - pages/ 子目录下的 .ets 文件全部纳入
-    - case 根目录下除 input.ets / expected.ets 外的 .ets 文件纳入
+    - case 根目录下的 .ets 文件纳入
     """
     case_dir = _resolve_case_dir(case)
     if not case_dir:
@@ -126,8 +96,6 @@ def get_case_additional_files(case: dict) -> dict:
     sibling_files = {}
     for filename in sorted(os.listdir(absolute_case_dir)):
         if not filename.endswith(".ets"):
-            continue
-        if filename in {"input.ets", "expected.ets"}:
             continue
         file_path = os.path.join(absolute_case_dir, filename)
         if not os.path.isfile(file_path):

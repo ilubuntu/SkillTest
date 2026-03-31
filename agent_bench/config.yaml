@@ -30,4 +30,4 @@ deveco_path: null
 judge:
   model: null
   temperature: 0
-  timeout: 60
+  timeout: 300
