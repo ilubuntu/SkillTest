@@ -49,6 +49,24 @@ TASK_PROMPT = """请完成以下任务。
 - 不要解释过程
 """
 
+TASK_PROMPT_MULTI_PAGE = """请完成以下任务。
+
+## 任务
+{prompt}
+
+## 代码（主页面：{main_page}）
+```typescript
+{code}
+```
+
+## 关联页面
+{additional_pages}
+
+## 要求
+- 只输出完整的代码
+- 不要解释过程
+"""
+
 
 def _notify(on_progress, event: str, data: dict):
     """安全地调用回调"""
@@ -103,7 +121,29 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     else:
         input_code = load_file(case["input"]["code_file"])
         reference_code = load_file(case["expected"]["reference_file"])
-        task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
+
+        # 检测多页面场景
+        additional_files = case.get("additional_files", {})
+        sibling_files = additional_files.get("sibling_files", {})
+        pages_files = additional_files.get("pages", {})
+
+        if sibling_files or pages_files:
+            # 多页面场景：合并所有额外文件到 prompt 中
+            all_additional = {**sibling_files, **pages_files}
+            additional_pages_text = "\n\n".join(
+                f"=== {filename} ===\n{content}" for filename, content in all_additional.items()
+            )
+            main_page = os.path.basename(case["input"]["code_file"])
+            task_prompt = TASK_PROMPT_MULTI_PAGE.format(
+                prompt=prompt,
+                main_page=main_page,
+                code=input_code,
+                additional_pages=additional_pages_text
+            )
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"[{case_id}] 多页面场景：检测到 {len(all_additional)} 个额外页面文件"})
+        else:
+            task_prompt = TASK_PROMPT.format(prompt=prompt, code=input_code)
 
     # rubric 从 scoring_standards.json 按场景加载，不再依赖 case YAML
     rubric = load_rubric(scenario)

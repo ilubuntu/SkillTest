@@ -39,7 +39,7 @@ scenarios:
         category: specialized
         input_file: test_cases/bug_fix/004/baseline/SettingsPage_baseline.ets
         expected_file: test_cases/bug_fix/004/enhanced/SettingsPage_enhanced.ets
-        prompt: "以下ArkTS代码中，@ObservedV2类的fontSize属性缺少@Trace修饰，导致PersistentStorage持久化的对象属性变更时，预览区字体大小和大小数字文本不刷新，请修复"
+        prompt: "以下ArkTS代码中，@ObservedV2类的fontSize属性缺少@Trace修饰，导致PersistentStorage持久化的对象属性变更时，预览区字体大小和大小数字文本不刷新，请修复。注意：这是一个多页面场景，存在两个页面：SettingsPage（设置页面，含\"字体大小\"入口）和FontSettingPage（字体设置页面，含Slider调节）。请同时修复这两个页面中缺失的@Trace修饰"
 
   # ── Code Compile ─────────────────────────────────────────────
   - id: scenario_002
