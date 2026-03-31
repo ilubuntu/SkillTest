@@ -1,7 +1,7 @@
 // Bug: @ObservedV2 类中字体大小属性缺少 @Trace 修饰
 // 页面A：设置页面（基线版本）
 
-import { PersistentStorage } from '@kit.ArkUI'
+import { PersistenceV2 } from '@kit.ArkUI'
 import router from '@ohos.router'
 
 @ObservedV2
@@ -9,7 +9,7 @@ class FontSettings {
   fontSize: number = 16   // 缺少 @Trace，属性变更不会触发 UI 更新
 }
 
-PersistentStorage.persistProp('fontSettings', new FontSettings())
+PersistenceV2.connect(FontSettings, 'fontSettings', () => new FontSettings())
 
 @Entry
 @Component

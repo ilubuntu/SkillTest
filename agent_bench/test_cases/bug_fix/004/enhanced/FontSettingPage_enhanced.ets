@@ -1,7 +1,7 @@
 // 修复: 为 @ObservedV2 类中的 fontSize 属性添加 @Trace 修饰
 // 页面B：字体调节页面（修复版本）
 
-import { PersistentStorage } from '@kit.ArkUI'
+import { PersistenceV2 } from '@kit.ArkUI'
 import router from '@ohos.router'
 
 @ObservedV2
@@ -9,7 +9,7 @@ class FontSettings {
   @Trace fontSize: number = 16   // 添加 @Trace，属性变更时精准通知依赖该属性的 UI 节点
 }
 
-PersistentStorage.persistProp('fontSettings', new FontSettings())
+PersistenceV2.connect(FontSettings, 'fontSettings', () => new FontSettings())
 
 @Entry
 @Component
