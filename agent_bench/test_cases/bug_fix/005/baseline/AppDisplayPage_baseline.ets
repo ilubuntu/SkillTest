@@ -1,6 +1,6 @@
-// Bug: AppDisplayPage 使用 eventhub.on 监听事件名错误（事件名不存在）
-// 监听的事件名 'modeChange' 与 SettingsPage 发送的 'displayModeChange' 不匹配
-// 导致网格/列表模式切换无法生效
+// Bug: AppDisplayPage 存在以下问题：
+// 1. 使用 eventhub.on 监听事件名 'modeChange' 与 SettingsPage 发送的 'displayModeChange' 不匹配
+// 2. ForEach 未指定 keyGenerator 参数，可能导致列表渲染性能问题
 // 页面A：应用展示页面
 
 import display from '@ohos.display'
@@ -20,13 +20,11 @@ struct AppDisplayPage {
   }
 
   aboutToAppear() {
-    // Bug: 监听的事件名 'modeChange' 与 SettingsPage 发送的 'displayModeChange' 不匹配
-    // 导致事件无法到达
+    // Bug1: 监听的事件名 'modeChange' 与 SettingsPage 发送的 'displayModeChange' 不匹配
     eventhub.on('modeChange', this.modeChangeCallback)
   }
 
   aboutToDisappear() {
-    // 释放事件订阅
     eventhub.off('modeChange', this.modeChangeCallback)
   }
 
@@ -55,6 +53,7 @@ struct AppDisplayPage {
       // 应用展示区
       if (this.isGridMode) {
         Grid() {
+          // Bug2: ForEach 未指定 keyGenerator
           ForEach(this.appList, (appName: string) => {
             GridItem() {
               Column() {
@@ -84,6 +83,7 @@ struct AppDisplayPage {
         .layoutWeight(1)
       } else {
         List() {
+          // Bug2: ForEach 未指定 keyGenerator
           ForEach(this.appList, (appName: string) => {
             ListItem() {
               Row() {

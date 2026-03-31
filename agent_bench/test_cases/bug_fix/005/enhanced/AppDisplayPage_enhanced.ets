@@ -1,4 +1,6 @@
-// 修复: AppDisplayPage 正确使用 EventHub.on 监听事件，并使用 eventhub.off 释放事件防止内存泄露
+// 修复: AppDisplayPage 正确使用 EventHub 事件通信和 ForEach keyGenerator
+// 1. 修复事件名为 'displayModeChange' 与 SettingsPage 保持一致
+// 2. 为 ForEach 添加 keyGenerator 参数提升渲染性能
 // 页面A：应用展示页面
 
 import display from '@ohos.display'
@@ -18,12 +20,11 @@ struct AppDisplayPage {
   }
 
   aboutToAppear() {
-    // 修复: 使用 EventHub.on 监听 displayModeChange 事件
+    // 修复1: 使用正确的事件名 'displayModeChange'
     eventhub.on('displayModeChange', this.displayModeCallback)
   }
 
   aboutToDisappear() {
-    // 修复: 使用 eventhub.off 释放事件，防止内存泄露
     eventhub.off('displayModeChange', this.displayModeCallback)
   }
 
@@ -52,7 +53,8 @@ struct AppDisplayPage {
       // 应用展示区
       if (this.isGridMode) {
         Grid() {
-          ForEach(this.appList, (appName: string) => {
+          // 修复2: 为 ForEach 添加 keyGenerator
+          ForEach(this.appList, (appName: string, index: number) => {
             GridItem() {
               Column() {
                 Text(appName.charAt(0))
@@ -71,7 +73,7 @@ struct AppDisplayPage {
               }
               .padding(12)
             }
-          })
+          }, (appName: string, index: number) => `${appName}_${index}`)
         }
         .columnsTemplate('1fr 1fr 1fr 1fr')
         .columnsGap(8)
@@ -81,7 +83,8 @@ struct AppDisplayPage {
         .layoutWeight(1)
       } else {
         List() {
-          ForEach(this.appList, (appName: string) => {
+          // 修复2: 为 ForEach 添加 keyGenerator
+          ForEach(this.appList, (appName: string, index: number) => {
             ListItem() {
               Row() {
                 Text(appName.charAt(0))
@@ -102,7 +105,7 @@ struct AppDisplayPage {
               .width('100%')
               .padding({ left: 16, right: 16, top: 12, bottom: 12 })
             }
-          })
+          }, (appName: string, index: number) => `${appName}_${index}`)
         }
         .width('100%')
         .layoutWeight(1)
