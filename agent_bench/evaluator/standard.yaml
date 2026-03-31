@@ -60,6 +60,31 @@ dimensions:
             }
             // 缺少 aboutToDisappear 中的 eventhub.off
 
+      - id: B2
+        name: EventHub事件订阅完整性
+        name_en: EventHub Subscription Integrity
+        description: "如果代码中使用 eventhub.emit 触发了某个事件，则必须存在对应的 eventhub.on 订阅该事件，否则 emit 的事件将无人接收，形同虚设"
+        check_points:
+          - "eventhub.emit 触发的事件名必须能在代码中找到对应的 eventhub.on 订阅"
+          - "订阅事件名与触发事件名必须完全一致（区分大小写）"
+          - "emit 和 on 可以在同一文件内，也可以在不同文件/组件间"
+        hit_conditions:
+          - "命中场景：代码中存在 eventhub.emit('eventName', ...) 但在整个项目代码中找不到对应的 eventhub.on('eventName', ...) 订阅"
+          - "未命中：每个 eventhub.emit 的事件名都能找到对应的 eventhub.on 订阅"
+          - "边界情况：若代码中完全未使用 eventhub.emit，则该项不适用（N/A）"
+        examples:
+          correct: |
+            // 正确：emit 触发的事件有对应的 on 订阅
+            // SettingsPage
+            eventhub.emit('displayModeChange', { mode: 'grid' })
+
+            // AppDisplayPage
+            eventhub.on('displayModeChange', this.callback)
+          incorrect: |
+            // 错误：emit 了事件但没有对应的订阅
+            eventhub.emit('displayModeChange', { mode: 'grid' })
+            // 但没有任何地方调用 eventhub.on('displayModeChange', ...)
+
   # ----------------------------------------------------------
   # 维度2：工程可信 (40%)
   # ----------------------------------------------------------
