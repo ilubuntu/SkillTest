@@ -78,3 +78,7 @@ class AgentAdapter(ABC):
         确保不影响下一个用例的执行环境。
         """
         pass
+
+    def get_last_interaction_metrics(self):
+        """返回最近一次 execute 的交互指标。"""
+        return None

@@ -74,10 +74,10 @@ class CaseResult(BaseModel):
     title: str
     scenario: str
     side_a_rule: float
-    side_b_rule: float
+    side_b_rule: Optional[float] = None
     side_a_total: float
-    side_b_total: float
-    gain: float
+    side_b_total: Optional[float] = None
+    gain: Optional[float] = None
     dimension_scores: Dict[str, Any]  # {dimId: {name, side_a: {llm, internal}, side_b: {llm, internal}}}
     compile_results: Optional[CompileResult] = None
 
@@ -93,8 +93,8 @@ class GeneralResult(BaseModel):
 class EvaluationSummary(BaseModel):
     total_cases: int
     side_a_avg: float
-    side_b_avg: float
-    gain: float
+    side_b_avg: Optional[float] = None
+    gain: Optional[float] = None
     side_a_pass_rate: str
     side_b_pass_rate: str
     dimensions: Dict[str, Any]  # {dimId: {name, side_a_llm_avg, side_a_internal_avg, side_b_llm_avg, side_b_internal_avg, gain}}

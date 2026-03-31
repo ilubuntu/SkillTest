@@ -62,6 +62,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._system_message = ""
         self._tools_config = None
         self._registered_mcps = []  # 记录注册的 MCP server 名称，用于 teardown
+        self._last_interaction_metrics = None
 
     def _log(self, level: str, message: str, tag: str = ""):
         if self.on_progress:
@@ -83,6 +84,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._system_message = ""
         self._tools_config = None
         self._registered_mcps = []
+        self._last_interaction_metrics = None
 
         if not enhancements:
             self._log("DEBUG", "基线模式: 无增强配置")
@@ -153,6 +155,7 @@ class OpenCodeAdapter(AgentAdapter):
     def execute(self, prompt: str, tag: str = "", workspace_dir: Optional[str] = None) -> str:
         """创建 session，发送消息（携带 system/tools 配置），返回响应"""
         try:
+            self._last_interaction_metrics = None
             effective_prompt = prompt
             if workspace_dir:
                 effective_prompt = (
@@ -223,10 +226,22 @@ class OpenCodeAdapter(AgentAdapter):
                 result_data = response.read().decode("utf-8")
                 elapsed = time.time() - t0
                 result = json.loads(result_data)
+                message_id = self._extract_message_id(result)
+                message_info = self._fetch_message_info(session_id, message_id) if message_id else None
                 parts = result.get("parts", [])
+                self._last_interaction_metrics = self._build_interaction_metrics(
+                    source="agent_runner",
+                    session_id=session_id,
+                    message_id=message_id,
+                    prompt_text=effective_prompt,
+                    response=result,
+                    message_info=message_info,
+                    api_elapsed_ms=round(elapsed * 1000),
+                )
                 for part in parts:
                     if part.get("type") == "text":
                         text = part.get("text", "").strip()
+                        self._last_interaction_metrics["message"]["output_chars"] = len(text)
                         self._log("INFO",
                             f"收到响应: {len(text)}字符, 耗时={elapsed:.1f}s",
                             tag=tag)
@@ -252,6 +267,108 @@ class OpenCodeAdapter(AgentAdapter):
         except TimeoutError:
             self._log("ERROR", f"请求超时 ({self.timeout}s)", tag=tag)
             raise TimeoutError(f"Agent 请求超时 ({self.timeout}s)")
+
+    def _extract_message_id(self, payload: dict) -> Optional[str]:
+        if not isinstance(payload, dict):
+            return None
+        info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+        return payload.get("id") or info.get("id") or payload.get("messageID") or payload.get("messageId")
+
+    def _fetch_message_info(self, session_id: str, message_id: str) -> Optional[dict]:
+        try:
+            req = urllib.request.Request(
+                f"{self.api_base}/session/{session_id}/message/{message_id}",
+                method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            self._log("DEBUG", f"读取消息详情失败: {e}")
+            return None
+
+    def _build_interaction_metrics(self,
+                                   source: str,
+                                   session_id: str,
+                                   message_id: Optional[str],
+                                   prompt_text: str,
+                                   response: dict,
+                                   message_info: Optional[dict],
+                                   api_elapsed_ms: int) -> dict:
+        payload = message_info or response or {}
+        info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+        model = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+        provider = payload.get("provider") if isinstance(payload.get("provider"), dict) else {}
+        tokens = payload.get("tokens") if isinstance(payload.get("tokens"), dict) else {}
+        time_info = payload.get("time") if isinstance(payload.get("time"), dict) else {}
+        parts = payload.get("parts") if isinstance(payload.get("parts"), list) else response.get("parts", [])
+
+        created = self._coerce_int(time_info.get("created"))
+        completed = self._coerce_int(time_info.get("completed"))
+        model_elapsed_ms = completed - created if created is not None and completed is not None else api_elapsed_ms
+
+        return {
+            "version": 1,
+            "source": source,
+            "adapter": "opencode",
+            "session_id": session_id,
+            "message_id": message_id,
+            "provider_id": provider.get("id") or provider.get("providerID") or model.get("providerID") or payload.get("providerID"),
+            "model_id": model.get("id") or model.get("modelID") or payload.get("modelID"),
+            "timing": {
+                "api_elapsed_ms": api_elapsed_ms,
+                "model_elapsed_ms": model_elapsed_ms,
+            },
+            "usage": {
+                "input_tokens": self._coerce_int(tokens.get("input") or tokens.get("inputTokens") or tokens.get("prompt")),
+                "output_tokens": self._coerce_int(tokens.get("output") or tokens.get("outputTokens") or tokens.get("completion")),
+                "reasoning_tokens": self._coerce_int(tokens.get("reasoning") or tokens.get("reasoningTokens")),
+                "cache_read_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "read")) or tokens.get("cacheRead") or tokens.get("cache_read")),
+                "cache_write_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "write")) or tokens.get("cacheWrite") or tokens.get("cache_write")),
+                "cost": payload.get("cost"),
+            },
+            "message": {
+                "input_chars": len(prompt_text or ""),
+                "output_chars": 0,
+            },
+            "tools": {
+                "available": self._tools_config,
+                "observed_calls": self._extract_observed_tool_calls(parts),
+            },
+            "raw": {
+                "message_info": payload,
+                "parts": parts,
+            },
+        }
+
+    def _extract_observed_tool_calls(self, parts):
+        observed = []
+        for part in parts or []:
+            if not isinstance(part, dict):
+                continue
+            part_type = str(part.get("type", "")).lower()
+            tool_name = part.get("tool") or part.get("toolName") or part.get("name") or self._pick_nested(part, ("call", "tool")) or self._pick_nested(part, ("call", "name"))
+            if tool_name or "tool" in part_type:
+                observed.append({
+                    "type": part.get("type"),
+                    "name": tool_name,
+                })
+        return observed
+
+    def _pick_nested(self, data, path):
+        cur = data
+        for key in path:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(key)
+        return cur
+
+    def _coerce_int(self, value):
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except Exception:
+            return None
 
     def _create_session(self) -> Optional[str]:
         """创建新 session，返回 session_id"""
@@ -283,3 +400,6 @@ class OpenCodeAdapter(AgentAdapter):
             self._log("DEBUG",
                 f"已注册的 MCP Servers: {self._registered_mcps} (全局生效，无法按次清理)")
             self._registered_mcps = []
+
+    def get_last_interaction_metrics(self):
+        return self._last_interaction_metrics

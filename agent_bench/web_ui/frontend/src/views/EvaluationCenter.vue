@@ -242,16 +242,16 @@
           </div>
 
           <!-- Case 结果 -->
-          <div class="case-result" v-if="cp.status === 'done' && cp.gain != null">
+          <div class="case-result" v-if="cp.status === 'done'">
             <div class="result-col">
               <span class="result-label">{{ effectiveComparisonLabels.side_a }}</span>
               <span class="result-value">{{ fmtScore(cp.side_a_total) }}</span>
             </div>
-            <div class="result-col" v-if="showEnhancedSide">
+            <div class="result-col" v-if="showEnhancedSide && cp.side_b_total != null">
               <span class="result-label">{{ effectiveComparisonLabels.side_b }}</span>
               <span class="result-value enhanced">{{ fmtScore(cp.side_b_total) }}</span>
             </div>
-            <div class="result-col" v-if="showEnhancedSide">
+            <div class="result-col" v-if="showEnhancedSide && cp.gain != null">
               <span class="result-label">差值</span>
               <span class="result-value" :class="cp.gain >= 0 ? 'positive' : 'negative'">
                 {{ cp.gain >= 0 ? '+' : '' }}{{ fmtScore(cp.gain) }}
@@ -443,6 +443,58 @@
           </div>
         </template>
 
+        <!-- 交互指标 -->
+        <template v-else-if="interactionMetrics">
+          <div class="metrics-panel">
+            <div class="metrics-header">
+              <div class="metrics-title">交互指标</div>
+              <el-tag size="small" type="info">{{ interactionMetrics.adapter || '-' }}</el-tag>
+            </div>
+
+            <div class="metrics-grid">
+              <div class="metrics-card">
+                <div class="metrics-card-title">会话</div>
+                <div class="metrics-kv"><span>来源</span><strong>{{ interactionMetrics.source || '-' }}</strong></div>
+                <div class="metrics-kv"><span>Session</span><code>{{ interactionMetrics.session_id || '-' }}</code></div>
+                <div class="metrics-kv"><span>Message</span><code>{{ interactionMetrics.message_id || '-' }}</code></div>
+                <div class="metrics-kv"><span>Provider</span><strong>{{ interactionMetrics.provider_id || '-' }}</strong></div>
+                <div class="metrics-kv"><span>Model</span><strong>{{ interactionMetrics.model_id || '-' }}</strong></div>
+              </div>
+
+              <div class="metrics-card">
+                <div class="metrics-card-title">耗时</div>
+                <div class="metrics-kv"><span>API 总耗时</span><strong>{{ fmtMs(interactionMetrics.timing?.api_elapsed_ms) }}</strong></div>
+                <div class="metrics-kv"><span>模型耗时</span><strong>{{ fmtMs(interactionMetrics.timing?.model_elapsed_ms) }}</strong></div>
+                <div class="metrics-kv"><span>输入字符</span><strong>{{ interactionMetrics.message?.input_chars ?? '-' }}</strong></div>
+                <div class="metrics-kv"><span>输出字符</span><strong>{{ interactionMetrics.message?.output_chars ?? '-' }}</strong></div>
+              </div>
+
+              <div class="metrics-card">
+                <div class="metrics-card-title">Token / Cost</div>
+                <div class="metrics-kv"><span>输入 Token</span><strong>{{ interactionMetrics.usage?.input_tokens ?? '-' }}</strong></div>
+                <div class="metrics-kv"><span>输出 Token</span><strong>{{ interactionMetrics.usage?.output_tokens ?? '-' }}</strong></div>
+                <div class="metrics-kv"><span>思维 Token</span><strong>{{ interactionMetrics.usage?.reasoning_tokens ?? '-' }}</strong></div>
+                <div class="metrics-kv"><span>Cache Read</span><strong>{{ interactionMetrics.usage?.cache_read_tokens ?? '-' }}</strong></div>
+                <div class="metrics-kv"><span>Cache Write</span><strong>{{ interactionMetrics.usage?.cache_write_tokens ?? '-' }}</strong></div>
+                <div class="metrics-kv"><span>Cost</span><strong>{{ interactionMetrics.usage?.cost ?? '-' }}</strong></div>
+              </div>
+            </div>
+
+            <div v-if="interactionMetrics.tools?.observed_calls?.length" class="metrics-card">
+              <div class="metrics-card-title">观测到的工具调用</div>
+              <el-table :data="interactionMetrics.tools.observed_calls" size="small" stripe style="width: 100%;">
+                <el-table-column prop="type" label="类型" width="180" />
+                <el-table-column prop="name" label="名称" min-width="180" />
+              </el-table>
+            </div>
+
+            <details class="metrics-raw">
+              <summary>原始 JSON</summary>
+              <pre class="stage-file-content">{{ JSON.stringify(interactionMetrics, null, 2) }}</pre>
+            </details>
+          </div>
+        </template>
+
         <!-- 通用文件内容 -->
         <pre v-else class="stage-file-content">{{ stageFileContent }}</pre>
       </div>
@@ -616,6 +668,7 @@ const effectiveActiveSides = computed(() => (
 const showEnhancedSide = computed(() => effectiveActiveSides.value.includes('side_b'))
 
 const fmtScore = (v) => v != null ? v.toFixed(1) : '-'
+const fmtMs = (v) => v != null ? `${v} ms` : '-'
 
 // ── 阶段产物浏览 ──
 const runId = ref(null)
@@ -627,6 +680,7 @@ const stageFileContent = ref(null)
 const activeStageFile = ref('')
 const ruleCheckData = ref(null)
 const judgeData = ref(null)
+const interactionMetrics = ref(null)
 const ruleSides = computed(() => [
   { key: 'side_a', label: effectiveComparisonLabels.value.side_a },
   ...(showEnhancedSide.value ? [{ key: 'side_b', label: effectiveComparisonLabels.value.side_b }] : []),
@@ -660,6 +714,7 @@ const openStageFiles = async (caseId, stageName) => {
   stageFileContent.value = null
   ruleCheckData.value = null
   judgeData.value = null
+  interactionMetrics.value = null
   stageFiles.value = []
   activeStageFile.value = ''
   showStageFiles.value = true
@@ -684,6 +739,7 @@ const loadStageFile = async (filename) => {
   stageFileLoading.value = true
   ruleCheckData.value = null
   judgeData.value = null
+  interactionMetrics.value = null
   try {
     const { caseId, stage } = currentStageCtx
     const res = await axios.get(
@@ -709,6 +765,13 @@ const loadStageFile = async (filename) => {
           side_a: parsed.side_a || parsed.baseline || null,
           side_b: parsed.side_b || parsed.enhanced || null,
         }
+        stageFileContent.value = raw
+      } catch {
+        stageFileContent.value = raw
+      }
+    } else if (filename === 'interaction_metrics.json') {
+      try {
+        interactionMetrics.value = JSON.parse(raw)
         stageFileContent.value = raw
       } catch {
         stageFileContent.value = raw
@@ -1357,6 +1420,76 @@ onUnmounted(() => {
   font-weight: 600;
   font-size: 14px;
   color: #1a1a2e;
+}
+
+.metrics-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.metrics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.metrics-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.metrics-card {
+  border: 1px solid rgba(116, 83, 42, 0.14);
+  border-radius: 14px;
+  background: #fffdfa;
+  padding: 14px;
+}
+
+.metrics-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-deep);
+  margin-bottom: 10px;
+}
+
+.metrics-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.metrics-kv strong,
+.metrics-kv code {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+  word-break: break-all;
+}
+
+.metrics-raw {
+  border: 1px solid rgba(116, 83, 42, 0.12);
+  border-radius: 12px;
+  background: #fffdfa;
+  padding: 10px 12px;
+}
+
+.metrics-raw summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  user-select: none;
 }
 .rule-side-score {
   font-weight: 700;

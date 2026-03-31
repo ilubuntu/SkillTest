@@ -201,6 +201,7 @@ def run_pipeline(profile: str,
         llm_judge = LLMJudge(
             llm_fn=lambda prompt, tag: judge_adapter.execute(prompt, tag=tag),
             on_progress=on_progress,
+            metrics_fn=lambda: judge_adapter.get_last_interaction_metrics(),
         )
 
     case_stages = [s for s in stages if s in ("runner", "evaluator")]
@@ -278,12 +279,18 @@ def run_pipeline(profile: str,
     # ── 汇总统计 ──
     if all_results:
         side_a_avg = sum(r["side_a_total"] for r in all_results) / len(all_results)
-        side_b_avg = sum(r["side_b_total"] for r in all_results) / len(all_results)
-        gain = side_b_avg - side_a_avg
-        _notify(on_progress, "log", {"level": "INFO",
-            "message": f"评测汇总: 用例数={len(all_results)}, "
-                       f"A侧均分={side_a_avg:.1f}, B侧均分={side_b_avg:.1f}, "
-                       f"平均增益={'+' if gain >= 0 else ''}{gain:.1f}"})
+        side_b_scores = [r["side_b_total"] for r in all_results if r.get("side_b_total") is not None]
+        if side_b_scores:
+            side_b_avg = sum(side_b_scores) / len(side_b_scores)
+            gain = side_b_avg - side_a_avg
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"评测汇总: 用例数={len(all_results)}, "
+                           f"A侧均分={side_a_avg:.1f}, B侧均分={side_b_avg:.1f}, "
+                           f"平均增益={'+' if gain >= 0 else ''}{gain:.1f}"})
+        else:
+            _notify(on_progress, "log", {"level": "INFO",
+                "message": f"评测汇总: 用例数={len(all_results)}, "
+                           f"A侧均分={side_a_avg:.1f}"})
 
     _notify(on_progress, "pipeline_done", {
         "run_id": run_id,

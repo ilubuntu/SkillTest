@@ -27,6 +27,7 @@ from agent_bench.pipeline.loader import (
 from agent_bench.pipeline.artifacts import (
     save_runner_artifacts, load_runner_artifacts,
     save_evaluator_artifacts, load_evaluator_result,
+    save_interaction_metrics,
     stage_dir, stage_meta_dir, META_DIR_NAME,
 )
 from agent_bench.pipeline.compile_checker import (
@@ -218,7 +219,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
         # 若产物已存在则直接复用，避免重复调用 Agent 引入随机性
         side_a_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "output.txt")
         side_b_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "output.txt")
-        if os.path.exists(side_a_path) and os.path.exists(side_b_path):
+        use_runner_cache = os.path.exists(side_a_path) and (os.path.exists(side_b_path) or only_run_baseline)
+        if use_runner_cache:
             _notify(on_progress, "log", {"level": "INFO",
                 "message": f"[{case_id}] Runner 产物已存在，跳过 Agent 执行（复用缓存）"})
             side_a_output, side_b_output = load_runner_artifacts(case_dir)
@@ -313,8 +315,9 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         missing_msg = f"[{case_id}] 未找到 original_project 模板，请在测试用例目录下提供 original_project"
         compile_results["side_a_compilable"] = False
         compile_results["side_a_error"] = missing_msg
-        compile_results["side_b_compilable"] = False
-        compile_results["side_b_error"] = missing_msg
+        if not only_run_baseline:
+            compile_results["side_b_compilable"] = False
+            compile_results["side_b_error"] = missing_msg
         _notify(on_progress, "log", {"level": "ERROR", "message": missing_msg})
         if is_general_case:
             return "", "", compile_results
@@ -334,6 +337,9 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         elapsed = time.time() - t0
         compile_results["side_a_compilable"] = compile_result["compilable"]
         compile_results["side_a_error"] = compile_result.get("error", "")
+        if only_run_baseline:
+            compile_results["side_b_compilable"] = None
+            compile_results["side_b_error"] = ""
         if compile_result["compilable"]:
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例编译成功"})
         else:
@@ -379,6 +385,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             _notify(on_progress, "error", {"case_id": case_id, "message": str(e)})
             raise
         finally:
+            save_interaction_metrics(case_dir, "side_a", baseline_adapter.get_last_interaction_metrics())
             baseline_adapter.teardown()
         elapsed = time.time() - t0
         _notify(on_progress, "log", {"level": "INFO",
@@ -402,10 +409,9 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
 
     # ── B 侧运行 ──
     if only_run_baseline:
-        prepare_project_workspace(template_project_path, side_b_dir)
-        side_b_output = side_a_output
-        compile_results["side_b_compilable"] = compile_results.get("side_a_compilable")
-        compile_results["side_b_error"] = compile_results.get("side_a_error", "")
+        side_b_output = ""
+        compile_results["side_b_compilable"] = None
+        compile_results["side_b_error"] = ""
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 仅运行 {side_a_label}，{side_b_label} 跳过执行"})
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": 0, "skipped": True})
     elif dry_run:
@@ -432,6 +438,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             _notify(on_progress, "error", {"case_id": case_id, "message": str(e)})
             raise
         finally:
+            save_interaction_metrics(case_dir, "side_b", enhanced_adapter.get_last_interaction_metrics())
             enhanced_adapter.teardown()
         elapsed = time.time() - t0
         _notify(on_progress, "log", {"level": "INFO",
@@ -492,9 +499,10 @@ def _run_evaluator_stage(case_id, title, scenario, case,
             "title": title,
             "scenario": scenario,
             "side_a_rule": 0,
-            "side_b_rule": 0,
+            "side_b_rule": None if only_run_baseline else 0,
             "side_a_total": 100 if is_compilable else 0,
-            "side_b_total": 100 if is_compilable else 0,
+            "side_b_total": None if only_run_baseline else (100 if is_compilable else 0),
+            "gain": None,
             "dimension_scores": {},
             "general_pass": is_compilable,
         }
@@ -518,7 +526,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         _json.dump(rules_config, f, ensure_ascii=False, indent=2)
 
     side_a_internal = internal_scorer.score(side_a_scoring_text, rules_config)
-    side_b_internal = internal_scorer.score(side_b_scoring_text, rules_config) if not only_run_baseline else side_a_internal
+    side_b_internal = internal_scorer.score(side_b_scoring_text, rules_config) if not only_run_baseline else None
 
     sides_to_log = [("side_a", side_a_internal, side_a_label)]
     if not only_run_baseline:
@@ -540,10 +548,10 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] 规则检查完成: {side_a_label}={side_a_internal.total:.1f}/30, "
                        f"{side_b_label}={side_b_internal.total:.1f}/30"})
-    _notify(on_progress, "stage_done", {
+        _notify(on_progress, "stage_done", {
         "case_id": case_id, "stage": "规则检查",
         "side_a_rule": side_a_internal.total,
-        "side_b_rule": side_b_internal.total,
+        "side_b_rule": side_b_internal.total if side_b_internal else None,
     })
 
     # ── LLM 评分 ──────────────────────────────────────────────
@@ -555,10 +563,10 @@ def _run_evaluator_stage(case_id, title, scenario, case,
                     for r in rubric]
             return LLMScoringResult(dimensions=dims, weighted_avg=float(score_val))
         side_a_llm = _mock_llm_result(30)
-        side_b_llm = side_a_llm if only_run_baseline else _mock_llm_result(85)
+        side_b_llm = None if only_run_baseline else _mock_llm_result(85)
         judge_raw = {
             "side_a": [{"name": r["name"], "score": 30, "reason": "dry-run"} for r in rubric],
-            "side_b": [{"name": r["name"], "score": 30 if only_run_baseline else 85, "reason": "dry-run"} for r in rubric],
+            "side_b": [] if only_run_baseline else [{"name": r["name"], "score": 85, "reason": "dry-run"} for r in rubric],
         }
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "elapsed": 0, "skipped": True})
     else:
@@ -571,7 +579,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
                 prompt, side_a_scoring_text,
                 rubric, case_id=case_id, case_dir=case_dir,
             )
-            side_b_llm = side_a_llm
+            side_b_llm = None
             judge_raw = {
                 "side_a": [{"name": d.name, "score": d.score, "reason": d.reason}
                            for d in side_a_llm.dimensions],
@@ -598,30 +606,36 @@ def _run_evaluator_stage(case_id, title, scenario, case,
 
     # ── 聚合最终分数 ───────────────────────────────────────────
     side_a_total = aggregator.compute(side_a_internal, side_a_llm, all_dim_names, phase_weights)
-    side_b_total = aggregator.compute(side_b_internal, side_b_llm, all_dim_names, phase_weights)
+    side_b_total = None if only_run_baseline else aggregator.compute(side_b_internal, side_b_llm, all_dim_names, phase_weights)
 
     # 维度得分明细（同时包含 LLM 和内部评分）
     dimension_scores = {}
     llm_a_map = {d.name: d.score for d in side_a_llm.dimensions}
-    llm_b_map = {d.name: d.score for d in side_b_llm.dimensions}
+    llm_b_map = {d.name: d.score for d in side_b_llm.dimensions} if side_b_llm else {}
     internal_a_map = {k: v.score for k, v in side_a_internal.dimensions.items()}
-    internal_b_map = {k: v.score for k, v in side_b_internal.dimensions.items()}
+    internal_b_map = {k: v.score for k, v in side_b_internal.dimensions.items()} if side_b_internal else {}
     for r_item in rubric:
         name = r_item["name"]
         dim_id = r_item.get("dimension_id", name)
         llm_a = llm_a_map.get(name, 50)
-        llm_b = llm_b_map.get(name, 50)
+        llm_b = llm_b_map.get(name)
         internal_a = internal_a_map.get(dim_id, 100)
-        internal_b = internal_b_map.get(dim_id, 100)
-        dimension_scores[dim_id] = {
+        internal_b = internal_b_map.get(dim_id)
+        score_entry = {
             "name": name,
             "side_a": {"llm": llm_a, "internal": internal_a},
-            "side_b": {"llm": llm_b, "internal": internal_b},
         }
-        _notify(on_progress, "log", {"level": "DEBUG",
-            "message": f"[{case_id}]   维度 [{name}]: {side_a_label}(LLM={llm_a},本地={internal_a}), {side_b_label}(LLM={llm_b},本地={internal_b})"})
+        if not only_run_baseline:
+            score_entry["side_b"] = {"llm": llm_b, "internal": internal_b}
+        dimension_scores[dim_id] = score_entry
+        if only_run_baseline:
+            _notify(on_progress, "log", {"level": "DEBUG",
+                "message": f"[{case_id}]   维度 [{name}]: {side_a_label}(LLM={llm_a},本地={internal_a})"})
+        else:
+            _notify(on_progress, "log", {"level": "DEBUG",
+                "message": f"[{case_id}]   维度 [{name}]: {side_a_label}(LLM={llm_a},本地={internal_a}), {side_b_label}(LLM={llm_b},本地={internal_b})"})
 
-    gain = side_b_total - side_a_total
+    gain = None if only_run_baseline else side_b_total - side_a_total
     if only_run_baseline:
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] 综合评分: {side_a_label}={side_a_total:.1f}"})
@@ -655,7 +669,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
 
     internal_artifact = {
         "side_a": _serialize_internal(side_a_internal),
-        "side_b": _serialize_internal(side_b_internal),
+        "side_b": _serialize_internal(side_b_internal) if side_b_internal else None,
     }
 
     result = {
@@ -663,7 +677,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         "title": title,
         "scenario": case.get("scenario", scenario),
         "side_a_rule": side_a_internal.total,
-        "side_b_rule": side_b_internal.total,
+        "side_b_rule": side_b_internal.total if side_b_internal else None,
         "side_a_total": side_a_total,
         "side_b_total": side_b_total,
         "gain": gain,
@@ -782,7 +796,7 @@ def run_scenario(scenario: str,
             try:
                 result = future.result()
                 gain = result.get("gain")
-                if gain is None:
+                if gain is None and result.get("side_b_total") is not None and result.get("side_a_total") is not None:
                     gain = result.get("side_b_total", 0) - result.get("side_a_total", 0)
                 _notify(on_progress, "case_done", {
                     "case_id": result["case_id"],

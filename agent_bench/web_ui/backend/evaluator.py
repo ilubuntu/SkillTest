@@ -208,12 +208,17 @@ class EvaluatorManager:
             cp.side_b_total = data.get("side_b_total")
             cp.gain = data.get("gain")
             gain = data["gain"]
-            sign = "+" if gain >= 0 else ""
-            self._add_log("INFO",
-                          f"用例完成: {case_id} - {data['title']} "
-                          f"({self._side_label('side_a')}={cp.side_a_total:.1f}, "
-                          f"{self._side_label('side_b')}={cp.side_b_total:.1f}, "
-                          f"差值={sign}{gain:.1f})")
+            if cp.side_b_total is not None and gain is not None:
+                sign = "+" if gain >= 0 else ""
+                self._add_log("INFO",
+                              f"用例完成: {case_id} - {data['title']} "
+                              f"({self._side_label('side_a')}={cp.side_a_total:.1f}, "
+                              f"{self._side_label('side_b')}={cp.side_b_total:.1f}, "
+                              f"差值={sign}{gain:.1f})")
+            else:
+                self._add_log("INFO",
+                              f"用例完成: {case_id} - {data['title']} "
+                              f"({self._side_label('side_a')}={cp.side_a_total:.1f})")
 
         elif event == "scenario_done":
             self._add_log("INFO", f"场景完成: {data['scenario']} ({data['case_count']} 用例)")
@@ -232,8 +237,12 @@ class EvaluatorManager:
             case_id = data.get("case_id", "")
             prefix = f"[{case_id}] " if case_id else ""
             if case_id and case_id in self._case_progresses:
-                self._case_progresses[case_id].status = "error"
-                self._case_progresses[case_id].error = data.get("message", "")
+                cp = self._case_progresses[case_id]
+                cp.status = "error"
+                cp.error = data.get("message", "")
+                for stage in cp.stages:
+                    if stage.status == "running":
+                        stage.status = "error"
             self._add_log("ERROR", f"{prefix}{data['message']}")
 
     def _infer_case_stage_from_log(self, message: str):
@@ -443,10 +452,10 @@ class EvaluatorManager:
                     title=c.get("title", ""),
                     scenario=c.get("scenario", "general"),
                     side_a_rule=c.get("side_a_rule", 0),
-                    side_b_rule=c.get("side_b_rule", 0),
+                    side_b_rule=c.get("side_b_rule"),
                     side_a_total=c.get("side_a_total", 0),
-                    side_b_total=c.get("side_b_total", 0),
-                    gain=c.get("gain", c.get("side_b_total", 0) - c.get("side_a_total", 0)),
+                    side_b_total=c.get("side_b_total"),
+                    gain=c.get("gain"),
                     dimension_scores=c.get("dimension_scores", {}),
                     compile_results=compile_results,
                 ))
@@ -458,10 +467,10 @@ class EvaluatorManager:
                 summary=EvaluationSummary(
                     total_cases=len(cases),
                     side_a_avg=0,
-                    side_b_avg=0,
-                    gain=0,
+                    side_b_avg=None,
+                    gain=None,
                     side_a_pass_rate="0/0",
-                    side_b_pass_rate="0/0",
+                    side_b_pass_rate="N/A",
                     dimensions={},
                 ),
                 cases=cases,
@@ -486,7 +495,9 @@ class EvaluatorManager:
             summary = data.get("summary", {})
             cases = []
             for c in data.get("cases", []):
-                gain = c.get("gain", c.get("side_b_total", 0) - c.get("side_a_total", 0))
+                gain = c.get("gain")
+                if gain is None and c.get("side_b_total") is not None and c.get("side_a_total") is not None:
+                    gain = c.get("side_b_total", 0) - c.get("side_a_total", 0)
                 compile_results_data = c.get("compile_results")
                 compile_results = None
                 if compile_results_data:
@@ -501,9 +512,9 @@ class EvaluatorManager:
                     title=c.get("title", ""),
                     scenario=c.get("scenario", ""),
                     side_a_rule=c.get("side_a_rule", 0),
-                    side_b_rule=c.get("side_b_rule", 0),
+                    side_b_rule=c.get("side_b_rule"),
                     side_a_total=c.get("side_a_total", 0),
-                    side_b_total=c.get("side_b_total", 0),
+                    side_b_total=c.get("side_b_total"),
                     gain=gain,
                     dimension_scores=_normalize_dimension_scores(c.get("dimension_scores", {})),
                     compile_results=compile_results,
@@ -530,10 +541,10 @@ class EvaluatorManager:
                 summary=EvaluationSummary(
                     total_cases=summary.get("total_cases", 0),
                     side_a_avg=summary.get("side_a_avg", 0),
-                    side_b_avg=summary.get("side_b_avg", 0),
-                    gain=summary.get("gain", 0),
+                    side_b_avg=summary.get("side_b_avg"),
+                    gain=summary.get("gain"),
                     side_a_pass_rate=summary.get("side_a_pass_rate", "0/0"),
-                    side_b_pass_rate=summary.get("side_b_pass_rate", "0/0"),
+                    side_b_pass_rate=summary.get("side_b_pass_rate", "N/A"),
                     dimensions=_normalize_summary_dimensions(summary.get("dimensions", {})),
                 ),
                 cases=cases,

@@ -12,6 +12,7 @@
 """
 
 import json
+import os
 import re
 from typing import Callable, Dict, List, Optional
 
@@ -66,9 +67,11 @@ class LLMJudge:
     """
 
     def __init__(self, llm_fn: Callable[[str, str], str],
-                 on_progress=None):
+                 on_progress=None,
+                 metrics_fn: Optional[Callable[[], Optional[dict]]] = None):
         self.llm_fn = llm_fn
         self.on_progress = on_progress
+        self.metrics_fn = metrics_fn
 
     def _log(self, level: str, message: str):
         if self.on_progress:
@@ -117,7 +120,6 @@ class LLMJudge:
         self._log("DEBUG", f"{tag}[评分] Prompt 长度={len(prompt)}字符")
 
         if case_dir:
-            import os
             judge_dir = os.path.join(case_dir, "llm_judge")
             os.makedirs(judge_dir, exist_ok=True)
             with open(os.path.join(judge_dir, "prompt.txt"), "w", encoding="utf-8") as f:
@@ -125,6 +127,7 @@ class LLMJudge:
 
         try:
             raw = self.llm_fn(prompt, f"{tag}[评分] ")
+            self._save_metrics(case_dir)
             if not raw:
                 self._log("ERROR", f"{tag}[评分] LLM 返回空结果")
                 fb = self._make_fallback(rubric, "LLM返回为空")
@@ -177,7 +180,6 @@ class LLMJudge:
         self._log("DEBUG", f"{tag}[评分] Prompt 长度={len(prompt)}字符")
 
         if case_dir:
-            import os
             judge_dir = os.path.join(case_dir, "llm_judge")
             os.makedirs(judge_dir, exist_ok=True)
             with open(os.path.join(judge_dir, "prompt.txt"), "w", encoding="utf-8") as f:
@@ -185,6 +187,7 @@ class LLMJudge:
 
         try:
             raw = self.llm_fn(prompt, f"{tag}[评分] ")
+            self._save_metrics(case_dir)
             if not raw:
                 self._log("ERROR", f"{tag}[评分] LLM 返回空结果")
                 return self._make_fallback(rubric, "LLM返回为空")
@@ -212,6 +215,19 @@ class LLMJudge:
             for r in rubric
         ]
         return LLMScoringResult(dimensions=dims, weighted_avg=float(score))
+
+    def _save_metrics(self, case_dir: str):
+        if not case_dir or not self.metrics_fn:
+            return
+        metrics = self.metrics_fn()
+        if not metrics:
+            return
+        judge_dir = os.path.join(case_dir, "llm_judge")
+        os.makedirs(judge_dir, exist_ok=True)
+        data = dict(metrics)
+        data["source"] = "llm_judge"
+        with open(os.path.join(judge_dir, "interaction_metrics.json"), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 # ── 内部解析工具 ──────────────────────────────────────────────

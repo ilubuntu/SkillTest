@@ -56,6 +56,15 @@ def save_runner_artifacts(case_dir: str,
     save_runner_stage_artifacts(case_dir, "side_b", side_b_output, task_prompt=task_prompt, enhancements=enhancements)
 
 
+def save_interaction_metrics(case_dir: str, stage: str, metrics: dict):
+    """保存统一交互指标文件。"""
+    if not metrics:
+        return
+    target_dir = stage_meta_dir(case_dir, stage) if stage in ("side_a", "side_b") else stage_dir(case_dir, stage)
+    with open(os.path.join(target_dir, "interaction_metrics.json"), "w", encoding="utf-8") as f:
+        json.dump(metrics, f, ensure_ascii=False, indent=2)
+
+
 def load_runner_artifacts(case_dir: str) -> tuple:
     """加载 Runner 阶段产物
 
@@ -64,12 +73,15 @@ def load_runner_artifacts(case_dir: str) -> tuple:
     """
     side_a_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "output.txt")
     side_b_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "output.txt")
-    if not os.path.exists(side_a_path) or not os.path.exists(side_b_path):
+    if not os.path.exists(side_a_path):
         raise FileNotFoundError(f"Runner 产物不存在: {case_dir}，请先运行 runner 阶段")
     with open(side_a_path, "r", encoding="utf-8") as f:
         side_a_output = f.read()
-    with open(side_b_path, "r", encoding="utf-8") as f:
-        side_b_output = f.read()
+    if os.path.exists(side_b_path):
+        with open(side_b_path, "r", encoding="utf-8") as f:
+            side_b_output = f.read()
+    else:
+        side_b_output = ""
     return side_a_output, side_b_output
 
 
