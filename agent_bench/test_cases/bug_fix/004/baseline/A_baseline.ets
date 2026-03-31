@@ -1,12 +1,12 @@
-// 修复: 为 @ObservedV2 类中的 fontSize 属性添加 @Trace 修饰
-// 页面A：设置页面（修复版本）
+// Bug: @ObservedV2 类中字体大小属性缺少 @Trace 修饰
+// 页面A：设置页面（基线版本）
 
 import { PersistentStorage } from '@kit.ArkUI'
 import router from '@ohos.router'
 
 @ObservedV2
 class FontSettings {
-  @Trace fontSize: number = 16   // 添加 @Trace，属性变更时精准通知依赖该属性的 UI 节点
+  fontSize: number = 16   // 缺少 @Trace，属性变更不会触发 UI 更新
 }
 
 PersistentStorage.persistProp('fontSettings', new FontSettings())
@@ -41,7 +41,7 @@ struct SettingsPage {
               .layoutWeight(1)
 
             Text('设置')
-              .fontSize(this.settings.fontSize)   // 添加 @Trace 后正确刷新
+              .fontSize(this.settings.fontSize)   // 绑定 PersistentStorage，但缺少 @Trace 不会刷新
               .fontColor('#007DFF')
 
             Text(' >')
@@ -51,7 +51,7 @@ struct SettingsPage {
           .width('100%')
           .padding({ left: 20, right: 20, top: 16, bottom: 16 })
           .onClick(() => {
-            router.pushUrl({ url: 'enhanced/expected.ets' })
+            router.pushUrl({ url: 'baseline/B_baseline.ets' })
           })
         }
 
@@ -88,12 +88,12 @@ struct SettingsPage {
       // 底部预览区
       Column() {
         Text('预览文本')
-          .fontSize(this.settings.fontSize)   // 添加 @Trace 后正确刷新
+          .fontSize(this.settings.fontSize)   // 绑定 PersistentStorage，但不会刷新
           .fontColor('#333333')
           .textAlign(TextAlign.Center)
           .padding(16)
 
-        Text(`当前字体大小: ${this.settings.fontSize}`)   // 正确刷新
+        Text(`当前字体大小: ${this.settings.fontSize}`)   // 不会刷新
           .fontSize(12)
           .fontColor('#666666')
           .textAlign(TextAlign.Center)

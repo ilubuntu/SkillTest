@@ -46,19 +46,23 @@ def load_file(relative_path: str) -> str:
 
 
 def get_case_additional_files(input_file: str) -> dict:
-    """检测用例是否存在 pages 子目录，返回额外需要加载的文件
+    """检测用例是否存在 pages 子目录或同目录下的多页面文件
 
-    对于多页面用例（如 004），input_file 指向 baseline/input.ets，
-    同级目录下可能存在 pages 子目录包含其他页面文件。
+    对于多页面用例（如 004），input_file 指向 baseline/A_baseline.ets，
+    同级目录下可能存在：
+    1. pages 子目录包含其他页面文件
+    2. 同目录下的 B_*.ets 等页面文件（如 B_baseline.ets）
 
     Returns:
-        {"pages": {"baseline_FontSettingPage.ets": "...", "expected_FontSettingPage.ets": "..."}}
+        {"pages": {"filename.ets": "content", ...}}
     """
     input_path = os.path.join(BASE_DIR, input_file)
     case_dir = os.path.dirname(input_path)
     pages_dir = os.path.join(case_dir, "pages")
 
     additional = {}
+
+    # 1. 检测 pages 子目录
     if os.path.isdir(pages_dir):
         pages_files = {}
         for filename in os.listdir(pages_dir):
@@ -68,6 +72,16 @@ def get_case_additional_files(input_file: str) -> dict:
                 pages_files[filename] = load_file(relative_path)
         if pages_files:
             additional["pages"] = pages_files
+
+    # 2. 检测同目录下的其他 .ets 文件（排除 input_file 自身）
+    input_filename = os.path.basename(input_path)
+    sibling_files = {}
+    for filename in os.listdir(case_dir):
+        if filename.endswith(".ets") and filename != input_filename:
+            file_path = os.path.join(case_dir, filename)
+            sibling_files[filename] = load_file(os.path.relpath(file_path, BASE_DIR))
+    if sibling_files:
+        additional["sibling_files"] = sibling_files
 
     return additional
 
