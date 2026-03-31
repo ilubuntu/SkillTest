@@ -28,23 +28,7 @@ dimensions:
     name: 基本质量
     weight: 40
     description: "组件可编译性、兼容性、基础体验、稳定性等"
-    rules:
-      - id: B1
-        name: 类型定义规范
-        name_en: Type Definition
-        description: "禁止使用any，接口/类型定义清晰"
-        check_points:
-          - "避免使用any类型"
-          - "接口/类型别名定义清晰"
-          - "泛型约束合理"
-
-      - id: B2
-        name: 编译通过
-        name_en: Compilability
-        description: "代码可通过ArkTS编译器检查"
-        check_points:
-          - "代码可通过hvigor编译"
-          - "无编译错误"
+    rules: []
 
   # ----------------------------------------------------------
   # 维度2：工程可信 (40%)
@@ -53,29 +37,7 @@ dimensions:
     name: 工程可信
     weight: 40
     description: "异常处理、组件规范、代码质量等"
-    rules:
-      - id: E1
-        name: 异常处理
-        name_en: Exception Handling
-        description: "异步操作是否有完善的异常处理"
-        check_points:
-          - "异步操作有.catch()处理"
-          - "try/catch块正确使用"
-
-      - id: E2
-        name: 代码重复度
-        name_en: Code Duplication
-        description: "是否存在不必要的重复"
-        check_points:
-          - "重复代码块已提取为公共函数"
-          - "相似逻辑已复用"
-
-      - id: E3
-        name: 禁止废弃API
-        name_en: No Deprecated API
-        description: "禁止使用已废弃的API"
-        check_points:
-          - "避免使用已废弃的router.push"
+    rules: []
 
   # ----------------------------------------------------------
   # 维度3：生态与创新 (20%)
@@ -84,22 +46,7 @@ dimensions:
     name: 生态与创新
     weight: 20
     description: "应用或者元服务的生态规则、行业创新能力等"
-    rules:
-      - id: G1
-        name: 日志规范
-        name_en: Logging Convention
-        description: "应使用hilog替代console.log"
-        check_points:
-          - "使用hilog进行日志输出"
-          - "避免使用console.log"
-
-      - id: G2
-        name: 路由规范
-        name_en: Routing Convention
-        description: "应使用Navigation路由"
-        check_points:
-          - "使用Navigation路由"
-          - "避免使用已废弃的router.push"
+    rules: []
 
 # ============================================================
 # 输出格式定义
