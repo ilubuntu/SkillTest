@@ -1,7 +1,8 @@
 // 修复: 为 @ObservedV2 类中的 fontSize 属性添加 @Trace 修饰
-// @Trace 使框架能够追踪属性级别的细粒度变更，从而正确触发 UI 刷新
+// 页面A：设置页面（修复版本）
 
 import { PersistentStorage } from '@kit.ArkUI'
+import router from '@ohos.router'
 
 @ObservedV2
 class FontSettings {
@@ -12,14 +13,14 @@ PersistentStorage.persistProp('fontSettings', new FontSettings())
 
 @Entry
 @Component
-struct FontPreviewPage {
+struct SettingsPage {
   @StorageLink('fontSettings') settings: FontSettings = new FontSettings()
 
   build() {
     Column() {
-      // 功能标题区
+      // 标题栏
       Row() {
-        Text('字体预览')
+        Text('设置')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .layoutWeight(1)
@@ -30,65 +31,76 @@ struct FontPreviewPage {
       .backgroundColor('#FFFFFF')
       .padding({ left: 16, right: 16 })
 
-      // 预览区域
-      Column() {
-        Text('永远相信美好的事情即将发生')
-          .fontSize(this.settings.fontSize)   // @Trace 保证属性变更时正确刷新
-          .fontColor('#333333')
-          .textAlign(TextAlign.Center)
-          .padding(24)
+      // 设置列表
+      List() {
+        ListItem() {
+          Row() {
+            Text('字体大小')
+              .fontSize(16)
+              .fontColor('#333333')
+              .layoutWeight(1)
 
-        Text('The quick brown fox jumps over the lazy dog')
-          .fontSize(this.settings.fontSize)   // 同上，正确刷新
-          .fontColor('#666666')
-          .textAlign(TextAlign.Center)
-          .padding({ left: 24, right: 24, bottom: 24 })
+            Text('设置')
+              .fontSize(this.settings.fontSize)   // 添加 @Trace 后正确刷新
+              .fontColor('#007DFF')
+
+            Text(' >')
+              .fontSize(14)
+              .fontColor('#CCCCCC')
+          }
+          .width('100%')
+          .padding({ left: 20, right: 20, top: 16, bottom: 16 })
+          .onClick(() => {
+            router.pushUrl({ url: 'pages/expected_FontSettingPage' })
+          })
+        }
+
+        ListItem() {
+          Row() {
+            Text('其他设置项1')
+              .fontSize(16)
+              .fontColor('#333333')
+            Text(' >')
+              .fontSize(14)
+              .fontColor('#CCCCCC')
+          }
+          .width('100%')
+          .padding({ left: 20, right: 20, top: 16, bottom: 16 })
+        }
+
+        ListItem() {
+          Row() {
+            Text('其他设置项2')
+              .fontSize(16)
+              .fontColor('#333333')
+            Text(' >')
+              .fontSize(14)
+              .fontColor('#CCCCCC')
+          }
+          .width('100%')
+          .padding({ left: 20, right: 20, top: 16, bottom: 16 })
+        }
       }
       .width('100%')
       .layoutWeight(1)
-      .backgroundColor('#F7F8FA')
-      .justifyContent(FlexAlign.Center)
+      .backgroundColor('#FFFFFF')
 
-      // 字体调节区域
+      // 底部预览区
       Column() {
-        Text('字体大小')
-          .fontSize(14)
-          .fontColor('#999999')
-          .width('100%')
-          .margin({ bottom: 12 })
+        Text('预览文本')
+          .fontSize(this.settings.fontSize)   // 添加 @Trace 后正确刷新
+          .fontColor('#333333')
+          .textAlign(TextAlign.Center)
+          .padding(16)
 
-        Row() {
-          Text('A')
-            .fontSize(12)
-            .fontColor('#999999')
-            .width(20)
-
-          Slider({
-            value: this.settings.fontSize,
-            min: 12,
-            max: 40,
-            step: 1,
-            style: SliderStyle.OutSet
-          })
-            .layoutWeight(1)
-            .trackColor('#E5E5E5')
-            .selectedColor('#007DFF')
-            .onChange((value: number) => {
-              this.settings.fontSize = value  // @Trace 确保此赋值触发所有依赖节点刷新
-            })
-
-          Text(`${this.settings.fontSize}`)   // 正确刷新，显示当前字体大小
-            .fontSize(14)
-            .fontColor('#333333')
-            .width(36)
-            .textAlign(TextAlign.End)
-        }
-        .width('100%')
-        .alignItems(VerticalAlign.Center)
+        Text(`当前字体大小: ${this.settings.fontSize}`)   // 正确刷新
+          .fontSize(12)
+          .fontColor('#666666')
+          .textAlign(TextAlign.Center)
       }
       .width('100%')
-      .padding({ left: 24, right: 24, top: 20, bottom: 40 })
-      .backgroundColor('#FFFFFF')
+      .padding({ top: 20, bottom: 20 })
+      .backgroundColor('#F7F8FA')
     }
     .width('100%')
     .height('100%')
