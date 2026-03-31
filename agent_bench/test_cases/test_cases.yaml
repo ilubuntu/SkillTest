@@ -43,11 +43,11 @@ scenarios:
 
       - id: case_005
         case_id: bug_fix_005
-        title: "【应用列表】EventHub事件监听缺失与内存泄露修复"
+        title: "【应用列表】EventHub事件名不匹配修复"
         category: specialized
         input_file: test_cases/bug_fix/005/baseline/AppDisplayPage_baseline.ets
         expected_file: test_cases/bug_fix/005/enhanced/AppDisplayPage_enhanced.ets
-        prompt: "以下ArkTS代码中，AppDisplayPage（应用展示页）未正确使用EventHub.on监听displayModeChange事件，导致SettingsPage（设置页）切换网格/列表模式后，应用展示页无法响应切换。另外，EventHub.off未在aboutToDisappear中释放事件，会导致内存泄露。请修复：1）在AppDisplayPage的aboutToAppear中使用eventhub.on监听事件；2）在aboutToDisappear中使用eventhub.off释放事件。注意：这是一个多页面场景，存在两个页面：AppDisplayPage（应用展示页，含网格/列表切换入口）和SettingsPage（设置页，含Checkbox切换控件）。请同时修复这两个页面中缺失的EventHub相关代码"
+        prompt: "以下ArkTS代码中，AppDisplayPage（应用展示页）使用eventhub.on监听了'modeChange'事件，而SettingsPage（设置页）发送的事件名是'displayModeChange'，事件名不匹配导致切换模式后应用展示页无法响应。请修复：将AppDisplayPage中的eventhub.on监听事件名从'modeChange'改为'displayModeChange'，确保与SettingsPage发送的事件名一致。注意：这是一个多页面场景，存在两个页面：AppDisplayPage（应用展示页，含网格/列表切换入口）和SettingsPage（设置页，含Checkbox切换控件）。请同时检查这两个页面的EventHub事件名是否匹配"
 
   # ── Code Compile ─────────────────────────────────────────────
   - id: scenario_002

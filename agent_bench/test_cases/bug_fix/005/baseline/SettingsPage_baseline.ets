@@ -10,11 +10,9 @@ struct SettingsPage {
   @State isGridMode: boolean = true
   @State isListMode: boolean = false
 
-  @StorageLink('displayMode') storedGridMode: boolean = true
-
   aboutToAppear(): void {
-    this.isGridMode = this.storedGridMode
-    this.isListMode = !this.storedGridMode
+    this.isGridMode = true
+    this.isListMode = false
   }
 
   build() {
@@ -57,8 +55,7 @@ struct SettingsPage {
                 if (value) {
                   this.isGridMode = true
                   this.isListMode = false
-                  this.storedGridMode = true
-                  // Bug: 使用 eventhub.emit 发送事件，但 AppDisplayPage 未正确监听
+                  // 发送事件名为 'displayModeChange'
                   eventhub.emit('displayModeChange', { mode: 'grid' })
                 }
               })
@@ -80,7 +77,6 @@ struct SettingsPage {
                 if (value) {
                   this.isGridMode = false
                   this.isListMode = true
-                  this.storedGridMode = false
                   eventhub.emit('displayModeChange', { mode: 'list' })
                 }
               })

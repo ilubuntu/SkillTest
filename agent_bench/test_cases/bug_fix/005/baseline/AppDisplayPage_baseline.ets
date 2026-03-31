@@ -1,9 +1,11 @@
-// Bug: AppDisplayPage 未正确使用 EventHub.on 监听切换事件，导致网格/列表模式无法切换
-// 且 EventHub.off 未正确释放，导致内存泄露
+// Bug: AppDisplayPage 使用 eventhub.on 监听事件名错误（事件名不存在）
+// 监听的事件名 'modeChange' 与 SettingsPage 发送的 'displayModeChange' 不匹配
+// 导致网格/列表模式切换无法生效
 // 页面A：应用展示页面
 
 import display from '@ohos.display'
 import router from '@ohos.router'
+import eventhub from '@ohos.eventhub'
 
 @Entry
 @Component
@@ -11,10 +13,21 @@ struct AppDisplayPage {
   @State isGridMode: boolean = true
   @State appList: string[] = ['微信', '支付宝', '淘宝', '抖音', '京东', '美团', '滴滴', '携程', '饿了么', '高德地图']
 
+  private modeChangeCallback = (data: { mode: string }) => {
+    if (data && data.mode) {
+      this.isGridMode = data.mode === 'grid'
+    }
+  }
+
   aboutToAppear() {
-    // Bug: 未使用 EventHub.on 监听 displayModeChange 事件
-    // 导致设置页切换模式后，当前页面无法收到通知
-    // 且未使用 eventhub.off 释放事件
+    // Bug: 监听的事件名 'modeChange' 与 SettingsPage 发送的 'displayModeChange' 不匹配
+    // 导致事件无法到达
+    eventhub.on('modeChange', this.modeChangeCallback)
+  }
+
+  aboutToDisappear() {
+    // 释放事件订阅
+    eventhub.off('modeChange', this.modeChangeCallback)
   }
 
   build() {
