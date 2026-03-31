@@ -37,7 +37,27 @@ dimensions:
     name: 工程可信
     weight: 40
     description: "异常处理、组件规范、代码质量等"
-    rules: []
+    rules:
+      - id: E1
+        name: 路由规范
+        name_en: Routing Convention
+        description: "路由跳转应使用Navigation路由，不推荐使用router路由"
+        check_points:
+          - "使用 Navigation 组件实现路由"
+          - "避免使用 router.pushUrl / router.replaceUrl 等方法"
+          - "ArkTS新项目应优先采用声明式 Navigation 路由"
+        hit_conditions:
+          - "命中场景：代码中使用了 router.pushUrl 或 router.replaceUrl"
+          - "未命中：代码仅使用 Navigation 路由或无路由代码"
+        examples:
+          correct: |
+            // 使用 Navigation 路由
+            Navigation() { ... }
+            .onNavDestinationSwitch((info: NavDestinationContext) => { ... })
+          incorrect: |
+            // 使用 router 方式（不推荐）
+            router.pushUrl({ url: 'pages/Index' })
+            router.replaceUrl({ url: 'pages/Index' })
 
   # ----------------------------------------------------------
   # 维度3：生态与创新 (20%)
