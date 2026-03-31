@@ -85,6 +85,63 @@ dimensions:
             eventhub.emit('displayModeChange', { mode: 'grid' })
             // 但没有任何地方调用 eventhub.on('displayModeChange', ...)
 
+      - id: B3
+        name: 组件API能力检测
+        name_en: Component Capability Check
+        description: "使用某些需要设备能力支持的组件或API前，应进行能力检测，避免在不支持的设备上运行崩溃"
+        check_points:
+          - "使用卡片能力、分布式能力等前应检测设备是否支持"
+          - "使用特定传感器、NFC、Bluetooth等硬件能力前应进行能力检测"
+          - "使用@ohos开头的系统API前应检查API可用性"
+        hit_conditions:
+          - "命中场景：代码中直接使用了需要特定能力的API或组件，但未进行能力检测"
+          - "未命中：使用能力相关API前进行了 canIUse() 或类似的能力检测"
+          - "边界情况：若代码中未使用任何需要特殊硬件能力的API，则该项不适用（N/A）"
+        examples:
+          correct: |
+            // 正确：使用能力前先检测
+            if (canIUse('SystemCapability.Security.FaceAuth')) {
+              // 使用面容识别能力
+            }
+          incorrect: |
+            // 错误：直接使用未检测的能力
+            import facialRecognition from '@kit.FacialAuth'
+            // 直接调用面容识别，未检测设备是否支持
+
+      - id: B4
+        name: 屏幕适配规范
+        name_en: Screen Adaptation Convention
+        description: "屏幕尺寸、间距等UI布局应使用相对单位（vp/lpx）而非绝对像素值（px），确保在不同屏幕密度设备上正常显示"
+        check_points:
+          - "组件宽高、间距、边距等应使用 vp（虚拟像素）或 lpx（设计像素）单位"
+          - "字体大小应使用 fp 或 vp 单位确保随系统字体大小变化"
+          - "避免直接使用 px 单位进行硬编码布局"
+        hit_conditions:
+          - "命中场景：代码中直接使用 px 作为宽高、间距、边距等布局单位"
+          - "未命中：使用 vp/lpx/fp 等相对单位进行屏幕适配"
+          - "边界情况：若代码中仅使用百分比或flex布局无固定尺寸，则该项不适用（N/A）"
+        examples:
+          correct: |
+            // 正确：使用相对单位
+            Column() {
+              Text('Hello')
+                .fontSize(16)  // 默认fp单位，随系统字体变化
+              Row() {
+                Divider()
+                  .width(100)  // 默认单位vp
+              }
+            }
+          incorrect: |
+            // 错误：使用px硬编码
+            Column() {
+              Text('Hello')
+                .fontSize(16)  // px不随系统字体变化
+              Row() {
+                Divider()
+                  .width(100)  // px在不同屏幕密度上显示效果不同
+              }
+            }
+
   # ----------------------------------------------------------
   # 维度2：工程可信 (40%)
   # ----------------------------------------------------------
