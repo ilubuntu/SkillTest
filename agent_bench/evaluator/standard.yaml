@@ -290,9 +290,42 @@ dimensions:
     name: 生态与创新
     weight: 20
     description: "应用或者元服务的生态规则、行业创新能力等"
-    rules: []
+    rules:
+      - id: G1
+        name: UIAbility生命周期规范
+        name_en: UIAbility Lifecycle Convention
+        description: "UIAbility是HarmonyOS应用的基本组成单元，其生命周期回调应遵循规范，正确管理资源申请和释放"
+        check_points:
+          - "UIAbility的onCreate、onDestroy等生命周期回调应正确实现"
+          - "在onWindowStageCreate中加载主页面，在onWindowStageDestroy中释放相关资源"
+          - "避免在UIAbility生命周期中执行耗时操作阻塞主线程"
+        hit_conditions:
+          - "命中场景1：UIAbility中直接执行耗时操作（如同步读写文件、网络请求）阻塞生命周期回调"
+          - "命中场景2：生命周期回调中注册了资源（如EventHub、定时器）但未在对应回调中注销"
+          - "未命中：生命周期回调正确实现，资源管理规范"
+          - "边界情况：若代码中不涉及UIAbility编写，则该项不适用（N/A）"
+        examples:
+          correct: |
+            // 正确：生命周期中正确管理资源
+            onWindowStageCreate(windowStage: window.WindowStage) {
+              windowStage.loadContent('pages/Index', (err) => {
+                // 正确：异步加载内容
+              })
+            }
 
-# ============================================================
+            onWindowStageDestroy() {
+              // 正确：释放资源
+              this.unregisterEvents()
+            }
+          incorrect: |
+            // 错误：生命周期中执行耗时操作
+            onCreate() {
+              // 错误：在主线程执行同步耗时操作
+              let data = this.readFileSync()
+              let result = this.requestSync()
+            }
+
+  # ============================================================
 # 输出格式定义
 # ============================================================
 output_format:
