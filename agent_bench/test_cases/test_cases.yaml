@@ -35,7 +35,7 @@ scenarios:
 
       - id: case_004
         case_id: bug_fix_004
-        title: "@ObservedV2类中@Trace缺失导致PersistentStorage更新不刷新UI"
+        title: "【适老化】@ObservedV2类中@Trace缺失导致PersistentStorage更新不刷新UI"
         category: specialized
         input_file: test_cases/bug_fix/004/baseline/SettingsPage_baseline.ets
         expected_file: test_cases/bug_fix/004/enhanced/SettingsPage_enhanced.ets
@@ -43,7 +43,7 @@ scenarios:
 
       - id: case_005
         case_id: bug_fix_005
-        title: "EventHub事件监听缺失与内存泄露修复"
+        title: "【应用列表】EventHub事件监听缺失与内存泄露修复"
         category: specialized
         input_file: test_cases/bug_fix/005/baseline/AppDisplayPage_baseline.ets
         expected_file: test_cases/bug_fix/005/enhanced/AppDisplayPage_enhanced.ets
