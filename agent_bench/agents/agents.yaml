@@ -4,6 +4,13 @@ defaults:
   timeout: 480
   temperature: null
   model: "minimax-cn-coding-plan/MiniMax-M2.7"
+  mounted_skills:
+    - name: "harmonyos-hvigor"
+      path: "/Users/bb/work/benchmark/github/agent_bench/config/skills/harmonyos-hvigor"
+  compile_loop:
+    enabled: true
+    max_rounds: 5
+    skill_name: "harmonyos-hvigor"
 
 agents:
   - id: agent_default
@@ -18,4 +25,16 @@ agents:
     adapter: opencode
     api_base: "http://127.0.0.1:4096"
     model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    enabled: true
+
+  - id: "codex_local"
+    name: "Codex Local"
+    adapter: codex_local
+    cli_path: "codex"
+    model: "gpt-5.4"
+    env:
+      http_proxy: "http://127.0.0.1:7890"
+      https_proxy: "http://127.0.0.1:7890"
+      HTTP_PROXY: "http://127.0.0.1:7890"
+      HTTPS_PROXY: "http://127.0.0.1:7890"
     enabled: true

@@ -279,7 +279,8 @@ class OpenCodeAdapter(AgentAdapter):
                 candidate = self._coerce_message_payload(data, prompt_text)
                 if candidate:
                     return candidate
-                self._log("WARN", f"消息响应不是可信 assistant 结果，类型={type(data).__name__}，尝试回查 session 最新消息", tag=tag)
+                preview = body[:400].replace("\n", "\\n")
+                self._log("WARN", f"消息响应不是可信 assistant 结果，类型={type(data).__name__}，body前400字符={preview}，尝试回查 session 最新消息", tag=tag)
             except json.JSONDecodeError as e:
                 preview = body[:200].replace("\n", "\\n")
                 self._log("WARN", f"消息响应不是 JSON: {e}; body前200字符={preview}", tag=tag)
@@ -320,15 +321,8 @@ class OpenCodeAdapter(AgentAdapter):
             if isinstance(data, list):
                 messages = data
             elif isinstance(data, dict):
-                if isinstance(data.get("messages"), list):
-                    messages = data["messages"]
-                elif isinstance(data.get("items"), list):
-                    messages = data["items"]
-                elif isinstance(data.get("data"), list):
-                    messages = data["data"]
-                elif isinstance(data.get("results"), list):
-                    messages = data["results"]
-                else:
+                messages = self._extract_message_list(data)
+                if not messages:
                     return None
 
             for message in reversed(messages):
@@ -341,17 +335,52 @@ class OpenCodeAdapter(AgentAdapter):
             return None
 
     def _coerce_message_payload(self, data, prompt_text: str) -> Optional[dict]:
-        candidates = []
-        if isinstance(data, dict):
-            candidates.append(data)
-            for key in ("message", "item", "result", "data"):
-                nested = data.get(key)
-                if isinstance(nested, dict):
-                    candidates.append(nested)
-        for candidate in candidates:
+        for candidate in self._iter_message_candidates(data):
             if self._looks_like_assistant_message(candidate, prompt_text):
                 return candidate
         return None
+
+    def _iter_message_candidates(self, data):
+        seen = set()
+        stack = [data]
+        while stack:
+            current = stack.pop()
+            if not isinstance(current, dict):
+                continue
+            ident = id(current)
+            if ident in seen:
+                continue
+            seen.add(ident)
+            yield current
+            for key in ("message", "item", "result", "data", "payload"):
+                nested = current.get(key)
+                if isinstance(nested, dict):
+                    stack.append(nested)
+            for key in ("messages", "items", "results"):
+                nested_list = current.get(key)
+                if isinstance(nested_list, list):
+                    for item in nested_list:
+                        if isinstance(item, dict):
+                            stack.append(item)
+
+    def _extract_message_list(self, data):
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if not isinstance(data, dict):
+            return []
+        for key in ("messages", "items", "results"):
+            nested = data.get(key)
+            if isinstance(nested, list):
+                return [item for item in nested if isinstance(item, dict)]
+        for key in ("data", "payload", "result"):
+            nested = data.get(key)
+            if isinstance(nested, list):
+                return [item for item in nested if isinstance(item, dict)]
+            if isinstance(nested, dict):
+                extracted = self._extract_message_list(nested)
+                if extracted:
+                    return extracted
+        return []
 
     def _looks_like_assistant_message(self, payload: dict, prompt_text: str) -> bool:
         if not isinstance(payload, dict):

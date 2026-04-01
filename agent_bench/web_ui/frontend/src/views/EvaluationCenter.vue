@@ -334,6 +334,7 @@
             <el-radio-button value="DEBUG">DEBUG</el-radio-button>
             <el-radio-button value="ERROR">ERROR</el-radio-button>
           </el-radio-group>
+          <el-switch v-model="followNewLogs" size="small" inline-prompt active-text="跟随新日志" inactive-text="固定位置" />
           <span class="log-count">{{ filteredLogs.length }} / {{ logs.length }}</span>
           <el-button size="small" circle @click="showFullscreen = true">
             <el-icon><FullScreen /></el-icon>
@@ -517,11 +518,12 @@
               <el-radio-button value="WARN">WARN</el-radio-button>
               <el-radio-button value="ERROR">ERROR</el-radio-button>
             </el-radio-group>
+            <el-switch v-model="followNewLogs" size="small" inline-prompt active-text="跟随新日志" inactive-text="固定位置" />
             <span class="log-count">{{ fullscreenFilteredLogs.length }} / {{ logs.length }}</span>
           </div>
         </div>
       </template>
-      <div class="fullscreen-log-container" ref="fullscreenLogRef">
+      <div class="fullscreen-log-container" ref="fullscreenLogRef" @scroll="onFullscreenLogScroll">
         <div v-for="(log, idx) in fullscreenFilteredLogs" :key="idx" class="log-entry">
           <span class="log-time">{{ log.timestamp }}</span>
           <span class="log-level" :class="log.level">{{ log.level }}</span>
@@ -575,6 +577,8 @@ const showFullscreen = ref(false)
 const logContainerRef = ref(null)
 const fullscreenLogRef = ref(null)
 const userScrolling = ref(false)
+const fullscreenUserScrolling = ref(false)
+const followNewLogs = ref(false)
 
 const isRunning = computed(() => status.value === 'running')
 const canStart = computed(() =>
@@ -900,14 +904,17 @@ function isNearBottom(el) {
 function onLogScroll() {
   if (logContainerRef.value) userScrolling.value = !isNearBottom(logContainerRef.value)
 }
+function onFullscreenLogScroll() {
+  if (fullscreenLogRef.value) fullscreenUserScrolling.value = !isNearBottom(fullscreenLogRef.value)
+}
 watch([() => logs.value.length, logLevel], async () => {
   await nextTick()
-  if (logContainerRef.value && !userScrolling.value)
+  if (followNewLogs.value && logContainerRef.value && !userScrolling.value)
     logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
 })
 watch([() => logs.value.length, fullscreenLogLevel], async () => {
   await nextTick()
-  if (fullscreenLogRef.value)
+  if (followNewLogs.value && fullscreenLogRef.value && !fullscreenUserScrolling.value)
     fullscreenLogRef.value.scrollTop = fullscreenLogRef.value.scrollHeight
 })
 

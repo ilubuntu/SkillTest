@@ -11,6 +11,7 @@
 """
 
 import os
+import re
 from typing import List, Optional, Dict
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +47,64 @@ def load_file(relative_path: str) -> str:
     path = os.path.join(BASE_DIR, relative_path)
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
+
+
+def load_text_file(file_path: str) -> str:
+    """加载任意文本文件。"""
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _load_skill_frontmatter(skill_file_path: str) -> dict:
+    content = load_text_file(skill_file_path)
+    match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
+    if not match:
+        return {}
+    import yaml
+    try:
+        data = yaml.safe_load(match.group(1)) or {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _build_skill_summary(skill_name: str, skill_file_path: str) -> str:
+    """构造简版 skill 摘要，避免把整份 SKILL.md 注入 prompt。"""
+    frontmatter = _load_skill_frontmatter(skill_file_path)
+    description = (frontmatter.get("description") or "").strip()
+
+    if skill_name == "harmonyos-hvigor":
+        lines = [
+            f"Skill 名称: {skill_name}",
+        ]
+        if description:
+            lines.append(f"Skill 说明: {description}")
+        lines.extend([
+            "使用原则:",
+            "- 修改代码后立即执行一次 hvigor 编译自检",
+            "- 使用 DevEco Studio 内置 node、hvigorw.js、sdk、java",
+            "- 不要依赖系统 node，不要调用裸 hvigorw",
+            "- 编译失败时读取完整编译日志，继续修复并再次编译",
+            "关键命令:",
+            "- DEVECO_PATH=/Applications/DevEco-Studio.app",
+            "- NODE_BIN=$DEVECO_PATH/Contents/tools/node/bin/node",
+            "- HVIGOR_JS=$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js",
+            "- export DEVECO_SDK_HOME=$DEVECO_PATH/Contents/sdk",
+            "- export JAVA_HOME=$DEVECO_PATH/Contents/jbr/Contents/Home",
+            "- unset NODE_HOME && unset HVIGOR_APP_HOME",
+            "- \"$NODE_BIN\" \"$HVIGOR_JS\" --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --no-daemon",
+            "- \"$NODE_BIN\" \"$HVIGOR_JS\" --stop-daemon",
+            "环境关键点:",
+            "- 不要修改签名配置和 build-profile.json5",
+            "- 如果日志出现 NODE_HOME / hvigorw.js / ohpm 错误，优先修正环境变量和工具路径",
+        ])
+        return "\n".join(lines)
+
+    lines = [f"Skill 名称: {skill_name}"]
+    if description:
+        lines.append(f"Skill 说明: {description}")
+    lines.append("该 Skill 已挂载，请按其说明执行，不要忽略。")
+    return "\n".join(lines)
 
 
 def _resolve_case_dir(case: dict) -> str:
@@ -262,6 +321,91 @@ def load_agent(agent_id: str) -> Optional[dict]:
             merged.update(agent)
             return merged
     return None
+
+
+def _resolve_skill_mount_path(path: str) -> str:
+    if not path:
+        raise ValueError("Skill 路径不能为空")
+    if os.path.isdir(path):
+        candidate = os.path.join(path, "SKILL.md")
+        if os.path.isfile(candidate):
+            return candidate
+    if os.path.isfile(path):
+        return path
+    raise FileNotFoundError(f"Skill 文件不存在: {path}")
+
+
+def _cleanup_enhancement_dict(data: dict) -> dict:
+    result = dict(data or {})
+    if not result.get("skills"):
+        result.pop("skills", None)
+    if not result.get("mcp_servers"):
+        result.pop("mcp_servers", None)
+    if not result.get("system_prompt"):
+        result.pop("system_prompt", None)
+    if result.get("tools") is None:
+        result.pop("tools", None)
+    return result
+
+
+def merge_enhancements(base: Optional[dict], extra: Optional[dict]) -> dict:
+    """合并两份增强配置。"""
+    base = base or {}
+    extra = extra or {}
+    merged = {
+        "skills": list(base.get("skills") or []) + list(extra.get("skills") or []),
+        "mcp_servers": list(base.get("mcp_servers") or []) + list(extra.get("mcp_servers") or []),
+        "system_prompt": "",
+        "tools": extra.get("tools") if extra.get("tools") is not None else base.get("tools"),
+    }
+
+    prompts = []
+    if base.get("system_prompt"):
+        prompts.append(str(base["system_prompt"]).strip())
+    if extra.get("system_prompt"):
+        prompts.append(str(extra["system_prompt"]).strip())
+    merged["system_prompt"] = "\n\n".join(item for item in prompts if item)
+
+    return _cleanup_enhancement_dict(merged)
+
+
+def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
+    """根据 Agent 配置构造运行时增强项。"""
+    if not agent:
+        return {}
+
+    result = {
+        "skills": [],
+        "mcp_servers": list(agent.get("mcp_servers") or []),
+        "system_prompt": "",
+        "tools": agent.get("tools"),
+    }
+
+    for skill in agent.get("mounted_skills", []) or []:
+        if not isinstance(skill, dict):
+            continue
+        skill_name = skill.get("name") or "external-skill"
+        skill_path = _resolve_skill_mount_path(skill.get("path", ""))
+        result["skills"].append({
+            "name": skill_name,
+            "path": skill_path,
+            "content": _build_skill_summary(skill_name, skill_path),
+        })
+
+    compile_loop = agent.get("compile_loop") or {}
+    if compile_loop.get("enabled"):
+        max_rounds = int(compile_loop.get("max_rounds") or 5)
+        skill_name = compile_loop.get("skill_name") or "harmonyos-hvigor"
+        result["system_prompt"] = (
+            f"你已挂载 Skill `{skill_name}`，必须使用它执行当前 HarmonyOS 工程的内部编译自检。\n"
+            f"每次完成一轮代码修改后，必须立即按该 Skill 的方法对当前工程执行一次 hvigor 编译检查。\n"
+            f"如果编译失败，必须把完整编译日志作为下一轮分析输入，继续修改并再次编译。\n"
+            f"重复“修改 -> 编译 -> 读取日志 -> 继续修复”的循环，最多执行 {max_rounds} 轮，直到编译通过。\n"
+            "达到最大轮次仍未通过时，必须明确说明最后一次编译错误、已尝试的修复和当前阻塞点。\n"
+            "这条内部编译循环只是 agent 自检，不替代评测系统最终的外部编译验证。"
+        )
+
+    return _cleanup_enhancement_dict(result)
 
 
 def _get_scenario_by_id(scenario_id: str) -> Optional[dict]:

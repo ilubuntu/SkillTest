@@ -27,7 +27,7 @@ from agent_bench.pipeline.case_runner import run_scenario
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-ALL_STAGES = ["runner", "evaluator", "reporter"]
+ALL_STAGES = ["runner", "reporter"]
 
 
 def _notify(on_progress, event: str, data: dict):
@@ -92,7 +92,7 @@ def run_pipeline(profile: str,
         comparison_labels: 两侧展示标签
         run_id: 运行 ID（重跑时指定已有的）
         output_dir: 输出目录
-        stages: 要执行的阶段 ["runner", "evaluator", "reporter"]
+        stages: 要执行的阶段 ["runner", "reporter"]
         on_progress: 进度回调 (event: str, data: dict) -> None
 
     Returns:
@@ -185,7 +185,7 @@ def run_pipeline(profile: str,
     agent_compare_mode = bool(baseline_agent_id or enhanced_agent_id)
 
     # ── 初始化组件 ──
-    need_runner_or_evaluator = "runner" in stages or "evaluator" in stages
+    need_runner_or_evaluator = "evaluator" in stages
     llm_judge = None
 
     if need_runner_or_evaluator:

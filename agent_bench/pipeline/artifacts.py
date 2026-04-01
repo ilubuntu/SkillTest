@@ -117,6 +117,13 @@ def save_evaluator_artifacts(case_dir: str,
         json.dump(result, f, ensure_ascii=False, indent=2)
 
 
+def save_case_result(case_dir: str, result: dict):
+    """单独保存 case 汇总结果。"""
+    os.makedirs(case_dir, exist_ok=True)
+    with open(os.path.join(case_dir, "result.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+
 def save_rule_check_artifact(case_dir: str, internal_score: dict):
     """单独保存规则检查结果，避免后续阶段失败时丢失。"""
     rule_dir = os.path.join(case_dir, "rule_check")

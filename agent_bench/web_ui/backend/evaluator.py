@@ -21,7 +21,7 @@ from backend.models import (
 )
 
 # case 执行的阶段顺序
-CASE_STAGES = ["A侧运行", "B侧运行", "A侧编译", "B侧编译", "规则检查", "LLM评分"]
+CASE_STAGES = ["A侧运行", "A侧编译", "B侧运行", "B侧编译"]
 
 
 def _normalize_dimension_scores(dimensions: Dict) -> Dict:
@@ -100,13 +100,22 @@ class EvaluatorManager:
 
     # ── 日志 ──────────────────────────────────────────────────
 
+    @staticmethod
+    def _clip_log_text(text: Optional[str], limit: int = 1000) -> Optional[str]:
+        if text is None:
+            return None
+        text = str(text)
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "...<truncated>"
+
     def _add_log(self, level: str, message: str, detail: Optional[str] = None):
         normalized_level = "WARN" if level == "WARNING" else level
         entry = LogEntry(
             timestamp=datetime.now().strftime("%H:%M:%S"),
             level=normalized_level,
-            message=message,
-            detail=detail,
+            message=self._clip_log_text(message),
+            detail=self._clip_log_text(detail),
         )
         if len(self._logs) >= self._max_logs:
             self._logs = self._logs[-self._max_logs:]
