@@ -35,10 +35,15 @@
         <div class="compile-summary-grid">
           <div class="compile-item">
             <div class="compile-label">{{ effectiveLabels.side_a }}</div>
-            <el-tooltip 
-              :content="sideACompileError || '编译通过'" 
-              placement="top" 
-              :disabled="!sideACompileError">
+            <el-tooltip
+              placement="top-start"
+              :show-after="150"
+              :max-width="960"
+              :disabled="!sideACompileError"
+            >
+              <template #content>
+                <pre class="compile-tooltip-pre">{{ sideACompileError }}</pre>
+              </template>
               <div class="compile-value" :class="sideACompileError ? 'compile-failed' : 'compile-pass'">
                 {{ compilePassRateData.side_a }}
               </div>
@@ -46,10 +51,15 @@
           </div>
           <div v-if="showEnhancedSide" class="compile-item">
             <div class="compile-label">{{ effectiveLabels.side_b }}</div>
-            <el-tooltip 
-              :content="sideBCompileError || '编译通过'" 
-              placement="top" 
-              :disabled="!sideBCompileError">
+            <el-tooltip
+              placement="top-start"
+              :show-after="150"
+              :max-width="960"
+              :disabled="!sideBCompileError"
+            >
+              <template #content>
+                <pre class="compile-tooltip-pre">{{ sideBCompileError }}</pre>
+              </template>
               <div class="compile-value" :class="sideBCompileError ? 'compile-failed' : 'compile-pass'">
                 {{ compilePassRateData.side_b }}
               </div>
@@ -237,28 +247,21 @@ const signedScore = (value) => {
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)}`
 }
 
+const collectCompileErrors = (cases = [], sideKey) => {
+  const errorKey = `${sideKey}_error`
+  const compilableKey = `${sideKey}_compilable`
+  return (cases || [])
+    .filter(c => c.compile_results?.[compilableKey] === false && c.compile_results?.[errorKey])
+    .map(c => `[${c.case_id}] ${c.title}\n${c.compile_results[errorKey]}`)
+    .join('\n\n')
+}
+
 const sideACompileError = computed(() => {
-  if (!currentResult.value?.cases?.length) return ''
-  const errors = []
-  for (const c of currentResult.value.cases) {
-    if (c.compile_results?.side_a_compilable === false && c.compile_results?.side_a_error) {
-      const shortError = c.compile_results.side_a_error.split('\n').slice(-3).join('\n')
-      errors.push(`${c.case_id}: ${shortError}`)
-    }
-  }
-  return errors.join('\n\n')
+  return collectCompileErrors(currentResult.value?.cases, 'side_a')
 })
 
 const sideBCompileError = computed(() => {
-  if (!currentResult.value?.cases?.length) return ''
-  const errors = []
-  for (const c of currentResult.value.cases) {
-    if (c.compile_results?.side_b_compilable === false && c.compile_results?.side_b_error) {
-      const shortError = c.compile_results.side_b_error.split('\n').slice(-3).join('\n')
-      errors.push(`${c.case_id}: ${shortError}`)
-    }
-  }
-  return errors.join('\n\n')
+  return collectCompileErrors(currentResult.value?.cases, 'side_b')
 })
 </script>
 
@@ -378,10 +381,22 @@ const sideBCompileError = computed(() => {
 
 .compile-failed {
   color: #ea4335;
-  cursor: pointer;
+  cursor: help;
 }
 
 .compile-failed:hover {
   text-decoration: underline;
+}
+
+.compile-tooltip-pre {
+  margin: 0;
+  max-width: min(80vw, 960px);
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

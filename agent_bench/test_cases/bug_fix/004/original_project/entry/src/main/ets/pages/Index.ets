@@ -1,12 +1,13 @@
 // 修复: @ObservedV2 类中字体大小属性添加 @Trace 修饰，使用Navigation声明式导航
 // 页面A：设置页面
 
-import { FontSettings } from '../model/FontSettings'
+import { FontSettings, getFontSettings } from '../model/FontSettings'
+import { FontSettingPage } from './FontSettingPage'
 
 @Entry
 @Component
 struct Index {
-  @StorageLink('fontSettings') settings: FontSettings = new FontSettings()
+  settings: FontSettings = getFontSettings()
   @Provide('pathStack') pathStack: NavPathStack = new NavPathStack()
 
   build() {
@@ -87,7 +88,6 @@ struct Index {
     }
     .title('设置')
     .titleMode(NavigationTitleMode.Mini)
-    .navDestination(this.PageMap)
   }
 }
 

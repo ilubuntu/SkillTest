@@ -280,11 +280,35 @@
         <div class="compile-summary-grid">
           <div class="compile-item">
             <div class="compile-label">{{ generalComparisonLabels.side_a }}</div>
-            <div class="compile-value">{{ generalResult.general.side_a_compile_pass_rate }}</div>
+            <el-tooltip
+              :disabled="!generalSideACompileError"
+              placement="top-start"
+              :show-after="150"
+              :max-width="960"
+            >
+              <template #content>
+                <pre class="compile-tooltip-pre">{{ generalSideACompileError }}</pre>
+              </template>
+              <div class="compile-value" :class="generalSideACompileError ? 'compile-failed' : 'compile-pass'">
+                {{ generalResult.general.side_a_compile_pass_rate }}
+              </div>
+            </el-tooltip>
           </div>
           <div class="compile-item" v-if="showEnhancedSide">
             <div class="compile-label">{{ generalComparisonLabels.side_b }}</div>
-            <div class="compile-value">{{ generalResult.general.side_b_compile_pass_rate }}</div>
+            <el-tooltip
+              :disabled="!generalSideBCompileError"
+              placement="top-start"
+              :show-after="150"
+              :max-width="960"
+            >
+              <template #content>
+                <pre class="compile-tooltip-pre">{{ generalSideBCompileError }}</pre>
+              </template>
+              <div class="compile-value" :class="generalSideBCompileError ? 'compile-failed' : 'compile-pass'">
+                {{ generalResult.general.side_b_compile_pass_rate }}
+              </div>
+            </el-tooltip>
           </div>
         </div>
         <div class="compile-note" v-if="generalResult.general.note">
@@ -301,12 +325,22 @@
             <div class="case-title">{{ c.title }}</div>
           </div>
           <div class="case-result">
+            <el-tooltip :disabled="!c.compile_results?.side_a_error" placement="top-start" :show-after="150" :max-width="720">
+              <template #content>
+                <pre class="compile-tooltip-pre">{{ c.compile_results?.side_a_error }}</pre>
+              </template>
             <div class="compile-status" :class="c.compile_results?.side_a_compilable ? 'pass' : 'fail'">
               {{ generalComparisonLabels.side_a }}: {{ c.compile_results?.side_a_compilable ? '可编译' : '不可编译' }}
             </div>
-            <div v-if="showEnhancedSide" class="compile-status" :class="c.compile_results?.side_b_compilable ? 'pass' : 'fail'">
+            </el-tooltip>
+            <el-tooltip v-if="showEnhancedSide" :disabled="!c.compile_results?.side_b_error" placement="top-start" :show-after="150" :max-width="720">
+              <template #content>
+                <pre class="compile-tooltip-pre">{{ c.compile_results?.side_b_error }}</pre>
+              </template>
+            <div class="compile-status" :class="c.compile_results?.side_b_compilable ? 'pass' : 'fail'">
               {{ generalComparisonLabels.side_b }}: {{ c.compile_results?.side_b_compilable ? '可编译' : '不可编译' }}
             </div>
+            </el-tooltip>
           </div>
         </div>
       </div>
@@ -670,6 +704,18 @@ const effectiveActiveSides = computed(() => (
     : activeSides.value
 ))
 const showEnhancedSide = computed(() => effectiveActiveSides.value.includes('side_b'))
+
+const collectCompileErrors = (cases = [], sideKey) => {
+  const errorKey = `${sideKey}_error`
+  const compilableKey = `${sideKey}_compilable`
+  return (cases || [])
+    .filter(c => c.compile_results?.[compilableKey] === false && c.compile_results?.[errorKey])
+    .map(c => `[${c.case_id}] ${c.title}\n${c.compile_results[errorKey]}`)
+    .join('\n\n')
+}
+
+const generalSideACompileError = computed(() => collectCompileErrors(generalResult.value?.cases, 'side_a'))
+const generalSideBCompileError = computed(() => collectCompileErrors(generalResult.value?.cases, 'side_b'))
 
 const fmtScore = (v) => v != null ? v.toFixed(1) : '-'
 const fmtMs = (v) => v != null ? `${v} ms` : '-'
@@ -1336,7 +1382,15 @@ onUnmounted(() => {
 .compile-value {
   font-size: 20px;
   font-weight: 700;
+}
+
+.compile-pass {
   color: #34a853;
+}
+
+.compile-failed {
+  color: #ea4335;
+  cursor: help;
 }
 
 .compile-note {
@@ -1362,6 +1416,17 @@ onUnmounted(() => {
 .compile-status.fail {
   background: #ea433522;
   color: #ea4335;
+}
+.compile-tooltip-pre {
+  margin: 0;
+  max-width: min(80vw, 960px);
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* ── 可点击阶段 ── */

@@ -1,11 +1,12 @@
 // 修复: @ObservedV2 类中字体大小属性添加 @Trace 修饰，使用Navigation声明式导航
 // 页面B：字体调节页面
 
-import { FontSettings } from '../model/FontSettings'
+import { FontSettings, FONT_SETTINGS_KEY, getFontSettings } from '../model/FontSettings'
+import { PersistenceV2 } from '@kit.ArkUI'
 
 @Component
 export struct FontSettingPage {
-  @StorageLink('fontSettings') settings: FontSettings = new FontSettings()
+  settings: FontSettings = getFontSettings()
   @Consume('pathStack') pathStack: NavPathStack
 
   build() {
@@ -53,6 +54,7 @@ export struct FontSettingPage {
               .selectedColor('#007DFF')
               .onChange((value: number) => {
                 this.settings.fontSize = value
+                PersistenceV2.save(FONT_SETTINGS_KEY)
               })
 
             Text(`${this.settings.fontSize}`)
@@ -73,7 +75,6 @@ export struct FontSettingPage {
       .backgroundColor('#F7F8FA')
     }
     .title('字体大小设置')
-    .titleMode(NavigationTitleMode.Mini)
     .onBackPressed(() => {
       this.pathStack.pop()
       return true

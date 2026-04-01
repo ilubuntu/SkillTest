@@ -5,6 +5,10 @@ class FontSettings {
   @Trace fontSize: number = 16
 }
 
-PersistenceV2.connect(FontSettings, 'fontSettings', () => new FontSettings())
+const FONT_SETTINGS_KEY: string = 'fontSettings'
 
-export { FontSettings }
+function getFontSettings(): FontSettings {
+  return PersistenceV2.connect(FontSettings, FONT_SETTINGS_KEY, () => new FontSettings()) ?? new FontSettings()
+}
+
+export { FontSettings, FONT_SETTINGS_KEY, getFontSettings }

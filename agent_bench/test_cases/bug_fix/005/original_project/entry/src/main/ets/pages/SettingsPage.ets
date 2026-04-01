@@ -1,14 +1,26 @@
-// 页面B：显示模式设置页（已修复）
-// 修复内容：EventHub 事件名 'displayModeChange' 与 AppDisplayPage 监听的事件名匹配
+// Bug: 未正确使用 EventHub 进行组件间通信
+// 页面B：显示模式设置页
 
 import router from '@ohos.router'
-import eventhub from '@ohos.eventhub'
 
-@Entry
+const DISPLAY_MODE_CHANGE_EVENT: string = 'displayModeChange'
+
+class DisplayModeChangeData {
+  mode: string
+
+  constructor(mode: string) {
+    this.mode = mode
+  }
+}
+
 @Component
 struct SettingsPage {
   @State isGridMode: boolean = true
   @State isListMode: boolean = false
+
+  private getEventHub() {
+    return this.getUIContext().getHostContext()?.eventHub
+  }
 
   aboutToAppear(): void {
     this.isGridMode = true
@@ -17,6 +29,7 @@ struct SettingsPage {
 
   build() {
     Column() {
+      // 标题栏
       Row() {
         Text('< 返回')
           .fontSize(16)
@@ -39,6 +52,7 @@ struct SettingsPage {
       .backgroundColor('#FFFFFF')
       .padding({ left: 16, right: 16 })
 
+      // 设置列表
       List() {
         ListItem() {
           Row() {
@@ -53,7 +67,7 @@ struct SettingsPage {
                 if (value) {
                   this.isGridMode = true
                   this.isListMode = false
-                  eventhub.emit('displayModeChange', { mode: 'grid' })
+                  this.getEventHub()?.emit(DISPLAY_MODE_CHANGE_EVENT, new DisplayModeChangeData('grid'))
                 }
               })
           }
@@ -74,7 +88,7 @@ struct SettingsPage {
                 if (value) {
                   this.isGridMode = false
                   this.isListMode = true
-                  eventhub.emit('displayModeChange', { mode: 'list' })
+                  this.getEventHub()?.emit(DISPLAY_MODE_CHANGE_EVENT, new DisplayModeChangeData('list'))
                 }
               })
           }
@@ -86,6 +100,7 @@ struct SettingsPage {
       .layoutWeight(1)
       .backgroundColor('#FFFFFF')
 
+      // 说明
       Text('选择显示形式后，应用中心将自动切换展示效果')
         .fontSize(12)
         .fontColor('#999999')
