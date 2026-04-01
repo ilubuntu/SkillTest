@@ -1,162 +1,296 @@
 # Cloud API
 
-这份文档只写最小闭环，并且同时考虑两类交互：
+本文档定义端云协同模式下的云测接口。
 
-1. 端 -> 云
-2. 云 -> 端
+系统边界如下：
 
-这里的“端”包含两种角色：
-- 前端页面
-- 本机执行器
+- 云端负责 case 管理、任务存储、进度存储和报告展示
+- 端侧负责下载 case、执行被测 agent、上报进度和结果
+- 云端不直接运行被测 agent，也不向端侧主动下发任务
 
-目标是先把当前本机版迁到云端时最核心的链路定义清楚。
+接口统一使用以下命名：
 
----
-
-## 1. 总体设计
-
-云端保存三类数据：
-
-1. 用例元数据
-2. 评测任务状态
-3. 最终汇总结果
-
-本机执行器负责：
-
-1. 拉取任务
-2. 执行 Agent
-3. 推送进度
-4. 推送结果
-
-前端页面负责：
-
-1. 创建任务
-2. 查询任务状态
-3. 查询最终报告
+- `agent_baseline`
+- `agent_candidate`
+- `baseline`
+- `candidate`
 
 ---
 
-## 2. 最小接口数量
+## 1. 云端做什么
 
-先定义 **6 个接口**，够跑通一条完整链路。
+云端负责 4 件事：
 
-### 云端提供给前端 / 执行器
-
-1. `GET /v1/cases`
-2. `POST /v1/valuationTasks`
-3. `GET /v1/valuationTasks/{task_id}`
-4. `GET /v1/valuationTasks/{task_id}/report`
-
-### 执行器推送给云端
-
-5. `POST /v1/valuationTasks/{task_id}/progress`
-6. `POST /v1/valuationTasks/{task_id}/report`
+1. case 管理
+2. valuation task 管理
+3. progress 和日志存储
+4. report 和汇总结果展示
 
 ---
 
-## 3. 接口和业务关系
+## 2. 端侧做什么
 
-## 3.1 `GET /v1/cases`
+端侧负责 5 件事：
 
-业务：
-- 前端展示用例列表
-- 执行器按 case_id 获取元数据
+1. 查询 case
+2. 下载 case bundle
+3. 创建 valuation task
+4. 本地执行 agent
+5. 上报 progress 和 report
 
-返回最小字段：
-- `case_id`
-- `title`
-- `scenario`
+---
 
-示例：
+## 3. 业务流
+
+1. 端侧调用 `case_list`
+2. 端侧调用 `case_detail`
+3. 端侧调用 `case_bundle_get` 下载资源包
+4. 端侧调用 `valuation_task_create`
+5. 端侧本地执行
+6. 执行过程中持续调用 `valuation_task_progress_update`
+7. 执行完成后调用 `valuation_task_metrics_upload`
+8. 评分 agent 基于 metrics 完成评分
+9. 评分完成后调用 `valuation_task_report_upload`
+10. 前端页面调用 `valuation_task_detail` 查看任务详情和报告摘要
+
+---
+
+## 4. 接口清单
+
+### 4.1 `case_create`
+
+建议路径：
+
+- `POST /v1/case/create`
+
+作用：
+
+- 云端创建一个 case
+- 后续可扩展为导入入口
+
+最小请求字段：
+
+```json
+{
+  "case_id": "bug_fix_001",
+  "title": "商品列表与详情编辑工程缺陷修复",
+  "scenario": "bug_fix",
+  "summary": "这是一个已有的 HarmonyOS ArkTS 工程修复 case。",
+  "bundle_version": "v1"
+}
+```
+
+最小返回字段：
+
+```json
+{
+  "case_id": "bug_fix_001",
+  "created": true
+}
+```
+
+---
+
+### 4.2 `case_list`
+
+建议路径：
+
+- `GET /v1/case/list`
+
+作用：
+
+- 查询 case 列表
+- 给前端页面和端侧选择器使用
+
+最小返回字段：
 
 ```json
 [
   {
     "case_id": "bug_fix_001",
     "title": "商品列表与详情编辑工程缺陷修复",
-    "scenario": "Bug Fix"
+    "scenario": "bug_fix",
+    "bundle_version": "v1"
   }
 ]
 ```
 
 ---
 
-## 3.2 `POST /v1/valuationTasks`
+### 4.3 `case_detail`
 
-业务：
-- 前端创建一个评测任务
+建议路径：
 
-请求：
+- `GET /v1/case/detail?case_id=bug_fix_001`
+
+作用：
+
+- 查询单个 case 详情
+
+最小返回字段：
+
+```json
+{
+  "case_id": "bug_fix_001",
+  "title": "商品列表与详情编辑工程缺陷修复",
+  "scenario": "bug_fix",
+  "summary": "这是一个已有的 HarmonyOS ArkTS 工程修复 case。",
+  "bundle_version": "v1",
+  "bundle_checksum": "sha256:xxxx",
+  "case_spec": {
+    "project": {
+      "type": "HarmonyOS ArkTS"
+    },
+    "problem": {
+      "summary": "当前工程存在功能缺陷、错误用法以及可编译性问题。"
+    }
+  }
+}
+```
+
+---
+
+### 4.4 `case_bundle_get`
+
+建议路径：
+
+- `GET /v1/case/bundle/get?case_id=bug_fix_001`
+
+作用：
+
+- 获取 case 资源包
+- 端侧下载后解压执行
+
+bundle 最少包含：
+
+- `case.yaml`
+- `original_project/`
+- 相关附件
+- `bundle_version`
+
+最小返回字段：
+
+```json
+{
+  "case_id": "bug_fix_001",
+  "bundle_version": "v1",
+  "download_url": "https://example.com/cases/bug_fix_001/v1.zip",
+  "checksum": "sha256:xxxx"
+}
+```
+
+---
+
+### 4.5 `valuation_task_create`
+
+建议路径：
+
+- `POST /v1/valuationTask/create`
+
+作用：
+
+- 端侧创建一个评测任务
+- 云端返回 `task_id`
+- 创建成功后，端侧本地立即执行
+
+最小请求字段：
 
 ```json
 {
   "mode": "agent_compare",
   "run_target": "both",
   "case_ids": ["bug_fix_001"],
-  "agent_a": {
+  "case_bundle_versions": {
+    "bug_fix_001": "v1"
+  },
+  "agent_baseline": {
     "agent_id": "agent_default",
     "label": "基线Agent"
   },
-  "agent_b": {
+  "agent_candidate": {
     "agent_id": "codex_local",
     "label": "评测Agent"
+  },
+  "client_info": {
+    "client_id": "local-client-001",
+    "platform": "macOS"
   }
 }
 ```
 
-返回：
+最小返回字段：
 
 ```json
 {
   "task_id": "task_20260401_001",
-  "status": "queued"
+  "status": "created"
 }
 ```
 
 ---
 
-## 3.3 `GET /v1/valuationTasks/{task_id}`
+### 4.6 `valuation_task_detail`
 
-业务：
-- 前端查询任务摘要
-- 看任务当前是否排队、运行、完成
+建议路径：
 
-返回最小字段：
-- `task_id`
-- `status`
-- `total_cases`
-- `done_cases`
-- `comparison_labels`
+- `GET /v1/valuationTask/detail?task_id=task_20260401_001`
 
-示例：
+作用：
+
+- 页面查询任务详情
+- 第一版可同时返回：
+  - 任务摘要
+  - 进度摘要
+  - 报告摘要
+
+最小返回字段：
 
 ```json
 {
   "task_id": "task_20260401_001",
   "status": "running",
+  "mode": "agent_compare",
+  "run_target": "both",
+  "case_ids": ["bug_fix_001"],
+  "agent_baseline": {
+    "agent_id": "agent_default",
+    "label": "基线Agent"
+  },
+  "agent_candidate": {
+    "agent_id": "codex_local",
+    "label": "评测Agent"
+  },
   "total_cases": 1,
   "done_cases": 0,
-  "comparison_labels": {
-    "side_a": "基线Agent",
-    "side_b": "评测Agent"
-  }
+  "progress_summary": {
+    "current_case_id": "bug_fix_001"
+  },
+  "report_summary": null
 }
 ```
 
 ---
 
-## 3.4 `POST /v1/valuationTasks/{task_id}/progress`
+### 4.7 `valuation_task_progress_update`
 
-业务：
-- 本机执行器向云端推送进度
-- 云端不会自己产生进度，必须靠执行器上报
+建议路径：
 
-这是最关键的端 -> 云接口。
+- `POST /v1/valuationTask/progress/update`
 
-请求示例：
+作用：
+
+- 端侧持续上报进度和日志
+
+说明：
+
+- 云端不会自己生成进度
+- 进度完全依赖端侧上报
+
+最小请求字段：
 
 ```json
 {
+  "task_id": "task_20260401_001",
   "status": "running",
   "total_cases": 1,
   "done_cases": 0,
@@ -165,9 +299,9 @@
       "case_id": "bug_fix_001",
       "status": "running",
       "stages": [
-        { "name": "A侧运行", "status": "done" },
-        { "name": "A侧编译", "status": "done" },
-        { "name": "B侧运行", "status": "running" }
+        { "name": "基线Agent运行", "status": "done" },
+        { "name": "基线Agent编译", "status": "done" },
+        { "name": "评测Agent运行", "status": "running" }
       ]
     }
   ],
@@ -181,7 +315,7 @@
 }
 ```
 
-返回：
+最小返回字段：
 
 ```json
 {
@@ -189,45 +323,56 @@
 }
 ```
 
-说明：
-- 执行器可以每隔几秒推送一次
-- 也可以按事件推送
-- 云端负责覆盖或合并最新进度
-
 ---
 
-## 3.5 `POST /v1/valuationTasks/{task_id}/report`
+### 4.8 `valuation_task_metrics_upload`
 
-业务：
-- 本机执行器或评分Agent把最终结果推送到云端
-- 云端持久化最终报告
+建议路径：
 
-请求示例：
+- `POST /v1/valuationTask/metrics/upload`
+
+作用：
+
+- 端侧上传原始执行指标
+- 这些指标作为评分 agent 的输入
+
+说明：
+
+- 这里上传的是原始事实数据，不是最终评分结论
+- 后续评分规则变化时，可以基于这份数据重跑评分
+
+最小请求字段：
 
 ```json
 {
-  "summary": {
-    "total_cases": 1,
-    "side_a_avg": 100,
-    "side_b_avg": 80,
-    "gain": -20
-  },
+  "task_id": "task_20260401_001",
   "cases": [
     {
       "case_id": "bug_fix_001",
-      "side_a_total": 100,
-      "side_b_total": 80,
-      "gain": -20
+      "baseline": {
+        "duration_ms": 398055,
+        "compilable": true,
+        "compile_fix_count": 2,
+        "input_tokens": 12000,
+        "output_tokens": 3000,
+        "total_tokens": 15000,
+        "cost": 0.52
+      },
+      "candidate": {
+        "duration_ms": 512000,
+        "compilable": false,
+        "compile_fix_count": 4,
+        "input_tokens": 18000,
+        "output_tokens": 5000,
+        "total_tokens": 23000,
+        "cost": 0.88
+      }
     }
-  ],
-  "comparison_labels": {
-    "side_a": "基线Agent",
-    "side_b": "评测Agent"
-  }
+  ]
 }
 ```
 
-返回：
+最小返回字段：
 
 ```json
 {
@@ -237,127 +382,71 @@
 
 ---
 
-## 3.6 `GET /v1/valuationTasks/{task_id}/report`
+### 4.9 `valuation_task_report_upload`
 
-业务：
-- 前端读取最终汇总报告
-- 报告展示页使用
+建议路径：
 
-返回：
+- `POST /v1/valuationTask/report/upload`
+
+作用：
+
+- 端侧上传最终结果
+
+说明：
+
+- 这里上传的是最终结果，不是过程进度
+- 这里上传的是评分 agent 处理后的最终结果
+
+最小请求字段：
 
 ```json
 {
   "task_id": "task_20260401_001",
   "summary": {
     "total_cases": 1,
-    "side_a_avg": 100,
-    "side_b_avg": 80,
+    "baseline_avg": 100,
+    "candidate_avg": 80,
     "gain": -20
   },
   "cases": [
     {
       "case_id": "bug_fix_001",
-      "side_a_total": 100,
-      "side_b_total": 80,
-      "gain": -20
+      "baseline_total": 100,
+      "candidate_total": 80,
+      "gain": -20,
+      "score_reason": "基线Agent在可编译性和执行效率上优于评测Agent。"
     }
   ],
   "comparison_labels": {
-    "side_a": "基线Agent",
-    "side_b": "评测Agent"
+    "baseline": "基线Agent",
+    "candidate": "评测Agent"
   }
+}
+```
+
+最小返回字段：
+
+```json
+{
+  "accepted": true
 }
 ```
 
 ---
 
-## 4. 一条完整链路
+## 5. 第一版先不做的事情
 
-### 第一步：前端创建任务
+这版先明确不做：
 
-前端调用：
-- `POST /v1/valuationTasks`
+- 云端向端侧主动推任务
+- 长连接 / WebSocket
+- 执行器认领任务
+- 云端直接运行被测 agent
+- 云端直接分步调度 agent 内部流程
 
-云端返回：
-- `task_id`
+这版只做：
 
-### 第二步：执行器执行任务
-
-执行器拿到任务后开始运行本地 Agent。
-
-执行过程中，执行器不断调用：
-- `POST /v1/valuationTasks/{task_id}/progress`
-
-把：
-- 用例阶段状态
-- 日志
-- done_cases
-推到云端。
-
-### 第三步：前端查询进度
-
-前端轮询：
-- `GET /v1/valuationTasks/{task_id}`
-
-读取：
-- 任务状态
-- 已完成数量
-
-如果需要更细粒度日志，后续可以再加：
-- `GET /v1/valuationTasks/{task_id}/progress`
-
-但第一版可以先不加，避免接口过多。
-
-### 第四步：执行器或评分Agent推送最终结果
-
-任务完成后，执行器或评分Agent调用：
-- `POST /v1/valuationTasks/{task_id}/report`
-
-### 第五步：前端读取报告
-
-前端调用：
-- `GET /v1/valuationTasks/{task_id}/report`
-
-展示最终结果。
-
----
-
-## 5. 当前实现映射
-
-和你现在本机版的关系：
-
-- `GET /v1/cases`
-  - 对应当前本机 `cases.py`
-
-- `POST /v1/valuationTasks`
-  - 对应当前本机 `evaluation/start`
-
-- `POST /v1/valuationTasks/{task_id}/progress`
-  - 对应当前本机执行过程里的 `status + logs + case_progresses`
-  - 只是现在本机版是内存更新，云端版改成上报
-
-- `POST /v1/valuationTasks/{task_id}/report`
-  - 对应当前本机 `report.json`
-  - 云端版改成结果上报
-
-- `GET /v1/valuationTasks/{task_id}/report`
-  - 对应当前本机 `reports.py`
-
----
-
-## 6. 第一版建议
-
-第一版只实现这 6 个接口，不要继续扩：
-
-1. `GET /v1/cases`
-2. `POST /v1/valuationTasks`
-3. `GET /v1/valuationTasks/{task_id}`
-4. `POST /v1/valuationTasks/{task_id}/progress`
-5. `POST /v1/valuationTasks/{task_id}/report`
-6. `GET /v1/valuationTasks/{task_id}/report`
-
-这样最小闭环已经够了：
-- 前端能发任务
-- 执行器能推送进度
-- 云端能保存结果
-- 前端能看报告
+- 云端存储
+- 端侧执行
+- 端侧主动上报
+- 评分 agent 基于 metrics 打分
