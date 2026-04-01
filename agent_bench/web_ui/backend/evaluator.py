@@ -147,8 +147,8 @@ class EvaluatorManager:
 
     def _side_label(self, side: str) -> str:
         defaults = {
-            "side_a": "Agent A",
-            "side_b": "Agent B",
+            "side_a": "基线Agent",
+            "side_b": "评测Agent",
         }
         return self._comparison_labels.get(side, defaults.get(side, side))
 
@@ -165,8 +165,8 @@ class EvaluatorManager:
             self._run_id = data.get("run_id")
             raw_labels = data.get("comparison_labels", {}) or self._comparison_labels
             self._comparison_labels = {
-                "side_a": raw_labels.get("side_a") or raw_labels.get("baseline") or "Agent A",
-                "side_b": raw_labels.get("side_b") or raw_labels.get("enhanced") or "Agent B",
+                "side_a": raw_labels.get("side_a") or raw_labels.get("baseline") or "基线Agent",
+                "side_b": raw_labels.get("side_b") or raw_labels.get("enhanced") or "评测Agent",
             }
             raw_active_sides = data.get("active_sides", self._active_sides) or ["side_a", "side_b"]
             self._active_sides = ["side_a" if s in ("baseline", "side_a") else "side_b" for s in raw_active_sides]
@@ -297,12 +297,12 @@ class EvaluatorManager:
             if mode == "agent_compare":
                 if run_target == "both":
                     if not agent_a or not agent_b:
-                        raise ValueError("请选择 Agent A 和 Agent B")
+                        raise ValueError("请选择基线Agent和评测Agent")
                     baseline_agent_id = agent_a.get("agent_id")
                     enhanced_agent_id = agent_b.get("agent_id")
                     comparison_labels = {
-                        "side_a": agent_a.get("label") or agent_a.get("agent_id") or "Agent A",
-                        "side_b": agent_b.get("label") or agent_b.get("agent_id") or "Agent B",
+                        "side_a": agent_a.get("label") or agent_a.get("agent_id") or "基线Agent",
+                        "side_b": agent_b.get("label") or agent_b.get("agent_id") or "评测Agent",
                     }
                     active_sides = ["side_a", "side_b"]
                     effective_only_run_baseline = False
@@ -310,11 +310,11 @@ class EvaluatorManager:
                                      agent_b.get("adapter", "opencode") == "opencode")
                 elif run_target == "agent_a":
                     if not agent_a:
-                        raise ValueError("请选择 Agent A")
+                        raise ValueError("请选择基线Agent")
                     baseline_agent_id = agent_a.get("agent_id")
                     enhanced_agent_id = None
                     comparison_labels = {
-                        "side_a": agent_a.get("label") or agent_a.get("agent_id") or "Agent A",
+                        "side_a": agent_a.get("label") or agent_a.get("agent_id") or "基线Agent",
                         "side_b": "",
                     }
                     active_sides = ["side_a"]
@@ -322,11 +322,11 @@ class EvaluatorManager:
                     need_opencode = agent_a.get("adapter", "opencode") == "opencode"
                 elif run_target == "agent_b":
                     if not agent_b:
-                        raise ValueError("请选择 Agent B")
+                        raise ValueError("请选择评测Agent")
                     baseline_agent_id = agent_b.get("agent_id")
                     enhanced_agent_id = None
                     comparison_labels = {
-                        "side_a": agent_b.get("label") or agent_b.get("agent_id") or "Agent B",
+                        "side_a": agent_b.get("label") or agent_b.get("agent_id") or "评测Agent",
                         "side_b": "",
                     }
                     active_sides = ["side_a"]
@@ -593,11 +593,11 @@ class EvaluatorManager:
             return False, "请选择用例"
         if mode == "agent_compare":
             if run_target == "both" and (not agent_a or not agent_b):
-                return False, "请选择 Agent A 和 Agent B"
+                return False, "请选择基线Agent和评测Agent"
             if run_target == "agent_a" and not agent_a:
-                return False, "请选择 Agent A"
+                return False, "请选择基线Agent"
             if run_target == "agent_b" and not agent_b:
-                return False, "请选择 Agent B"
+                return False, "请选择评测Agent"
         elif not profiles:
             return False, "请选择 Profile"
 

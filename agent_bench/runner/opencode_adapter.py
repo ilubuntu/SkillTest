@@ -276,8 +276,9 @@ class OpenCodeAdapter(AgentAdapter):
         if body:
             try:
                 data = json.loads(body)
-                if isinstance(data, dict) and self._looks_like_assistant_message(data, prompt_text):
-                    return data
+                candidate = self._coerce_message_payload(data, prompt_text)
+                if candidate:
+                    return candidate
                 self._log("WARN", f"消息响应不是可信 assistant 结果，类型={type(data).__name__}，尝试回查 session 最新消息", tag=tag)
             except json.JSONDecodeError as e:
                 preview = body[:200].replace("\n", "\\n")
@@ -298,7 +299,8 @@ class OpenCodeAdapter(AgentAdapter):
                 method="GET"
             )
             with urllib.request.urlopen(req, timeout=10) as response:
-                return json.loads(response.read().decode("utf-8"))
+                data = json.loads(response.read().decode("utf-8"))
+                return self._coerce_message_payload(data, "") or data
         except Exception as e:
             self._log("DEBUG", f"读取消息详情失败: {e}")
             return None
@@ -311,6 +313,9 @@ class OpenCodeAdapter(AgentAdapter):
             )
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode("utf-8"))
+            direct = self._coerce_message_payload(data, prompt_text)
+            if direct:
+                return direct
             messages = []
             if isinstance(data, list):
                 messages = data
@@ -319,16 +324,34 @@ class OpenCodeAdapter(AgentAdapter):
                     messages = data["messages"]
                 elif isinstance(data.get("items"), list):
                     messages = data["items"]
+                elif isinstance(data.get("data"), list):
+                    messages = data["data"]
+                elif isinstance(data.get("results"), list):
+                    messages = data["results"]
                 else:
-                    return data
+                    return None
 
             for message in reversed(messages):
-                if self._looks_like_assistant_message(message, prompt_text):
-                    return message
+                candidate = self._coerce_message_payload(message, prompt_text)
+                if candidate:
+                    return candidate
             return None
         except Exception as e:
             self._log("DEBUG", f"回查 session 最新消息失败: {e}")
             return None
+
+    def _coerce_message_payload(self, data, prompt_text: str) -> Optional[dict]:
+        candidates = []
+        if isinstance(data, dict):
+            candidates.append(data)
+            for key in ("message", "item", "result", "data"):
+                nested = data.get(key)
+                if isinstance(nested, dict):
+                    candidates.append(nested)
+        for candidate in candidates:
+            if self._looks_like_assistant_message(candidate, prompt_text):
+                return candidate
+        return None
 
     def _looks_like_assistant_message(self, payload: dict, prompt_text: str) -> bool:
         if not isinstance(payload, dict):

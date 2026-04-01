@@ -223,18 +223,25 @@ def load_agents_registry() -> dict:
     registry = _registry_cache["agents"] or {}
     agents = registry.get("agents")
     if isinstance(agents, list):
+        registry.setdefault("defaults", {})
         return registry
 
-    config = load_config()
     fallback_agent = {
-        "id": "opencode_default",
+        "id": "agent_default",
         "name": "OpenCode Default",
         "adapter": "opencode",
         "api_base": "http://localhost:4096",
-        "model": config.get("agent", {}).get("model"),
+        "model": None,
         "enabled": True,
     }
-    return {"agents": [fallback_agent]}
+    return {"defaults": {}, "agents": [fallback_agent]}
+
+
+def load_agent_defaults() -> dict:
+    """返回 Agent 默认配置。"""
+    registry = load_agents_registry()
+    defaults = registry.get("defaults")
+    return defaults if isinstance(defaults, dict) else {}
 
 
 def load_agents() -> List[dict]:
@@ -248,9 +255,12 @@ def load_agent(agent_id: str) -> Optional[dict]:
     """根据 agent_id 获取 Agent 定义。"""
     if not agent_id:
         return None
+    defaults = load_agent_defaults()
     for agent in load_agents():
         if agent.get("id") == agent_id:
-            return agent
+            merged = dict(defaults)
+            merged.update(agent)
+            return merged
     return None
 
 
@@ -657,4 +667,3 @@ def _resolve_enhancement_ids(enhancement_ids: List[str]) -> dict:
         result.pop("tools", None)
 
     return result if result else {}
-

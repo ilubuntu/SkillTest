@@ -21,8 +21,8 @@ from agent_bench.evaluator.llm_judge import LLMJudge
 from agent_bench.evaluator import internal_scorer, aggregator
 
 from agent_bench.pipeline.loader import (
-    load_test_cases, load_enhancements, load_config,
-    load_internal_rules, load_rubric, resolve_case_original_project,
+    load_test_cases, load_enhancements,
+    load_internal_rules, load_rubric, resolve_case_original_project, load_agent_defaults,
 )
 from agent_bench.pipeline.artifacts import (
     save_runner_artifacts, load_runner_artifacts,
@@ -840,9 +840,9 @@ def run_scenario(scenario: str,
         else:
             _notify(on_progress, "log", {"level": "INFO", "message": f"场景 [{scenario}] 无增强配置"})
 
-    config = load_config()
-    agent_timeout = config.get("agent", {}).get("timeout", 180)
-    agent_temperature = config.get("agent", {}).get("temperature")
+    agent_defaults = load_agent_defaults()
+    agent_timeout = agent_defaults.get("timeout", 180)
+    agent_temperature = agent_defaults.get("temperature")
 
     cases = load_test_cases(scenario)
     _notify(on_progress, "log", {"level": "INFO",

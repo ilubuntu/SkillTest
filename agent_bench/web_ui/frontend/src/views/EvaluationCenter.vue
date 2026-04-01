@@ -47,7 +47,7 @@
               :disabled="isRunning"
               @click="runTarget = 'agent_a'"
             >
-              仅 Agent A
+              仅基线Agent
             </button>
             <button
               type="button"
@@ -56,7 +56,7 @@
               :disabled="isRunning"
               @click="runTarget = 'agent_b'"
             >
-              仅 Agent B
+              仅评测Agent
             </button>
           </div>
         </div>
@@ -82,14 +82,14 @@
 
         <div class="agent-panel agent-panel-a" :class="{ muted: runTarget === 'agent_b' }">
           <div class="panel-heading">
-            <span class="panel-kicker">Agent A</span>
+            <span class="panel-kicker">基线Agent</span>
             <span class="panel-note">
-              {{ runTarget === 'agent_b' ? '当前模式下不执行' : (selectedAgentALabel || '左侧执行体') }}
+              {{ runTarget === 'agent_b' ? '当前模式下不执行' : (selectedAgentALabel || '基线执行体') }}
             </span>
           </div>
           <el-select
             v-model="selectedAgentA"
-            placeholder="选择 Agent A"
+            placeholder="选择基线Agent"
             class="control-select"
             :disabled="isRunning || runTarget === 'agent_b'"
             filterable
@@ -105,14 +105,14 @@
 
         <div class="agent-panel agent-panel-b" :class="{ muted: runTarget === 'agent_a' }">
           <div class="panel-heading">
-            <span class="panel-kicker">Agent B</span>
+            <span class="panel-kicker">评测Agent</span>
             <span class="panel-note">
-              {{ runTarget === 'agent_a' ? '当前模式下不执行' : (selectedAgentBLabel || '右侧执行体') }}
+              {{ runTarget === 'agent_a' ? '当前模式下不执行' : (selectedAgentBLabel || '评测执行体') }}
             </span>
           </div>
           <el-select
             v-model="selectedAgentB"
-            placeholder="选择 Agent B"
+            placeholder="选择评测Agent"
             class="control-select"
             :disabled="isRunning || runTarget === 'agent_a'"
             filterable
@@ -184,7 +184,7 @@
         </div>
         <div class="stat-info">
           <div class="stat-value profile-name">{{ selectedAgentALabel }}</div>
-          <div class="stat-label">Agent A</div>
+          <div class="stat-label">基线Agent</div>
         </div>
       </div>
 
@@ -194,7 +194,7 @@
         </div>
         <div class="stat-info">
           <div class="stat-value profile-name">{{ selectedAgentBLabel }}</div>
-          <div class="stat-label">Agent B</div>
+          <div class="stat-label">评测Agent</div>
         </div>
       </div>
     </div>
@@ -280,35 +280,11 @@
         <div class="compile-summary-grid">
           <div class="compile-item">
             <div class="compile-label">{{ generalComparisonLabels.side_a }}</div>
-            <el-tooltip
-              :disabled="!generalSideACompileError"
-              placement="top-start"
-              :show-after="150"
-              :max-width="960"
-            >
-              <template #content>
-                <pre class="compile-tooltip-pre">{{ generalSideACompileError }}</pre>
-              </template>
-              <div class="compile-value" :class="generalSideACompileError ? 'compile-failed' : 'compile-pass'">
-                {{ generalResult.general.side_a_compile_pass_rate }}
-              </div>
-            </el-tooltip>
+            <div class="compile-value">{{ generalResult.general.side_a_compile_pass_rate }}</div>
           </div>
           <div class="compile-item" v-if="showEnhancedSide">
             <div class="compile-label">{{ generalComparisonLabels.side_b }}</div>
-            <el-tooltip
-              :disabled="!generalSideBCompileError"
-              placement="top-start"
-              :show-after="150"
-              :max-width="960"
-            >
-              <template #content>
-                <pre class="compile-tooltip-pre">{{ generalSideBCompileError }}</pre>
-              </template>
-              <div class="compile-value" :class="generalSideBCompileError ? 'compile-failed' : 'compile-pass'">
-                {{ generalResult.general.side_b_compile_pass_rate }}
-              </div>
-            </el-tooltip>
+            <div class="compile-value">{{ generalResult.general.side_b_compile_pass_rate }}</div>
           </div>
         </div>
         <div class="compile-note" v-if="generalResult.general.note">
@@ -325,22 +301,12 @@
             <div class="case-title">{{ c.title }}</div>
           </div>
           <div class="case-result">
-            <el-tooltip :disabled="!c.compile_results?.side_a_error" placement="top-start" :show-after="150" :max-width="720">
-              <template #content>
-                <pre class="compile-tooltip-pre">{{ c.compile_results?.side_a_error }}</pre>
-              </template>
             <div class="compile-status" :class="c.compile_results?.side_a_compilable ? 'pass' : 'fail'">
               {{ generalComparisonLabels.side_a }}: {{ c.compile_results?.side_a_compilable ? '可编译' : '不可编译' }}
             </div>
-            </el-tooltip>
-            <el-tooltip v-if="showEnhancedSide" :disabled="!c.compile_results?.side_b_error" placement="top-start" :show-after="150" :max-width="720">
-              <template #content>
-                <pre class="compile-tooltip-pre">{{ c.compile_results?.side_b_error }}</pre>
-              </template>
-            <div class="compile-status" :class="c.compile_results?.side_b_compilable ? 'pass' : 'fail'">
+            <div v-if="showEnhancedSide" class="compile-status" :class="c.compile_results?.side_b_compilable ? 'pass' : 'fail'">
               {{ generalComparisonLabels.side_b }}: {{ c.compile_results?.side_b_compilable ? '可编译' : '不可编译' }}
             </div>
-            </el-tooltip>
           </div>
         </div>
       </div>
@@ -623,8 +589,8 @@ const canStart = computed(() =>
 )
 const runTargetSummary = computed(() => ({
   both: '双侧并行对照',
-  agent_a: '仅验证 Agent A',
-  agent_b: '仅验证 Agent B',
+  agent_a: '仅验证基线Agent',
+  agent_b: '仅验证评测Agent',
 }[runTarget.value] || '待选择'))
 const selectionSummary = computed(() => {
   if (!selectedCaseIds.value.length) return '尚未选择用例'
@@ -674,18 +640,18 @@ const getAgentNameById = (id) => agentsData.value.find(agent => agent.id === id)
 const previewComparisonLabels = computed(() => {
   if (runTarget.value === 'agent_b') {
     return {
-      side_a: getAgentNameById(selectedAgentB.value) || 'Agent B',
+      side_a: getAgentNameById(selectedAgentB.value) || '评测Agent',
       side_b: '',
     }
   }
   return {
-    side_a: getAgentNameById(selectedAgentA.value) || 'Agent A',
-    side_b: runTarget.value === 'both' ? (getAgentNameById(selectedAgentB.value) || 'Agent B') : '',
+    side_a: getAgentNameById(selectedAgentA.value) || '基线Agent',
+    side_b: runTarget.value === 'both' ? (getAgentNameById(selectedAgentB.value) || '评测Agent') : '',
   }
 })
 
 const effectiveComparisonLabels = computed(() => ({
-  side_a: comparisonLabels.value.side_a || previewComparisonLabels.value.side_a || 'Agent A',
+  side_a: comparisonLabels.value.side_a || previewComparisonLabels.value.side_a || '基线Agent',
   side_b: comparisonLabels.value.side_b || previewComparisonLabels.value.side_b || '',
 }))
 
@@ -704,18 +670,6 @@ const effectiveActiveSides = computed(() => (
     : activeSides.value
 ))
 const showEnhancedSide = computed(() => effectiveActiveSides.value.includes('side_b'))
-
-const collectCompileErrors = (cases = [], sideKey) => {
-  const errorKey = `${sideKey}_error`
-  const compilableKey = `${sideKey}_compilable`
-  return (cases || [])
-    .filter(c => c.compile_results?.[compilableKey] === false && c.compile_results?.[errorKey])
-    .map(c => `[${c.case_id}] ${c.title}\n${c.compile_results[errorKey]}`)
-    .join('\n\n')
-}
-
-const generalSideACompileError = computed(() => collectCompileErrors(generalResult.value?.cases, 'side_a'))
-const generalSideBCompileError = computed(() => collectCompileErrors(generalResult.value?.cases, 'side_b'))
 
 const fmtScore = (v) => v != null ? v.toFixed(1) : '-'
 const fmtMs = (v) => v != null ? `${v} ms` : '-'
@@ -1382,15 +1336,7 @@ onUnmounted(() => {
 .compile-value {
   font-size: 20px;
   font-weight: 700;
-}
-
-.compile-pass {
   color: #34a853;
-}
-
-.compile-failed {
-  color: #ea4335;
-  cursor: help;
 }
 
 .compile-note {
@@ -1416,17 +1362,6 @@ onUnmounted(() => {
 .compile-status.fail {
   background: #ea433522;
   color: #ea4335;
-}
-.compile-tooltip-pre {
-  margin: 0;
-  max-width: min(80vw, 960px);
-  max-height: min(60vh, 520px);
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 /* ── 可点击阶段 ── */

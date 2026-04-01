@@ -1,15 +1,21 @@
+defaults:
+  adapter: opencode
+  api_base: "http://127.0.0.1:4096"
+  timeout: 480
+  temperature: null
+  model: "minimax-cn-coding-plan/MiniMax-M2.7"
+
 agents:
-  - id: opencode_default
-    name: "OpenCode Default"
+  - id: agent_default
+    name: "Default"
     adapter: opencode
     api_base: "http://127.0.0.1:4096"
-    model: null
+    model: "minimax-cn-coding-plan/MiniMax-M2.7"
     enabled: true
-
-  # 需要对比第二个 Agent 时，按同样结构继续添加。
-  # - id: another_agent
-  #   name: "Another Agent"
-  #   adapter: opencode
-  #   api_base: "http://127.0.0.1:4100"
-  #   model: null
-  #   enabled: true
+    
+  - id: "agent_agc"
+    name: "AGC"
+    adapter: opencode
+    api_base: "http://127.0.0.1:4096"
+    model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    enabled: true

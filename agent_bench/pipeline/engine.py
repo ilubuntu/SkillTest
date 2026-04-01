@@ -20,7 +20,7 @@ from agent_bench.evaluator.llm_judge import LLMJudge
 from agent_bench.report.reporter import generate as generate_report
 
 from agent_bench.pipeline.loader import (
-    load_config, load_test_cases, resolve_scenarios, load_agent,
+    load_config, load_test_cases, resolve_scenarios, load_agent, load_agent_defaults,
 )
 from agent_bench.pipeline.artifacts import load_evaluator_result
 from agent_bench.pipeline.case_runner import run_scenario
@@ -39,8 +39,8 @@ def _notify(on_progress, event: str, data: dict):
 def _normalize_side_labels(labels: dict = None) -> dict:
     labels = labels or {}
     return {
-        "side_a": labels.get("side_a") or labels.get("baseline") or "Agent A",
-        "side_b": labels.get("side_b") or labels.get("enhanced") or "Agent B",
+        "side_a": labels.get("side_a") or labels.get("baseline") or "基线Agent",
+        "side_b": labels.get("side_b") or labels.get("enhanced") or "评测Agent",
     }
 
 
@@ -109,15 +109,16 @@ def run_pipeline(profile: str,
     # ── 加载配置 ──
     _notify(on_progress, "log", {"level": "DEBUG", "message": "加载全局配置..."})
     config = load_config()
+    agent_defaults = load_agent_defaults()
     concurrency_conf = config.get("concurrency", {})
     if max_workers is None:
         max_workers = concurrency_conf.get("agent_runs", 3)
     if agent_model is None:
-        agent_model = config.get("agent", {}).get("model")
+        agent_model = agent_defaults.get("model")
     if judge_model is None:
         judge_model = config.get("judge", {}).get("model")
 
-    agent_timeout = config.get("agent", {}).get("timeout", 180)
+    agent_timeout = agent_defaults.get("timeout", 180)
 
     # 评分阶段权重（从 config.yaml scoring.phase 读取）
     scoring_conf = config.get("scoring", {})
@@ -163,22 +164,22 @@ def run_pipeline(profile: str,
         baseline_agent = {
             "id": "default_baseline",
             "name": "Baseline",
-            "adapter": "opencode",
-            "api_base": api_base,
+            "adapter": agent_defaults.get("adapter", "opencode"),
+            "api_base": agent_defaults.get("api_base", api_base),
             "model": agent_model,
         }
     if not enhanced_agent:
         enhanced_agent = {
             "id": "default_enhanced",
             "name": "Enhanced",
-            "adapter": "opencode",
-            "api_base": api_base,
+            "adapter": agent_defaults.get("adapter", "opencode"),
+            "api_base": agent_defaults.get("api_base", api_base),
             "model": agent_model,
         }
 
     comparison_labels = _normalize_side_labels(comparison_labels or {
-        "side_a": baseline_agent.get("name", "Agent A"),
-        "side_b": enhanced_agent.get("name", "Agent B"),
+        "side_a": baseline_agent.get("name", "基线Agent"),
+        "side_b": enhanced_agent.get("name", "评测Agent"),
     })
     active_sides = _normalize_active_sides(active_sides)
     agent_compare_mode = bool(baseline_agent_id or enhanced_agent_id)
@@ -192,7 +193,7 @@ def run_pipeline(profile: str,
         _notify(on_progress, "log", {"level": "INFO", "message": "初始化 LLMJudge..."})
         judge_temperature = config.get("judge", {}).get("temperature", 0)
         judge_adapter = OpenCodeAdapter(
-            api_base=api_base,
+            api_base=agent_defaults.get("api_base", api_base),
             model=judge_model,
             timeout=config.get("judge", {}).get("timeout", 60),
             temperature=judge_temperature,
