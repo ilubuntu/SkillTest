@@ -254,6 +254,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
         result = _run_evaluator_stage(
             case_id, title, scenario, case,
             prompt,
+            rubric,
             side_a_output, side_b_output,
             llm_judge, case_dir,
             dry_run=dry_run, on_progress=on_progress,
