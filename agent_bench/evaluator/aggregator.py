@@ -85,3 +85,56 @@ def compute(
 
     final = rubric_w * llm_avg + internal_w * internal_pct
     return round(min(max(final, 0.0), 100.0), 2)
+
+
+def compute(
+    internal: InternalScoringResult,
+    llm: LLMScoringResult,
+    rubric_dimensions,
+    weights: Dict[str, float] = None,
+) -> float:
+    """璁＄畻鍗曚唤浠ｇ爜鐨勬渶缁堣瘎鍒嗭紝鍏煎 rubric 缁村害 dict 鎴栨棫鐗?name 鍒楄〃"""
+    weights = weights or DEFAULT_WEIGHTS
+
+    if rubric_dimensions and isinstance(rubric_dimensions[0], dict):
+        normalized_dimensions = rubric_dimensions
+    else:
+        normalized_dimensions = [
+            {"dimension_id": dim_name, "name": dim_name}
+            for dim_name in (rubric_dimensions or [])
+        ]
+
+    n_dims = len(normalized_dimensions) or 5
+    base = 30.0 / n_dims
+
+    adjusted_total = 0.0
+    for dim in normalized_dimensions:
+        internal_key = dim.get("dimension_id") or dim.get("name")
+        fallback_key = dim.get("name") or internal_key
+        if internal_key in internal.dimensions:
+            adjusted_total += internal.dimensions[internal_key].raw_score
+        elif fallback_key in internal.dimensions:
+            adjusted_total += internal.dimensions[fallback_key].raw_score
+        else:
+            adjusted_total += base
+
+    internal_pct = min(adjusted_total / 30.0, 1.0) * 100.0
+
+    llm_by_name = {d.name: d.score for d in llm.dimensions}
+    rubric_weights = {d.name: d.weight for d in llm.dimensions}
+    total_weight = 0.0
+    weighted_sum = 0.0
+
+    for dim in normalized_dimensions:
+        llm_key = dim.get("name") or dim.get("dimension_id")
+        w = rubric_weights.get(llm_key, 100.0 / n_dims)
+        s = llm_by_name.get(llm_key, 100.0)
+        weighted_sum += s * w
+        total_weight += w
+
+    llm_avg = (weighted_sum / total_weight) if total_weight > 0 else 100.0
+
+    rubric_w = weights.get("rubric", 0.7)
+    internal_w = weights.get("internal", 0.3)
+    final = rubric_w * llm_avg + internal_w * internal_pct
+    return round(min(max(final, 0.0), 100.0), 2)

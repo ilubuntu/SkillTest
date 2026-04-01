@@ -1,50 +1,49 @@
-# ArkTS 内部评分体系
-# 规则级别: HIGH(高权重)、MEDIUM(中权重)、LOW(低权重)
-# pass_on_match: true(匹配到则通过) / false(匹配到则不通过)
-# 未匹配到任何内容 → 默认通过（不扣分）
+# Internal deterministic scoring rules
+# Single source of truth: agent_bench/config/internal_rules.yaml
+# Dimension ids must stay aligned with evaluator/standard.yaml.
+#
+# level weights inside a dimension:
+# HIGH = 50%, MEDIUM = 30%, LOW = 20%
+#
+# pass_on_match:
+# true  -> rule passes when the pattern is found
+# false -> rule fails when the pattern is found
+# no match defaults to pass
 
-# ==================== 兼容性 ====================
-compatibility:
+# ==================== basic_quality ====================
+basic_quality:
   - name: 禁用var声明
     level: HIGH
-    description: 应使用let/const替代var，ArkTS不推荐var
+    description: 应使用 let/const 代替 var，避免旧式声明方式
     pattern: "\\bvar\\s+"
     pass_on_match: false
 
-  - name: 类型注解
-    level: MEDIUM
-    description: 避免使用any类型，应使用明确的类型注解
+  - name: 类型定义规范
+    level: HIGH
+    description: 避免使用 any，应该使用明确类型注解
     pattern: ":\\s*any\\b"
     pass_on_match: false
 
   - name: 装饰器V2规范
     level: HIGH
-    description: 检测V1装饰器，应迁移到V2版本
+    description: 检测 V1 装饰器，应该迁移到 V2 版本
     pattern: "@Observed\\b(?!V2)|@ObjectLink|@Prop\\b|@Link\\b|@Provide\\b(?!r)|@Consume\\b(?!r)|@Watch\\b|@StorageLink|@StorageProp|@LocalStorageLink|@LocalStorageProp"
     pass_on_match: false
 
-# ==================== 生态规则符合度 ====================
-ecosystem:
-  - name: 日志规范
+# ==================== engineering_trust ====================
+engineering_trust:
+  - name: 异常处理
     level: HIGH
-    description: 应使用hilog替代console.log
-    pattern: "console\\.(log|warn|error|info)\\("
-    pass_on_match: false
-
-  - name: 定时器清理
-    level: HIGH
-    description: 使用setInterval/setTimeout时应在组件销毁时清理
-    pattern: "aboutToDisappear|clearInterval|clearTimeout"
+    description: 异步操作应有 .catch() 或 try/catch 进行异常处理
+    pattern: "\\.catch\\s*\\(|try\\s*\\{"
     pass_on_match: true
 
-  - name: 废弃路由API
+  - name: 代码复用度
     level: MEDIUM
-    description: 应使用NavPathStack替代已废弃的router API
-    pattern: "router\\.push|router\\.replace|router\\.back"
-    pass_on_match: false
+    description: 重复代码应提取为公共函数
+    pattern: "function\\s+\\w+\\s*\\("
+    pass_on_match: true
 
-# ==================== 代码质量 ====================
-code_quality:
   - name: 空值安全
     level: HIGH
     description: 应使用可选链(?.)和空值合并运算符(??)
@@ -53,13 +52,33 @@ code_quality:
 
   - name: 注释规范
     level: MEDIUM
-    description: 公共API应添加JSDoc注释
+    description: 公共 API 应补充 JSDoc 注释
     pattern: "\\/\\*\\*"
     pass_on_match: true
 
   - name: 行宽限制
     level: LOW
-    description: 单行代码不超过120个字符（仅适用于.ets文件）
+    description: 单行代码不应超过 120 个字符
     pattern: "^.{121,}$"
     pass_on_match: false
     file_types: [".ets"]
+
+# ==================== ecosystem_innovation ====================
+ecosystem_innovation:
+  - name: 日志规范
+    level: HIGH
+    description: 应使用 hilog 替代 console.log、console.warn、console.error、console.info
+    pattern: "console\\.(log|warn|error|info)\\("
+    pass_on_match: false
+
+  - name: 定时器清理
+    level: HIGH
+    description: 使用 setInterval 或 setTimeout 时，应在组件销毁时清理
+    pattern: "aboutToDisappear|clearInterval|clearTimeout"
+    pass_on_match: true
+
+  - name: 路由规范
+    level: MEDIUM
+    description: 应使用 NavPathStack 替代已废弃的 router API
+    pattern: "router\\.push|router\\.replace|router\\.back"
+    pass_on_match: false

@@ -101,9 +101,10 @@ class EvaluatorManager:
     # ── 日志 ──────────────────────────────────────────────────
 
     def _add_log(self, level: str, message: str, detail: Optional[str] = None):
+        normalized_level = "WARN" if level == "WARNING" else level
         entry = LogEntry(
             timestamp=datetime.now().strftime("%H:%M:%S"),
-            level=level,
+            level=normalized_level,
             message=message,
             detail=detail,
         )
@@ -229,9 +230,10 @@ class EvaluatorManager:
         elif event == "log":
             level = data.get("level", "INFO")
             message = data.get("message", "")
+            detail = data.get("detail")
             # 从日志中推断 case 进度（当 log 包含 [case_id] 开始xxx 时）
             self._infer_case_stage_from_log(message)
-            self._add_log(level, message)
+            self._add_log(level, message, detail=detail)
 
         elif event == "error":
             case_id = data.get("case_id", "")
