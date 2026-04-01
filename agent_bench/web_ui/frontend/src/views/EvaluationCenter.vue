@@ -690,18 +690,22 @@ let currentStageCtx = { caseId: '', stage: '' }
 const STAGE_NAME_MAP = {
   'A侧运行': 'side_a',
   'B侧运行': 'side_b',
+  'A侧编译': 'side_a_compile',
+  'B侧编译': 'side_b_compile',
   '规则检查': 'rule_check',
   'LLM评分': 'llm_judge',
 }
 
 const displayStageLabel = (stageName) => {
-  if (stageName === 'A侧运行') return `${effectiveComparisonLabels.value.side_a}运行`
-  if (stageName === 'B侧运行') return `${effectiveComparisonLabels.value.side_b}运行`
+  if (stageName === 'A侧运行') return `${effectiveComparisonLabels.value.side_a} · A侧运行`
+  if (stageName === 'B侧运行') return `${effectiveComparisonLabels.value.side_b} · B侧运行`
+  if (stageName === 'A侧编译') return `${effectiveComparisonLabels.value.side_a} · A侧编译`
+  if (stageName === 'B侧编译') return `${effectiveComparisonLabels.value.side_b} · B侧编译`
   return stageName
 }
 
 const visibleStages = (stages = []) => (
-  showEnhancedSide.value ? stages : stages.filter(stage => stage.name !== 'B侧运行')
+  showEnhancedSide.value ? stages : stages.filter(stage => !['B侧运行', 'B侧编译'].includes(stage.name))
 )
 
 const openStageFiles = async (caseId, stageName) => {
@@ -1201,15 +1205,15 @@ onUnmounted(() => {
 
 /* ── 阶段流水线（横排） ── */
 .stage-pipeline {
-  display: flex; align-items: center; gap: 0;
+  display: flex; align-items: center; gap: 6px;
   flex-shrink: 0;
 }
 .stage-item {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  min-width: 52px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-width: 84px;
 }
 .stage-dot {
-  width: 22px; height: 22px; border-radius: 50%;
+  width: 24px; height: 24px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   border: 2px solid #ddd; background: #fff; color: #ccc;
 }
@@ -1219,14 +1223,14 @@ onUnmounted(() => {
 .stage-dot.error   { border-color: #ea4335; background: #ea4335; color: #fff; }
 .stage-number { font-size: 10px; font-weight: 600; }
 
-.stage-label { font-size: 10px; color: #bbb; white-space: nowrap; }
+.stage-label { font-size: 10px; color: #bbb; white-space: nowrap; line-height: 1.35; }
 .stage-item.done .stage-label    { color: #34a853; }
 .stage-item.running .stage-label { color: #4285f4; font-weight: 600; }
 
 .stage-time { font-size: 10px; color: #ccc; }
 
 .stage-connector {
-  flex: 0 0 12px; height: 2px; background: #e8e8e8; margin-bottom: 14px;
+  flex: 0 0 22px; height: 2px; background: #e8e8e8; margin-bottom: 18px;
 }
 .stage-connector.done { background: #34a853; }
 

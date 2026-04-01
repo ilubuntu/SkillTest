@@ -8,17 +8,18 @@
 设计原则：
 - 通过 llm_fn: Callable[[str, str], str] 注入 LLM 调用能力
 - 不依赖任何具体 Agent 实现（OpenCode / Cursor 等）
-- parse 失败时 fallback = DEFAULT_SCORE，不抛异常
+- LLM 调用失败、超时、解析失败均直接抛错，由流水线标记阶段失败
 """
 
 import json
 import os
 import re
+import ast
 from typing import Callable, Dict, List, Optional
 
-from .models import LLMDimensionScore, LLMScoringResult
+import yaml
 
-DEFAULT_SCORE = 50
+from .models import LLMDimensionScore, LLMScoringResult
 
 JUDGE_PROMPT = """你是一个严格的代码评审专家，请对以下ArkTS代码按评分维度打分。
 
@@ -98,11 +99,8 @@ class LLMJudge:
             {"baseline": LLMScoringResult, "enhanced": LLMScoringResult}
         """
         tag = f"[{case_id}]" if case_id else ""
-        fallback = self._make_fallback(rubric, "Agent无输出", score=0)
-
         if not baseline_code.strip() and not enhanced_code.strip():
-            self._log("WARN", f"{tag} 基线和增强输出均为空，跳过 LLM 评分")
-            return {"baseline": fallback, "enhanced": fallback}
+            raise ValueError(f"{tag} 基线和增强输出均为空，无法执行 LLM 评分")
 
         rubric_text = "\n".join(
             f"- {r['name']}（权重{r['weight']}%）：{r['criteria']}"
@@ -128,12 +126,12 @@ class LLMJudge:
         try:
             raw = self.llm_fn(prompt, f"{tag}[评分] ")
             self._save_metrics(case_dir)
+            self._save_raw_output(case_dir, raw)
             if not raw:
                 self._log("ERROR", f"{tag}[评分] LLM 返回空结果")
-                fb = self._make_fallback(rubric, "LLM返回为空")
-                return {"baseline": fb, "enhanced": fb}
+                raise RuntimeError(f"{tag}[评分] LLM 返回空结果")
 
-            raw_scores = _parse_scores(raw, rubric, self.on_progress, tag)
+            raw_scores = _parse_scores(raw, self.on_progress, tag)
             result = {
                 side: _build_result(raw_scores[side], rubric)
                 for side in ("baseline", "enhanced")
@@ -148,8 +146,7 @@ class LLMJudge:
 
         except Exception as e:
             self._log("ERROR", f"{tag}[评分] LLM 评分异常: {e}")
-            fb = self._make_fallback(rubric, "评分失败")
-            return {"baseline": fb, "enhanced": fb}
+            raise
 
     def judge_baseline(self,
                        task_context: str,
@@ -159,11 +156,8 @@ class LLMJudge:
                        case_dir: str = None) -> LLMScoringResult:
         """仅对 baseline 进行评分"""
         tag = f"[{case_id}]" if case_id else ""
-        fallback = self._make_fallback(rubric, "Agent无输出", score=0)
-
         if not baseline_code.strip():
-            self._log("WARN", f"{tag} 基线输出为空，跳过 LLM 评分")
-            return fallback
+            raise ValueError(f"{tag} 基线输出为空，无法执行 LLM 评分")
 
         rubric_text = "\n".join(
             f"- {r['name']}（权重{r['weight']}%）：{r['criteria']}"
@@ -188,11 +182,12 @@ class LLMJudge:
         try:
             raw = self.llm_fn(prompt, f"{tag}[评分] ")
             self._save_metrics(case_dir)
+            self._save_raw_output(case_dir, raw)
             if not raw:
                 self._log("ERROR", f"{tag}[评分] LLM 返回空结果")
-                return self._make_fallback(rubric, "LLM返回为空")
+                raise RuntimeError(f"{tag}[评分] LLM 返回空结果")
 
-            raw_scores = _parse_baseline_scores(raw, rubric, self.on_progress, tag)
+            raw_scores = _parse_baseline_scores(raw, self.on_progress, tag)
             result = _build_result(raw_scores["baseline"], rubric)
 
             for d in result.dimensions:
@@ -203,18 +198,7 @@ class LLMJudge:
 
         except Exception as e:
             self._log("ERROR", f"{tag}[评分] LLM 评分异常: {e}")
-            return self._make_fallback(rubric, "评分失败")
-
-    def _make_fallback(self, rubric: List[Dict],
-                       reason: str, score: int = DEFAULT_SCORE) -> LLMScoringResult:
-        dims = [
-            LLMDimensionScore(
-                name=r["name"], score=score,
-                weight=r.get("weight", 20), reason=reason,
-            )
-            for r in rubric
-        ]
-        return LLMScoringResult(dimensions=dims, weighted_avg=float(score))
+            raise
 
     def _save_metrics(self, case_dir: str):
         if not case_dir or not self.metrics_fn:
@@ -229,12 +213,20 @@ class LLMJudge:
         with open(os.path.join(judge_dir, "interaction_metrics.json"), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
+    def _save_raw_output(self, case_dir: str, raw_output: str):
+        if not case_dir:
+            return
+        judge_dir = os.path.join(case_dir, "llm_judge")
+        os.makedirs(judge_dir, exist_ok=True)
+        with open(os.path.join(judge_dir, "raw_output.txt"), "w", encoding="utf-8") as f:
+            f.write(raw_output or "")
+
 
 # ── 内部解析工具 ──────────────────────────────────────────────
 
-def _parse_scores(raw_output: str, rubric: List[Dict],
+def _parse_scores(raw_output: str,
                   on_progress=None, tag: str = "") -> Dict:
-    """解析 LLM 输出的 JSON，失败时返回 fallback"""
+    """解析 LLM 输出的 JSON，失败时抛错"""
     def _log(level, msg):
         if on_progress:
             on_progress("log", {"level": level, "message": msg})
@@ -242,25 +234,34 @@ def _parse_scores(raw_output: str, rubric: List[Dict],
     try:
         m = re.search(r'\{[\s\S]*"baseline"[\s\S]*"enhanced"[\s\S]*\}', raw_output)
         if m:
-            data = json.loads(m.group())
+            data = _load_loose_json(m.group())
             if "baseline" in data and "enhanced" in data:
                 _log("DEBUG", f"{tag}[评分] JSON 解析成功")
                 return data
     except (json.JSONDecodeError, AttributeError) as e:
-        _log("WARN", f"{tag}[评分] JSON 解析失败: {e}")
+        _log("ERROR", f"{tag}[评分] JSON 解析失败: {e}")
+        raise ValueError(f"{tag}[评分] JSON 解析失败: {e}") from e
+    except Exception as e:
+        _log("ERROR", f"{tag}[评分] JSON 解析失败: {e}")
+        raise ValueError(f"{tag}[评分] JSON 解析失败: {e}") from e
 
-    _log("WARN", f"{tag}[评分] 无法解析，使用默认分数({DEFAULT_SCORE})")
     if raw_output:
+        fenced = _extract_first_object(raw_output)
+        if fenced:
+            try:
+                data = _load_loose_json(fenced)
+                if "baseline" in data and "enhanced" in data:
+                    _log("DEBUG", f"{tag}[评分] 宽松 JSON 解析成功")
+                    return data
+            except Exception as e:
+                _log("ERROR", f"{tag}[评分] 宽松 JSON 解析失败: {e}")
         _log("DEBUG", f"{tag}[评分] 原始输出前200字符: {raw_output[:200]}")
-
-    fallback_dims = [{"name": r["name"], "score": DEFAULT_SCORE, "reason": "解析失败"}
-                     for r in rubric]
-    return {"baseline": fallback_dims, "enhanced": fallback_dims}
+    raise ValueError(f"{tag}[评分] 无法解析评分结果 JSON")
 
 
-def _parse_baseline_scores(raw_output: str, rubric: List[Dict],
+def _parse_baseline_scores(raw_output: str,
                            on_progress=None, tag: str = "") -> Dict:
-    """解析仅 baseline 的评分 JSON，失败时返回 fallback"""
+    """解析仅 baseline 的评分 JSON，失败时抛错"""
     def _log(level, msg):
         if on_progress:
             on_progress("log", {"level": level, "message": msg})
@@ -268,24 +269,62 @@ def _parse_baseline_scores(raw_output: str, rubric: List[Dict],
     try:
         m = re.search(r'\{[\s\S]*"baseline"[\s\S]*\}', raw_output)
         if m:
-            data = json.loads(m.group())
+            data = _load_loose_json(m.group())
             if "baseline" in data:
                 _log("DEBUG", f"{tag}[评分] Baseline JSON 解析成功")
                 return data
     except (json.JSONDecodeError, AttributeError) as e:
-        _log("WARN", f"{tag}[评分] Baseline JSON 解析失败: {e}")
+        _log("ERROR", f"{tag}[评分] Baseline JSON 解析失败: {e}")
+        raise ValueError(f"{tag}[评分] Baseline JSON 解析失败: {e}") from e
+    except Exception as e:
+        _log("ERROR", f"{tag}[评分] Baseline JSON 解析失败: {e}")
+        raise ValueError(f"{tag}[评分] Baseline JSON 解析失败: {e}") from e
 
-    _log("WARN", f"{tag}[评分] 无法解析，使用默认分数({DEFAULT_SCORE})")
     if raw_output:
+        fenced = _extract_first_object(raw_output)
+        if fenced:
+            try:
+                data = _load_loose_json(fenced)
+                if "baseline" in data:
+                    _log("DEBUG", f"{tag}[评分] Baseline 宽松 JSON 解析成功")
+                    return data
+            except Exception as e:
+                _log("ERROR", f"{tag}[评分] Baseline 宽松 JSON 解析失败: {e}")
         _log("DEBUG", f"{tag}[评分] 原始输出前200字符: {raw_output[:200]}")
+    raise ValueError(f"{tag}[评分] 无法解析 baseline 评分结果 JSON")
 
-    fallback_dims = [{"name": r["name"], "score": DEFAULT_SCORE, "reason": "解析失败"}
-                     for r in rubric]
-    return {"baseline": fallback_dims}
+
+def _extract_first_object(raw_output: str) -> str:
+    m = re.search(r"\{[\s\S]*\}", raw_output)
+    return m.group() if m else ""
+
+
+def _load_loose_json(text: str):
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:json|javascript|js|typescript|ts)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+
+    try:
+        data = ast.literal_eval(cleaned)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    data = yaml.safe_load(cleaned)
+    if isinstance(data, dict):
+        return data
+    raise ValueError("返回内容不是可解析的对象")
 
 
 def _build_result(raw_dims: List[Dict], rubric: List[Dict]) -> LLMScoringResult:
     """将解析后的原始 dict 列表转为 LLMScoringResult"""
+    default_score = 50.0
     rubric_map = {r["name"]: r for r in rubric}
     dims = []
     total_weight = 0.0
@@ -293,7 +332,7 @@ def _build_result(raw_dims: List[Dict], rubric: List[Dict]) -> LLMScoringResult:
 
     for item in raw_dims:
         name = item.get("name", "")
-        score = float(item.get("score", DEFAULT_SCORE))
+        score = float(item.get("score", default_score))
         score = max(0.0, min(100.0, score))
         weight = float(rubric_map.get(name, {}).get("weight", 20))
         dims.append(LLMDimensionScore(
@@ -305,7 +344,7 @@ def _build_result(raw_dims: List[Dict], rubric: List[Dict]) -> LLMScoringResult:
         weighted_sum += score * weight
         total_weight += weight
 
-    weighted_avg = (weighted_sum / total_weight) if total_weight > 0 else DEFAULT_SCORE
+    weighted_avg = (weighted_sum / total_weight) if total_weight > 0 else default_score
     return LLMScoringResult(
         dimensions=dims,
         weighted_avg=round(weighted_avg, 2),

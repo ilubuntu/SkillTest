@@ -15,7 +15,7 @@ agent:
   timeout: 360
   # 模型配置（留空则使用 OpenCode 默认配置）
   # 格式: "provider/model" 如 "opencode/mimo-v2-pro-free"
-  model: null
+  model: "minimax-cn-coding-plan/MiniMax-M2.7"
 
 # DevEco Studio 路径（留空则自动检测）
 # macOS 示例: /Applications/DevEco-Studio.app
@@ -28,6 +28,6 @@ deveco_path: null
 # 理想方案是 Judge 使用独立的、更强的模型（如 Claude/GPT-4），
 # 需要配置独立的 API key 后在此指定不同模型。
 judge:
-  model: null
+  model: "minimax-cn-coding-plan/MiniMax-M2.7"
   temperature: 0
   timeout: 300

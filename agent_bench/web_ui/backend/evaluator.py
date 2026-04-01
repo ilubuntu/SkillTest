@@ -21,7 +21,7 @@ from backend.models import (
 )
 
 # case 执行的阶段顺序
-CASE_STAGES = ["A侧运行", "B侧运行", "规则检查", "LLM评分"]
+CASE_STAGES = ["A侧运行", "B侧运行", "A侧编译", "B侧编译", "规则检查", "LLM评分"]
 
 
 def _normalize_dimension_scores(dimensions: Dict) -> Dict:
@@ -185,6 +185,10 @@ class EvaluatorManager:
                 if data.get("skipped"):
                     self._update_case_stage(case_id, stage, "skipped")
                     self._add_log("DEBUG", f"[{case_id}] {stage} 跳过")
+                elif data.get("status") == "error":
+                    elapsed = data.get("elapsed", 0)
+                    self._update_case_stage(case_id, stage, "error", elapsed)
+                    self._add_log("ERROR", f"[{case_id}] {stage} 失败")
                 else:
                     elapsed = data.get("elapsed", 0)
                     self._update_case_stage(case_id, stage, "done", elapsed)

@@ -2,7 +2,7 @@
 """用例执行
 
 职责：
-- 单用例执行（run_single_case）：编排 Runner → Evaluator → Compile
+- 单用例执行（run_single_case）：编排 Runner → Compile → Evaluator
 - 场景执行（run_scenario）：并行调度多个用例
 
 Runner 阶段通过 AgentAdapter 与 Agent 交互：
@@ -28,6 +28,8 @@ from agent_bench.pipeline.artifacts import (
     save_runner_artifacts, load_runner_artifacts,
     save_evaluator_artifacts, load_evaluator_result,
     save_interaction_metrics,
+    save_compile_artifacts,
+    save_rule_check_artifact,
     stage_dir, stage_meta_dir, META_DIR_NAME,
 )
 from agent_bench.pipeline.compile_checker import (
@@ -242,12 +244,25 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             )
             _notify(on_progress, "log", {"level": "DEBUG", "message": f"[{case_id}] 保存 Runner 产物..."})
             save_runner_artifacts(case_dir, side_a_output, side_b_output,
-                                  task_prompt=task_prompt, enhancements=enhancements)
+                                  task_prompt=task_prompt, enhancements=enhancements,
+                                  include_side_b=not only_run_baseline)
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Runner 产物..."})
         side_a_output, side_b_output = load_runner_artifacts(case_dir)
         _notify(on_progress, "log", {"level": "DEBUG",
             "message": f"[{case_id}] 已加载: side_a={len(side_a_output)}字符, side_b={len(side_b_output)}字符"})
+
+    compile_results = _run_compile_stage(
+        case=case,
+        case_id=case_id,
+        scenario=scenario,
+        case_dir=case_dir,
+        only_run_baseline=only_run_baseline,
+        on_progress=on_progress,
+        compile_results=compile_results,
+        comparison_labels=comparison_labels,
+        is_general_case=is_general_case or _scenario_key == "general",
+    )
 
     # ── Evaluator 阶段 ──
     if "evaluator" in stages:
@@ -267,17 +282,6 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Evaluator 产物..."})
         result = load_evaluator_result(case_dir)
-
-    compile_results = _run_compile_stage(
-        case=case,
-        case_id=case_id,
-        scenario=scenario,
-        case_dir=case_dir,
-        only_run_baseline=only_run_baseline,
-        on_progress=on_progress,
-        compile_results=compile_results,
-        is_general_case=is_general_case or _scenario_key == "general",
-    )
 
     if compile_results:
         result["compile_results"] = compile_results
@@ -301,7 +305,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
     B 侧运行：adapter.setup(enhancements) → 在 side_b 工程目录直接修改
     
     对于非 project_gen 场景，仅执行 agent 修改，不做编译。
-    编译检查会在 Evaluator 之后执行，避免阻塞本地规则和 LLM 评分。
+    编译检查会在 Evaluator 之前执行，但失败不会阻塞后续评分。
     对于 general 场景，直接编译当前用例的 original_project 验证可编译性。
     compile_results: {
         "baseline_compilable": bool,
@@ -331,7 +335,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             return "", "", compile_results
 
     side_a_dir = stage_dir(case_dir, "side_a")
-    side_b_dir = stage_dir(case_dir, "side_b")
+    side_b_dir = os.path.join(case_dir, "side_b")
 
     # general 场景：直接编译当前用例的 original_project 验证
     if is_general_case:
@@ -350,10 +354,12 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             compile_results["side_b_error"] = ""
         if compile_result["compilable"]:
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例编译成功"})
+            stage_status = "done"
         else:
             _notify(on_progress, "log", {"level": "ERROR", 
                 "message": f"[{case_id}] 通用用例编译失败: {compile_result.get('error', '未知错误')[:200]}"})
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": elapsed})
+            stage_status = "error"
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": elapsed, "status": stage_status})
         return "", "", compile_results
 
     # ── A 侧运行 ──
@@ -445,8 +451,9 @@ def _run_compile_stage(case: dict,
                        only_run_baseline: bool,
                        on_progress,
                        compile_results: dict,
+                       comparison_labels: dict = None,
                        is_general_case: bool = False) -> dict:
-    """在评分之后执行编译验证，避免阻塞后续评分流程。"""
+    """在评分之前执行编译验证，但失败不会中断后续流程。"""
     compile_results = compile_results or {
         "side_a_compilable": None,
         "side_a_error": "",
@@ -470,39 +477,52 @@ def _run_compile_stage(case: dict,
         _notify(on_progress, "log", {"level": "ERROR", "message": missing_msg})
         return compile_results
 
-    side_a_dir = stage_dir(case_dir, "side_a")
-    side_b_dir = stage_dir(case_dir, "side_b")
-    side_a_label = "A侧"
-    side_b_label = "B侧"
+    side_a_dir = os.path.join(case_dir, "side_a")
+    side_b_dir = os.path.join(case_dir, "side_b")
+    side_a_label = (comparison_labels or {}).get("side_a") or "A侧"
+    side_b_label = (comparison_labels or {}).get("side_b") or "B侧"
 
-    _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始编译验证（评分后执行）..."})
+    _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始编译验证..."})
 
     if os.path.isdir(side_a_dir):
+        _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "A侧编译"})
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查 {side_a_label} 工程可编译性..."})
+        t0 = time.time()
         compile_result = check_project_compilable(side_a_dir, template_project_path=template_project_path)
+        save_compile_artifacts(case_dir, "side_a_compile", compile_result)
         compile_results["side_a_compilable"] = compile_result["compilable"]
         compile_results["side_a_error"] = compile_result.get("error", "")
         if compile_result["compilable"]:
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] {side_a_label} 工程可编译"})
+            stage_status = "done"
         else:
             _notify(on_progress, "log", {"level": "WARNING",
                 "message": f"[{case_id}] {side_a_label} 工程编译失败: {compile_result.get('error', '未知错误')[:100]}"})
+            stage_status = "error"
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧编译", "elapsed": time.time() - t0, "status": stage_status})
 
     if only_run_baseline:
         compile_results["side_b_compilable"] = None
         compile_results["side_b_error"] = ""
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧编译", "elapsed": 0, "skipped": True})
         return compile_results
 
     if os.path.isdir(side_b_dir):
+        _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "B侧编译"})
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查 {side_b_label} 工程可编译性..."})
+        t0 = time.time()
         compile_result = check_project_compilable(side_b_dir, template_project_path=template_project_path)
+        save_compile_artifacts(case_dir, "side_b_compile", compile_result)
         compile_results["side_b_compilable"] = compile_result["compilable"]
         compile_results["side_b_error"] = compile_result.get("error", "")
         if compile_result["compilable"]:
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] {side_b_label} 工程可编译"})
+            stage_status = "done"
         else:
             _notify(on_progress, "log", {"level": "WARNING",
                 "message": f"[{case_id}] {side_b_label} 工程编译失败: {compile_result.get('error', '未知错误')[:100]}"})
+            stage_status = "error"
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧编译", "elapsed": time.time() - t0, "status": stage_status})
 
     return compile_results
 
@@ -530,8 +550,8 @@ def _run_evaluator_stage(case_id, title, scenario, case,
     """
     side_a_label = (comparison_labels or {}).get("side_a") or (comparison_labels or {}).get("baseline", "Agent A")
     side_b_label = (comparison_labels or {}).get("side_b") or (comparison_labels or {}).get("enhanced", "Agent B")
-    side_a_dir = stage_dir(case_dir, "side_a")
-    side_b_dir = stage_dir(case_dir, "side_b")
+    side_a_dir = os.path.join(case_dir, "side_a")
+    side_b_dir = os.path.join(case_dir, "side_b")
     side_a_scoring_text = _build_scoring_text(case, side_a_dir, fallback_output=side_a_output)
     side_b_scoring_text = _build_scoring_text(case, side_b_dir, fallback_output=side_b_output)
 
@@ -569,8 +589,12 @@ def _run_evaluator_stage(case_id, title, scenario, case,
     with open(os.path.join(rc_dir, "rules.json"), "w", encoding="utf-8") as f:
         _json.dump(rules_config, f, ensure_ascii=False, indent=2)
 
-    side_a_internal = internal_scorer.score(side_a_scoring_text, rules_config)
-    side_b_internal = internal_scorer.score(side_b_scoring_text, rules_config) if not only_run_baseline else None
+    try:
+        side_a_internal = internal_scorer.score(side_a_scoring_text, rules_config)
+        side_b_internal = internal_scorer.score(side_b_scoring_text, rules_config) if not only_run_baseline else None
+    except Exception:
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "规则检查", "status": "error"})
+        raise
 
     sides_to_log = [("side_a", side_a_internal, side_a_label)]
     if not only_run_baseline:
@@ -592,7 +616,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] 规则检查完成: {side_a_label}={side_a_internal.total:.1f}/30, "
                        f"{side_b_label}={side_b_internal.total:.1f}/30"})
-        _notify(on_progress, "stage_done", {
+    _notify(on_progress, "stage_done", {
         "case_id": case_id, "stage": "规则检查",
         "side_a_rule": side_a_internal.total,
         "side_b_rule": side_b_internal.total if side_b_internal else None,
@@ -618,31 +642,35 @@ def _run_evaluator_stage(case_id, title, scenario, case,
             "message": f"[{case_id}] 开始{'单侧' if only_run_baseline else '双侧'} LLM 评分 ({len(rubric)} 个维度)..."})
         _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "LLM评分"})
         t0 = time.time()
-        if only_run_baseline:
-            side_a_llm = llm_judge.judge_baseline(
-                prompt, side_a_scoring_text,
-                rubric, case_id=case_id, case_dir=case_dir,
-            )
-            side_b_llm = None
-            judge_raw = {
-                "side_a": [{"name": d.name, "score": d.score, "reason": d.reason}
-                           for d in side_a_llm.dimensions],
-                "side_b": [],
-            }
-        else:
-            judge_scores = llm_judge.judge(
-                prompt, side_a_scoring_text, side_b_scoring_text,
-                rubric, case_id=case_id,
-                case_dir=case_dir,
-            )
-            side_a_llm = judge_scores["baseline"]
-            side_b_llm = judge_scores["enhanced"]
-            judge_raw = {
-                "side_a": [{"name": d.name, "score": d.score, "reason": d.reason}
-                           for d in side_a_llm.dimensions],
-                "side_b": [{"name": d.name, "score": d.score, "reason": d.reason}
-                           for d in side_b_llm.dimensions],
-            }
+        try:
+            if only_run_baseline:
+                side_a_llm = llm_judge.judge_baseline(
+                    prompt, side_a_scoring_text,
+                    rubric, case_id=case_id, case_dir=case_dir,
+                )
+                side_b_llm = None
+                judge_raw = {
+                    "side_a": [{"name": d.name, "score": d.score, "reason": d.reason}
+                               for d in side_a_llm.dimensions],
+                    "side_b": [],
+                }
+            else:
+                judge_scores = llm_judge.judge(
+                    prompt, side_a_scoring_text, side_b_scoring_text,
+                    rubric, case_id=case_id,
+                    case_dir=case_dir,
+                )
+                side_a_llm = judge_scores["baseline"]
+                side_b_llm = judge_scores["enhanced"]
+                judge_raw = {
+                    "side_a": [{"name": d.name, "score": d.score, "reason": d.reason}
+                               for d in side_a_llm.dimensions],
+                    "side_b": [{"name": d.name, "score": d.score, "reason": d.reason}
+                               for d in side_b_llm.dimensions],
+                }
+        except Exception:
+            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "LLM评分", "status": "error"})
+            raise
         elapsed = time.time() - t0
         _notify(on_progress, "log", {"level": "INFO",
             "message": f"[{case_id}] LLM 评分完成, 耗时={elapsed:.1f}s"})
@@ -715,6 +743,7 @@ def _run_evaluator_stage(case_id, title, scenario, case,
         "side_a": _serialize_internal(side_a_internal),
         "side_b": _serialize_internal(side_b_internal) if side_b_internal else None,
     }
+    save_rule_check_artifact(case_dir, internal_artifact)
 
     result = {
         "case_id": case_id,
@@ -854,10 +883,30 @@ def run_scenario(scenario: str,
                 })
                 results.append(result)
             except Exception as e:
+                failed_result = {
+                    "case_id": case["id"],
+                    "title": case.get("title", case["id"]),
+                    "scenario": scenario,
+                    "status": "error",
+                    "error": str(e),
+                    "side_a_rule": 0,
+                    "side_b_rule": None if only_run_baseline else 0,
+                    "side_a_total": 0,
+                    "side_b_total": None if only_run_baseline else 0,
+                    "gain": None,
+                    "dimension_scores": {},
+                    "compile_results": {
+                        "side_a_compilable": None,
+                        "side_a_error": "",
+                        "side_b_compilable": None,
+                        "side_b_error": "",
+                    },
+                }
                 _notify(on_progress, "error", {
                     "case_id": case["id"],
                     "message": str(e),
                 })
+                results.append(failed_result)
 
     _notify(on_progress, "scenario_done", {
         "scenario": scenario,

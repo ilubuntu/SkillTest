@@ -17,6 +17,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Optional
 
 from agent_bench.runner.adapter import AgentAdapter
@@ -36,12 +37,8 @@ def parse_model(model_str: str) -> dict:
     """
     if "/" in model_str:
         provider, model_id = model_str.split("/", 1)
-        provider_map = {
-            "minimax": "minimax-cn-coding-plan",
-        }
-        provider_id = provider_map.get(provider, provider)
-        return {"providerID": provider_id, "modelID": model_id}
-    return {"providerID": "minimax-cn-coding-plan", "modelID": model_str}
+        return {"providerID": provider, "modelID": model_id}
+    return {"modelID": model_str}
 
 
 class OpenCodeAdapter(AgentAdapter):
@@ -225,10 +222,11 @@ class OpenCodeAdapter(AgentAdapter):
             with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 result_data = response.read().decode("utf-8")
                 elapsed = time.time() - t0
-                result = json.loads(result_data)
+                result = self._parse_message_response(result_data, session_id, effective_prompt, tag)
                 message_id = self._extract_message_id(result)
                 message_info = self._fetch_message_info(session_id, message_id) if message_id else None
-                parts = result.get("parts", [])
+                payload = message_info or result
+                parts = payload.get("parts", []) if isinstance(payload, dict) else []
                 self._last_interaction_metrics = self._build_interaction_metrics(
                     source="agent_runner",
                     session_id=session_id,
@@ -238,14 +236,13 @@ class OpenCodeAdapter(AgentAdapter):
                     message_info=message_info,
                     api_elapsed_ms=round(elapsed * 1000),
                 )
-                for part in parts:
-                    if part.get("type") == "text":
-                        text = part.get("text", "").strip()
-                        self._last_interaction_metrics["message"]["output_chars"] = len(text)
-                        self._log("INFO",
-                            f"收到响应: {len(text)}字符, 耗时={elapsed:.1f}s",
-                            tag=tag)
-                        return text
+                text = self._extract_best_text(parts, effective_prompt)
+                if text:
+                    self._last_interaction_metrics["message"]["output_chars"] = len(text)
+                    self._log("INFO",
+                        f"收到响应: {len(text)}字符, 耗时={elapsed:.1f}s",
+                        tag=tag)
+                    return text
                 self._log("WARN",
                     f"响应中无 text 部分, parts数={len(parts)}, 耗时={elapsed:.1f}s",
                     tag=tag)
@@ -274,6 +271,26 @@ class OpenCodeAdapter(AgentAdapter):
         info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
         return payload.get("id") or info.get("id") or payload.get("messageID") or payload.get("messageId")
 
+    def _parse_message_response(self, result_data: str, session_id: str, prompt_text: str, tag: str = "") -> dict:
+        body = result_data.strip()
+        if body:
+            try:
+                data = json.loads(body)
+                if isinstance(data, dict) and self._looks_like_assistant_message(data, prompt_text):
+                    return data
+                self._log("WARN", f"消息响应不是可信 assistant 结果，类型={type(data).__name__}，尝试回查 session 最新消息", tag=tag)
+            except json.JSONDecodeError as e:
+                preview = body[:200].replace("\n", "\\n")
+                self._log("WARN", f"消息响应不是 JSON: {e}; body前200字符={preview}", tag=tag)
+        else:
+            self._log("WARN", "消息响应体为空，尝试回查 session 最新消息", tag=tag)
+
+        latest = self._fetch_latest_message(session_id, prompt_text)
+        if latest:
+            self._log("DEBUG", "已回查到 session 最新消息", tag=tag)
+            return latest
+        raise ValueError("OpenCode message 响应为空或非 JSON，且无法回查最新消息")
+
     def _fetch_message_info(self, session_id: str, message_id: str) -> Optional[dict]:
         try:
             req = urllib.request.Request(
@@ -285,6 +302,85 @@ class OpenCodeAdapter(AgentAdapter):
         except Exception as e:
             self._log("DEBUG", f"读取消息详情失败: {e}")
             return None
+
+    def _fetch_latest_message(self, session_id: str, prompt_text: str) -> Optional[dict]:
+        try:
+            req = urllib.request.Request(
+                f"{self.api_base}/session/{session_id}/message",
+                method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            messages = []
+            if isinstance(data, list):
+                messages = data
+            elif isinstance(data, dict):
+                if isinstance(data.get("messages"), list):
+                    messages = data["messages"]
+                elif isinstance(data.get("items"), list):
+                    messages = data["items"]
+                else:
+                    return data
+
+            for message in reversed(messages):
+                if self._looks_like_assistant_message(message, prompt_text):
+                    return message
+            return None
+        except Exception as e:
+            self._log("DEBUG", f"回查 session 最新消息失败: {e}")
+            return None
+
+    def _looks_like_assistant_message(self, payload: dict, prompt_text: str) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+        message_type = str(payload.get("type", "") or info.get("type", "")).lower()
+        role = str(payload.get("role", "") or info.get("role", "")).lower()
+        if role and role != "assistant":
+            return False
+        if message_type and message_type not in ("assistant", "message"):
+            return False
+
+        parts = payload.get("parts")
+        if not isinstance(parts, list) or not parts:
+            return False
+
+        texts = []
+        for part in parts:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = str(part.get("text", "")).strip()
+                if text:
+                    texts.append(text)
+        if not texts:
+            return False
+
+        merged = "\n".join(texts).strip()
+        if not merged:
+            return False
+        prompt_norm = (prompt_text or "").strip()
+        if prompt_norm and merged == prompt_norm:
+            return False
+        if prompt_norm and merged in prompt_norm:
+            return False
+        return True
+
+    def _extract_best_text(self, parts: list, prompt_text: str) -> str:
+        prompt_norm = (prompt_text or "").strip()
+        text_parts = []
+        for part in parts or []:
+            if not isinstance(part, dict):
+                continue
+            if str(part.get("type", "")).lower() != "text":
+                continue
+            text = str(part.get("text", "")).strip()
+            if not text:
+                continue
+            if prompt_norm and (text == prompt_norm or text in prompt_norm):
+                continue
+            text_parts.append(text)
+        if not text_parts:
+            return ""
+        return text_parts[-1]
 
     def _build_interaction_metrics(self,
                                    source: str,
@@ -300,6 +396,14 @@ class OpenCodeAdapter(AgentAdapter):
         provider = payload.get("provider") if isinstance(payload.get("provider"), dict) else {}
         tokens = payload.get("tokens") if isinstance(payload.get("tokens"), dict) else {}
         time_info = payload.get("time") if isinstance(payload.get("time"), dict) else {}
+        if not model:
+            model = info.get("model") if isinstance(info.get("model"), dict) else {}
+        if not provider:
+            provider = info.get("provider") if isinstance(info.get("provider"), dict) else {}
+        if not tokens:
+            tokens = info.get("tokens") if isinstance(info.get("tokens"), dict) else {}
+        if not time_info:
+            time_info = info.get("time") if isinstance(info.get("time"), dict) else {}
         parts = payload.get("parts") if isinstance(payload.get("parts"), list) else response.get("parts", [])
 
         created = self._coerce_int(time_info.get("created"))
@@ -312,8 +416,8 @@ class OpenCodeAdapter(AgentAdapter):
             "adapter": "opencode",
             "session_id": session_id,
             "message_id": message_id,
-            "provider_id": provider.get("id") or provider.get("providerID") or model.get("providerID") or payload.get("providerID"),
-            "model_id": model.get("id") or model.get("modelID") or payload.get("modelID"),
+            "provider_id": provider.get("id") or provider.get("providerID") or info.get("providerID") or model.get("providerID") or payload.get("providerID"),
+            "model_id": model.get("id") or model.get("modelID") or info.get("modelID") or payload.get("modelID"),
             "timing": {
                 "api_elapsed_ms": api_elapsed_ms,
                 "model_elapsed_ms": model_elapsed_ms,
@@ -324,7 +428,7 @@ class OpenCodeAdapter(AgentAdapter):
                 "reasoning_tokens": self._coerce_int(tokens.get("reasoning") or tokens.get("reasoningTokens")),
                 "cache_read_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "read")) or tokens.get("cacheRead") or tokens.get("cache_read")),
                 "cache_write_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "write")) or tokens.get("cacheWrite") or tokens.get("cache_write")),
-                "cost": payload.get("cost"),
+                "cost": payload.get("cost", info.get("cost")),
             },
             "message": {
                 "input_chars": len(prompt_text or ""),

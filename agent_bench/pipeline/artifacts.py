@@ -50,10 +50,12 @@ def save_runner_stage_artifacts(case_dir: str,
 def save_runner_artifacts(case_dir: str,
                           side_a_output: str, side_b_output: str,
                           task_prompt: str = "",
-                          enhancements: dict = None):
+                          enhancements: dict = None,
+                          include_side_b: bool = True):
     """保存 Runner 阶段产物到 side_a/ 和 side_b/ 子目录"""
     save_runner_stage_artifacts(case_dir, "side_a", side_a_output, task_prompt=task_prompt)
-    save_runner_stage_artifacts(case_dir, "side_b", side_b_output, task_prompt=task_prompt, enhancements=enhancements)
+    if include_side_b:
+        save_runner_stage_artifacts(case_dir, "side_b", side_b_output, task_prompt=task_prompt, enhancements=enhancements)
 
 
 def save_interaction_metrics(case_dir: str, stage: str, metrics: dict):
@@ -63,6 +65,15 @@ def save_interaction_metrics(case_dir: str, stage: str, metrics: dict):
     target_dir = stage_meta_dir(case_dir, stage) if stage in ("side_a", "side_b") else stage_dir(case_dir, stage)
     with open(os.path.join(target_dir, "interaction_metrics.json"), "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
+
+
+def save_compile_artifacts(case_dir: str, stage: str, compile_result: dict):
+    """保存编译阶段产物。"""
+    target_dir = stage_dir(case_dir, stage)
+    with open(os.path.join(target_dir, "compile_result.json"), "w", encoding="utf-8") as f:
+        json.dump(compile_result, f, ensure_ascii=False, indent=2)
+    with open(os.path.join(target_dir, "compile.log.txt"), "w", encoding="utf-8") as f:
+        f.write(compile_result.get("error", "") or ("编译成功" if compile_result.get("compilable") else ""))
 
 
 def load_runner_artifacts(case_dir: str) -> tuple:
@@ -104,6 +115,14 @@ def save_evaluator_artifacts(case_dir: str,
 
     with open(os.path.join(case_dir, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
+
+
+def save_rule_check_artifact(case_dir: str, internal_score: dict):
+    """单独保存规则检查结果，避免后续阶段失败时丢失。"""
+    rule_dir = os.path.join(case_dir, "rule_check")
+    os.makedirs(rule_dir, exist_ok=True)
+    with open(os.path.join(rule_dir, "internal_score.json"), "w", encoding="utf-8") as f:
+        json.dump(internal_score, f, ensure_ascii=False, indent=2)
 
 
 def load_evaluator_result(case_dir: str) -> dict:

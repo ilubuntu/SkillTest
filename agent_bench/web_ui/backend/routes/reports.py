@@ -111,7 +111,7 @@ async def get_report(run_id: str):
 
 # ── 用例阶段产物浏览 ────────────────────────────────────────
 
-STAGE_NAMES = ["side_a", "side_b", "rule_check", "llm_judge"]
+STAGE_NAMES = ["side_a", "side_b", "side_a_compile", "side_b_compile", "rule_check", "llm_judge"]
 
 
 @router.get("/results/{run_id}/cases/{case_id}/stages")
