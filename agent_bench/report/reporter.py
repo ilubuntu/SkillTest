@@ -83,8 +83,8 @@ def _compute_scenario_summary(results: list, active_sides: list = None) -> dict:
             "dimensions": {},
         }
 
-    side_a_scores = [r["side_a_total"] for r in scenario_results]
-    side_a_avg = sum(side_a_scores) / len(side_a_scores)
+    side_a_scores = [r["side_a_total"] for r in scenario_results if r.get("side_a_total") is not None]
+    side_a_avg = sum(side_a_scores) / len(side_a_scores) if side_a_scores else None
     side_b_scores = [r["side_b_total"] for r in scenario_results if r.get("side_b_total") is not None] if include_side_b else []
     side_b_avg = (sum(side_b_scores) / len(side_b_scores)) if side_b_scores else None
 
@@ -131,9 +131,9 @@ def _compute_scenario_summary(results: list, active_sides: list = None) -> dict:
 
     return {
         "total_cases": len(scenario_results),
-        "side_a_avg": round(side_a_avg, 1),
+        "side_a_avg": round(side_a_avg, 1) if side_a_avg is not None else None,
         "side_b_avg": round(side_b_avg, 1) if side_b_avg is not None else None,
-        "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None else None,
+        "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None and side_a_avg is not None else None,
         "side_a_pass_rate": f"{side_a_pass}/{len(scenario_results)}",
         "side_b_pass_rate": f"{side_b_pass}/{len(scenario_results)}" if side_b_scores else "N/A",
         "dimensions": dim_summary,
@@ -153,8 +153,8 @@ def _compute_general_summary(results: list, active_sides: list = None) -> dict:
             "side_b_pass_rate": "N/A",
         }
 
-    side_a_scores = [r["side_a_total"] for r in general_results]
-    side_a_avg = sum(side_a_scores) / len(side_a_scores)
+    side_a_scores = [r["side_a_total"] for r in general_results if r.get("side_a_total") is not None]
+    side_a_avg = sum(side_a_scores) / len(side_a_scores) if side_a_scores else None
     side_b_scores = [r["side_b_total"] for r in general_results if r.get("side_b_total") is not None] if include_side_b else []
     side_b_avg = (sum(side_b_scores) / len(side_b_scores)) if side_b_scores else None
 
@@ -164,9 +164,9 @@ def _compute_general_summary(results: list, active_sides: list = None) -> dict:
 
     return {
         "total_cases": len(general_results),
-        "side_a_avg": round(side_a_avg, 1),
+        "side_a_avg": round(side_a_avg, 1) if side_a_avg is not None else None,
         "side_b_avg": round(side_b_avg, 1) if side_b_avg is not None else None,
-        "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None else None,
+        "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None and side_a_avg is not None else None,
         "side_a_pass_rate": f"{side_a_pass}/{len(general_results)}",
         "side_b_pass_rate": f"{side_b_pass}/{len(general_results)}" if side_b_scores else "N/A",
         "general_pass_count": sum(1 for r in general_results if r.get("general_pass")),
@@ -258,15 +258,15 @@ def _compute_by_scenario(results: list, active_sides: list = None) -> dict:
 
     by_scenario = {}
     for scenario, cases in grouped.items():
-        side_a_scores = [case["side_a_total"] for case in cases]
-        side_a_avg = sum(side_a_scores) / len(side_a_scores)
+        side_a_scores = [case["side_a_total"] for case in cases if case.get("side_a_total") is not None]
+        side_a_avg = sum(side_a_scores) / len(side_a_scores) if side_a_scores else None
         side_b_scores = [case["side_b_total"] for case in cases if case.get("side_b_total") is not None] if include_side_b else []
         side_b_avg = (sum(side_b_scores) / len(side_b_scores)) if side_b_scores else None
         by_scenario[scenario] = {
             "total_cases": len(cases),
-            "side_a_avg": round(side_a_avg, 1),
+            "side_a_avg": round(side_a_avg, 1) if side_a_avg is not None else None,
             "side_b_avg": round(side_b_avg, 1) if side_b_avg is not None else None,
-            "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None else None,
+            "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None and side_a_avg is not None else None,
         }
     return by_scenario
 
