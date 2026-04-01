@@ -657,3 +657,4 @@ def _resolve_enhancement_ids(enhancement_ids: List[str]) -> dict:
         result.pop("tools", None)
 
     return result if result else {}
+

@@ -10,6 +10,11 @@ DEFAULT_SCENARIO_WEIGHT = 0.8
 DEFAULT_GENERAL_WEIGHT = 0.2
 
 
+def _mean_numeric(values: list):
+    numeric_values = [v for v in (values or []) if isinstance(v, (int, float))]
+    return (sum(numeric_values) / len(numeric_values)) if numeric_values else None
+
+
 def generate(results: list, scenario: str, profile_name: str, output_dir: str,
              comparison_labels: dict = None, active_sides: list = None):
     os.makedirs(output_dir, exist_ok=True)
@@ -83,8 +88,8 @@ def _compute_scenario_summary(results: list, active_sides: list = None) -> dict:
             "dimensions": {},
         }
 
-    side_a_scores = [r["side_a_total"] for r in scenario_results]
-    side_a_avg = sum(side_a_scores) / len(side_a_scores)
+    side_a_scores = [r["side_a_total"] for r in scenario_results if r.get("side_a_total") is not None]
+    side_a_avg = sum(side_a_scores) / len(side_a_scores) if side_a_scores else None
     side_b_scores = [r["side_b_total"] for r in scenario_results if r.get("side_b_total") is not None] if include_side_b else []
     side_b_avg = (sum(side_b_scores) / len(side_b_scores)) if side_b_scores else None
 
@@ -99,30 +104,38 @@ def _compute_scenario_summary(results: list, active_sides: list = None) -> dict:
                 "name": scores.get("name", dim_id),
                 "side_a": {"llm": [], "internal": []},
             })
-            bucket["side_a"]["llm"].append(scores["side_a"]["llm"])
-            bucket["side_a"]["internal"].append(scores["side_a"]["internal"])
+            side_a = scores.get("side_a", {}) or {}
+            if isinstance(side_a.get("llm"), (int, float)):
+                bucket["side_a"]["llm"].append(side_a["llm"])
+            if isinstance(side_a.get("internal"), (int, float)):
+                bucket["side_a"]["internal"].append(side_a["internal"])
             if include_side_b and scores.get("side_b"):
                 bucket.setdefault("side_b", {"llm": [], "internal": []})
-                bucket["side_b"]["llm"].append(scores["side_b"]["llm"])
-                bucket["side_b"]["internal"].append(scores["side_b"]["internal"])
+                side_b = scores.get("side_b", {}) or {}
+                if isinstance(side_b.get("llm"), (int, float)):
+                    bucket["side_b"]["llm"].append(side_b["llm"])
+                if isinstance(side_b.get("internal"), (int, float)):
+                    bucket["side_b"]["internal"].append(side_b["internal"])
 
     dim_summary = {}
     for dim_id, vals in dimensions.items():
-        side_a_llm_avg = sum(vals["side_a"]["llm"]) / len(vals["side_a"]["llm"])
-        side_a_internal_avg = sum(vals["side_a"]["internal"]) / len(vals["side_a"]["internal"])
+        side_a_llm_avg = _mean_numeric(vals["side_a"]["llm"])
+        side_a_internal_avg = _mean_numeric(vals["side_a"]["internal"])
         dim_summary[dim_id] = {
             "name": vals["name"],
-            "side_a_avg": round(side_a_llm_avg, 1),
-            "side_a_llm_avg": round(side_a_llm_avg, 1),
-            "side_a_internal_avg": round(side_a_internal_avg, 1),
+            "side_a_avg": round(side_a_llm_avg, 1) if side_a_llm_avg is not None else None,
+            "side_a_llm_avg": round(side_a_llm_avg, 1) if side_a_llm_avg is not None else None,
+            "side_a_internal_avg": round(side_a_internal_avg, 1) if side_a_internal_avg is not None else None,
         }
         if include_side_b and vals.get("side_b", {}).get("llm"):
-            side_b_llm_avg = sum(vals["side_b"]["llm"]) / len(vals["side_b"]["llm"])
-            side_b_internal_avg = sum(vals["side_b"]["internal"]) / len(vals["side_b"]["internal"])
-            dim_summary[dim_id]["side_b_avg"] = round(side_b_llm_avg, 1)
-            dim_summary[dim_id]["side_b_llm_avg"] = round(side_b_llm_avg, 1)
-            dim_summary[dim_id]["side_b_internal_avg"] = round(side_b_internal_avg, 1)
-            dim_summary[dim_id]["gain"] = round(side_b_llm_avg - side_a_llm_avg, 1)
+            side_b_llm_avg = _mean_numeric(vals["side_b"]["llm"])
+            side_b_internal_avg = _mean_numeric(vals["side_b"]["internal"])
+            dim_summary[dim_id]["side_b_avg"] = round(side_b_llm_avg, 1) if side_b_llm_avg is not None else None
+            dim_summary[dim_id]["side_b_llm_avg"] = round(side_b_llm_avg, 1) if side_b_llm_avg is not None else None
+            dim_summary[dim_id]["side_b_internal_avg"] = round(side_b_internal_avg, 1) if side_b_internal_avg is not None else None
+            dim_summary[dim_id]["gain"] = round(side_b_llm_avg - side_a_llm_avg, 1) if (
+                side_b_llm_avg is not None and side_a_llm_avg is not None
+            ) else None
         else:
             dim_summary[dim_id]["side_b_avg"] = None
             dim_summary[dim_id]["side_b_llm_avg"] = None
@@ -131,9 +144,9 @@ def _compute_scenario_summary(results: list, active_sides: list = None) -> dict:
 
     return {
         "total_cases": len(scenario_results),
-        "side_a_avg": round(side_a_avg, 1),
+        "side_a_avg": round(side_a_avg, 1) if side_a_avg is not None else None,
         "side_b_avg": round(side_b_avg, 1) if side_b_avg is not None else None,
-        "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None else None,
+        "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None and side_a_avg is not None else None,
         "side_a_pass_rate": f"{side_a_pass}/{len(scenario_results)}",
         "side_b_pass_rate": f"{side_b_pass}/{len(scenario_results)}" if side_b_scores else "N/A",
         "dimensions": dim_summary,
@@ -153,8 +166,8 @@ def _compute_general_summary(results: list, active_sides: list = None) -> dict:
             "side_b_pass_rate": "N/A",
         }
 
-    side_a_scores = [r["side_a_total"] for r in general_results]
-    side_a_avg = sum(side_a_scores) / len(side_a_scores)
+    side_a_scores = [r["side_a_total"] for r in general_results if r.get("side_a_total") is not None]
+    side_a_avg = sum(side_a_scores) / len(side_a_scores) if side_a_scores else None
     side_b_scores = [r["side_b_total"] for r in general_results if r.get("side_b_total") is not None] if include_side_b else []
     side_b_avg = (sum(side_b_scores) / len(side_b_scores)) if side_b_scores else None
 
@@ -164,9 +177,9 @@ def _compute_general_summary(results: list, active_sides: list = None) -> dict:
 
     return {
         "total_cases": len(general_results),
-        "side_a_avg": round(side_a_avg, 1),
+        "side_a_avg": round(side_a_avg, 1) if side_a_avg is not None else None,
         "side_b_avg": round(side_b_avg, 1) if side_b_avg is not None else None,
-        "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None else None,
+        "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None and side_a_avg is not None else None,
         "side_a_pass_rate": f"{side_a_pass}/{len(general_results)}",
         "side_b_pass_rate": f"{side_b_pass}/{len(general_results)}" if side_b_scores else "N/A",
         "general_pass_count": sum(1 for r in general_results if r.get("general_pass")),
@@ -191,7 +204,10 @@ def _compute_weighted_total(scenario_summary: dict, general_summary: dict,
             "gain": None,
         }
 
-    if scenario_avg is None:
+    if scenario_avg is None and general_avg is None:
+        side_a_weighted = None
+        side_b_weighted = None
+    elif scenario_avg is None:
         side_a_weighted = general_avg
         side_b_weighted = general_summary.get("side_b_avg")
     elif general_avg is None:
@@ -258,15 +274,15 @@ def _compute_by_scenario(results: list, active_sides: list = None) -> dict:
 
     by_scenario = {}
     for scenario, cases in grouped.items():
-        side_a_scores = [case["side_a_total"] for case in cases]
-        side_a_avg = sum(side_a_scores) / len(side_a_scores)
+        side_a_scores = [case["side_a_total"] for case in cases if case.get("side_a_total") is not None]
+        side_a_avg = sum(side_a_scores) / len(side_a_scores) if side_a_scores else None
         side_b_scores = [case["side_b_total"] for case in cases if case.get("side_b_total") is not None] if include_side_b else []
         side_b_avg = (sum(side_b_scores) / len(side_b_scores)) if side_b_scores else None
         by_scenario[scenario] = {
             "total_cases": len(cases),
-            "side_a_avg": round(side_a_avg, 1),
+            "side_a_avg": round(side_a_avg, 1) if side_a_avg is not None else None,
             "side_b_avg": round(side_b_avg, 1) if side_b_avg is not None else None,
-            "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None else None,
+            "gain": round(side_b_avg - side_a_avg, 1) if side_b_avg is not None and side_a_avg is not None else None,
         }
     return by_scenario
 

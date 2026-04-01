@@ -101,9 +101,10 @@ class EvaluatorManager:
     # ── 日志 ──────────────────────────────────────────────────
 
     def _add_log(self, level: str, message: str, detail: Optional[str] = None):
+        normalized_level = "WARN" if level == "WARNING" else level
         entry = LogEntry(
             timestamp=datetime.now().strftime("%H:%M:%S"),
-            level=level,
+            level=normalized_level,
             message=message,
             detail=detail,
         )
@@ -233,9 +234,10 @@ class EvaluatorManager:
         elif event == "log":
             level = data.get("level", "INFO")
             message = data.get("message", "")
+            detail = data.get("detail")
             # 从日志中推断 case 进度（当 log 包含 [case_id] 开始xxx 时）
             self._infer_case_stage_from_log(message)
-            self._add_log(level, message)
+            self._add_log(level, message, detail=detail)
 
         elif event == "error":
             case_id = data.get("case_id", "")
@@ -285,16 +287,13 @@ class EvaluatorManager:
             return self._run_generation != generation
 
         try:
-            from agent_bench.runner.discovery import ensure_opencode_server
             from agent_bench.pipeline.engine import run_pipeline
-
-            self._add_log("INFO", "正在连接 OpenCode Server...")
-            api_base = ensure_opencode_server()
-            self._add_log("INFO", f"OpenCode Server 已连接: {api_base}")
 
             scenario_arg = "all" if "all" in scenarios else ",".join(scenarios)
             case_ids = list(dict.fromkeys(case_ids or []))
             case_ids_arg = ",".join(case_ids) if case_ids else "ALL"
+            need_opencode = False
+            api_base = None
             if mode == "agent_compare":
                 if run_target == "both":
                     if not agent_a or not agent_b:
@@ -307,6 +306,8 @@ class EvaluatorManager:
                     }
                     active_sides = ["side_a", "side_b"]
                     effective_only_run_baseline = False
+                    need_opencode = (agent_a.get("adapter", "opencode") == "opencode" or
+                                     agent_b.get("adapter", "opencode") == "opencode")
                 elif run_target == "agent_a":
                     if not agent_a:
                         raise ValueError("请选择 Agent A")
@@ -318,6 +319,7 @@ class EvaluatorManager:
                     }
                     active_sides = ["side_a"]
                     effective_only_run_baseline = True
+                    need_opencode = agent_a.get("adapter", "opencode") == "opencode"
                 elif run_target == "agent_b":
                     if not agent_b:
                         raise ValueError("请选择 Agent B")
@@ -329,6 +331,7 @@ class EvaluatorManager:
                     }
                     active_sides = ["side_a"]
                     effective_only_run_baseline = True
+                    need_opencode = agent_b.get("adapter", "opencode") == "opencode"
                 else:
                     raise ValueError(f"不支持的 run_target: {run_target}")
 
@@ -337,6 +340,12 @@ class EvaluatorManager:
                 self._add_log("INFO", f"评测参数: mode={mode}, run_target={run_target}, scenarios={scenario_arg}, "
                               f"case_ids={case_ids_arg}, side_a={comparison_labels['side_a'] or '-'}, "
                               f"side_b={comparison_labels['side_b'] or '-'}")
+
+                if need_opencode:
+                    from agent_bench.runner.discovery import ensure_opencode_server
+                    self._add_log("INFO", "正在连接 OpenCode Server...")
+                    api_base = ensure_opencode_server()
+                    self._add_log("INFO", f"OpenCode Server 已连接: {api_base}")
 
                 result = run_pipeline(
                     profile=mode,
@@ -365,6 +374,13 @@ class EvaluatorManager:
                 self._add_log("INFO", f"评测参数: profile={profile_arg}, scenarios={scenario_arg}, "
                               f"case_ids={case_ids_arg}, skip_baseline={skip_baseline}, "
                               f"only_run_baseline={only_run_baseline}")
+
+                need_opencode = True
+                if need_opencode:
+                    from agent_bench.runner.discovery import ensure_opencode_server
+                    self._add_log("INFO", "正在连接 OpenCode Server...")
+                    api_base = ensure_opencode_server()
+                    self._add_log("INFO", f"OpenCode Server 已连接: {api_base}")
 
                 result = run_pipeline(
                     profile=profile_arg,

@@ -347,7 +347,9 @@
         <div v-for="(log, idx) in filteredLogs" :key="idx" class="log-entry">
           <span class="log-time">{{ log.timestamp }}</span>
           <span class="log-level" :class="log.level">{{ log.level }}</span>
-          <span class="log-message">{{ log.message }}</span>
+          <div class="log-content">
+            <span class="log-message">{{ [log.message, log.detail].filter(Boolean).join('\n') }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -523,7 +525,9 @@
         <div v-for="(log, idx) in fullscreenFilteredLogs" :key="idx" class="log-entry">
           <span class="log-time">{{ log.timestamp }}</span>
           <span class="log-level" :class="log.level">{{ log.level }}</span>
-          <span class="log-message">{{ log.message }}</span>
+          <div class="log-content">
+            <span class="log-message">{{ [log.message, log.detail].filter(Boolean).join('\n') }}</span>
+          </div>
         </div>
       </div>
     </el-dialog>
@@ -862,8 +866,6 @@ const startEvaluation = async () => {
         agent_id: selectedAgentB.value,
         label: effectiveComparisonLabels.value.side_b,
       },
-      skip_baseline: false,
-      only_run_baseline: false,
     })
     status.value = 'running'
     runId.value = null
@@ -1272,10 +1274,17 @@ onUnmounted(() => {
 .log-time  { color: #777; flex-shrink: 0; }
 .log-level { width: 46px; flex-shrink: 0; }
 .log-level.INFO  { color: #4fc3f7; }
+.log-level.WARNING,
 .log-level.WARN  { color: #ffb74d; }
 .log-level.ERROR { color: #ef5350; }
 .log-level.DEBUG { color: #777; }
-.log-message { color: #ddd; flex: 1; word-break: break-all; }
+.log-content { flex: 1; min-width: 0; }
+.log-message {
+  color: #ddd;
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* 全屏日志 */
 .fullscreen-header {

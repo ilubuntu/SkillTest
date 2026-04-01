@@ -31,7 +31,9 @@
       <div v-for="(log, idx) in filteredLogs" :key="idx" class="log-entry">
         <span class="log-time">{{ log.timestamp }}</span>
         <span class="log-level" :class="log.level">{{ log.level }}</span>
-        <span class="log-message">{{ log.message }}</span>
+        <div class="log-content">
+          <span class="log-message">{{ [log.message, log.detail].filter(Boolean).join('\n') }}</span>
+        </div>
       </div>
     </div>
 
@@ -71,7 +73,9 @@
         <div v-for="(log, idx) in fullscreenFilteredLogs" :key="idx" class="log-entry">
           <span class="log-time">{{ log.timestamp }}</span>
           <span class="log-level" :class="log.level">{{ log.level }}</span>
-          <span class="log-message">{{ log.message }}</span>
+          <div class="log-content">
+            <span class="log-message">{{ [log.message, log.detail].filter(Boolean).join('\n') }}</span>
+          </div>
         </div>
       </div>
     </el-dialog>
@@ -267,6 +271,7 @@ onUnmounted(() => {
   color: #4fc3f7;
 }
 
+.log-level.WARNING,
 .log-level.WARN {
   color: #ffb74d;
 }
@@ -279,10 +284,16 @@ onUnmounted(() => {
   color: #9e9e9e;
 }
 
+.log-content {
+  flex: 1;
+  min-width: 0;
+}
+
 .log-message {
   color: #e0e0e0;
-  flex: 1;
-  word-break: break-all;
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* 全屏弹窗样式 */
