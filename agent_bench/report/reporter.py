@@ -191,7 +191,10 @@ def _compute_weighted_total(scenario_summary: dict, general_summary: dict,
             "gain": None,
         }
 
-    if scenario_avg is None:
+    if scenario_avg is None and general_avg is None:
+        side_a_weighted = None
+        side_b_weighted = None
+    elif scenario_avg is None:
         side_a_weighted = general_avg
         side_b_weighted = general_summary.get("side_b_avg")
     elif general_avg is None:
