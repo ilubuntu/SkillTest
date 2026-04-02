@@ -301,7 +301,8 @@ class EvaluatorManager:
             scenario_arg = "all" if "all" in scenarios else ",".join(scenarios)
             case_ids = list(dict.fromkeys(case_ids or []))
             case_ids_arg = ",".join(case_ids) if case_ids else "ALL"
-            need_opencode = False
+            # 当前 Judge 固定通过 OpenCodeAdapter 执行，因此整条评测链路依然需要 OpenCode Server。
+            need_opencode = True
             api_base = None
             if mode == "agent_compare":
                 if run_target == "both":
@@ -315,8 +316,6 @@ class EvaluatorManager:
                     }
                     active_sides = ["side_a", "side_b"]
                     effective_only_run_baseline = False
-                    need_opencode = (agent_a.get("adapter", "opencode") == "opencode" or
-                                     agent_b.get("adapter", "opencode") == "opencode")
                 elif run_target == "agent_a":
                     if not agent_a:
                         raise ValueError("请选择基线Agent")
@@ -328,7 +327,6 @@ class EvaluatorManager:
                     }
                     active_sides = ["side_a"]
                     effective_only_run_baseline = True
-                    need_opencode = agent_a.get("adapter", "opencode") == "opencode"
                 elif run_target == "agent_b":
                     if not agent_b:
                         raise ValueError("请选择评测Agent")
@@ -340,7 +338,6 @@ class EvaluatorManager:
                     }
                     active_sides = ["side_a"]
                     effective_only_run_baseline = True
-                    need_opencode = agent_b.get("adapter", "opencode") == "opencode"
                 else:
                     raise ValueError(f"不支持的 run_target: {run_target}")
 

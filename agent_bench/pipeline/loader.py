@@ -84,18 +84,31 @@ def _build_skill_summary(skill_name: str, skill_file_path: str) -> str:
             "- 修改代码后立即执行一次 hvigor 编译自检",
             "- 使用 DevEco Studio 内置 node、hvigorw.js、sdk、java",
             "- 不要依赖系统 node，不要调用裸 hvigorw",
+            "- 在 Windows 或受限环境下，先把 HOME、USERPROFILE、LOCALAPPDATA、TEMP、TMP 重定向到当前工作区内的可写目录",
+            "- 如果重定向用户目录后 npm/corepack 丢失原配置，显式设置 NPM_CONFIG_USERCONFIG 指回原用户 .npmrc，并把 NPM_CONFIG_CACHE / COREPACK_HOME 放到工作区",
+            "- 如果日志出现 EPERM / operation not permitted / C:\\Users\\<user>\\.hvigor，说明 hvigor 缓存写到了工作区外，先修正环境再重跑",
             "- 编译失败时读取完整编译日志，继续修复并再次编译",
             "关键命令:",
-            "- DEVECO_PATH=/Applications/DevEco-Studio.app",
-            "- NODE_BIN=$DEVECO_PATH/Contents/tools/node/bin/node",
-            "- HVIGOR_JS=$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js",
-            "- export DEVECO_SDK_HOME=$DEVECO_PATH/Contents/sdk",
-            "- export JAVA_HOME=$DEVECO_PATH/Contents/jbr/Contents/Home",
-            "- unset NODE_HOME && unset HVIGOR_APP_HOME",
-            "- \"$NODE_BIN\" \"$HVIGOR_JS\" --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --no-daemon",
-            "- \"$NODE_BIN\" \"$HVIGOR_JS\" --stop-daemon",
+            "- Windows: 优先使用现有 DEVECO_SDK_HOME / HARMONYOS_SDK / JAVA_HOME 推导出 node.exe、hvigorw.js、jbr",
+            "- Windows: $env:HOME=$WorkspaceHome; $env:USERPROFILE=$WorkspaceHome; $env:LOCALAPPDATA=$WorkspaceLocalAppData; $env:TEMP=$WorkspaceTmp; $env:TMP=$WorkspaceTmp",
+            "- Windows: $env:NPM_CONFIG_CACHE=$WorkspaceLocalAppData\\npm-cache; $env:COREPACK_HOME=$WorkspaceLocalAppData\\corepack; $env:NPM_CONFIG_OFFLINE=false; $env:NPM_CONFIG_PREFER_OFFLINE=false",
+            "- Windows: if ($env:AGENT_BENCH_ORIGINAL_USERPROFILE) { $env:NPM_CONFIG_USERCONFIG = Join-Path $env:AGENT_BENCH_ORIGINAL_USERPROFILE '.npmrc' }",
+            "- Windows: Remove-Item Env:NODE_HOME -ErrorAction SilentlyContinue; Remove-Item Env:HVIGOR_APP_HOME -ErrorAction SilentlyContinue",
+            "- Windows: & $NodeBin $HvigorJs --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --no-daemon",
+            "- Windows: & $NodeBin $HvigorJs --stop-daemon",
+            "- macOS: DEVECO_PATH=/Applications/DevEco-Studio.app",
+            "- macOS: NODE_BIN=$DEVECO_PATH/Contents/tools/node/bin/node",
+            "- macOS: HVIGOR_JS=$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js",
+            "- macOS: export DEVECO_SDK_HOME=$DEVECO_PATH/Contents/sdk",
+            "- macOS: export JAVA_HOME=$DEVECO_PATH/Contents/jbr/Contents/Home",
+            "- macOS: export HOME=$PWD/.agent_bench/hvigor-home && export TMPDIR=$PWD/.agent_bench/tmp",
+            "- macOS: unset NODE_HOME && unset HVIGOR_APP_HOME",
+            "- macOS: \"$NODE_BIN\" \"$HVIGOR_JS\" --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --no-daemon",
+            "- macOS: \"$NODE_BIN\" \"$HVIGOR_JS\" --stop-daemon",
             "环境关键点:",
             "- 不要修改签名配置和 build-profile.json5",
+            "- 编译前先创建工作区内的缓存目录，再运行 hvigor",
+            "- 优先看工作区里的 build.log 和 npm-cache 日志，不要去搜索 DevEco 安装目录源码里的 ERROR 常量",
             "- 如果日志出现 NODE_HOME / hvigorw.js / ohpm 错误，优先修正环境变量和工具路径",
         ])
         return "\n".join(lines)
@@ -188,6 +201,7 @@ def _build_prompt_from_case_spec(case_spec: dict) -> str:
 
     lines = [
         "这是一个已有的 HarmonyOS ArkTS 工程，请直接在当前工程中修改代码完成修复。",
+        "下面提到的文件路径都相对于当前工作目录；如果看到 `original_project/`、`baseline/`、`enhanced/` 前缀，请去掉前缀后再访问真实文件。",
         "",
         "## 工程说明",
         project.get("summary", "").strip(),
@@ -199,21 +213,28 @@ def _build_prompt_from_case_spec(case_spec: dict) -> str:
     ]
 
     for path in problem.get("related_files", []) or []:
-        lines.append(f"- {path}")
+        raw_path = path.get("path") if isinstance(path, dict) else path
+        normalized_path = _normalize_workspace_relative_path(raw_path)
+        if normalized_path:
+            lines.append(f"- {normalized_path}")
 
     lines.extend([
         "",
         "## 期望效果",
     ])
     for item in problem.get("expected_result", []) or []:
-        lines.append(f"- {item}")
+        formatted = _format_prompt_value(item)
+        if formatted:
+            lines.append(f"- {formatted}")
 
     lines.extend([
         "",
         "## 结果输出要求",
     ])
     for item in agent.get("output_requirements", []) or []:
-        lines.append(f"- {item}")
+        formatted = _format_prompt_value(item)
+        if formatted:
+            lines.append(f"- {formatted}")
 
     if constraints:
         lines.extend([
@@ -221,9 +242,112 @@ def _build_prompt_from_case_spec(case_spec: dict) -> str:
             "## 约束",
         ])
         for item in constraints:
-            lines.append(f"- {item}")
+            lines.extend(_format_constraint_lines(item))
 
     return "\n".join([line for line in lines if line is not None]).strip()
+
+
+def _format_prompt_value(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        parts = []
+        for key, item in value.items():
+            key_text = str(key).strip()
+            value_text = _format_prompt_value(item)
+            if key_text and value_text:
+                parts.append(f"{key_text}: {value_text}")
+            elif key_text:
+                parts.append(key_text)
+            elif value_text:
+                parts.append(value_text)
+        return "；".join(part for part in parts if part)
+    if isinstance(value, list):
+        return "；".join(
+            item for item in (_format_prompt_value(item) for item in value) if item
+        )
+    return str(value).strip()
+
+
+def _normalize_workspace_relative_path(path: str) -> str:
+    normalized = _format_prompt_value(path).replace("\\", "/").strip()
+    prefixes = ("original_project/", "baseline/", "enhanced/")
+    for prefix in prefixes:
+        if normalized.startswith(prefix):
+            return normalized[len(prefix):]
+    return normalized
+
+
+def _format_constraint_lines(item) -> List[str]:
+    if isinstance(item, str):
+        formatted = _format_prompt_value(item)
+        return [f"- {formatted}"] if formatted else []
+
+    if not isinstance(item, dict):
+        formatted = _format_prompt_value(item)
+        return [f"- {formatted}"] if formatted else []
+
+    item_id = _format_prompt_value(item.get("id"))
+    priority = _format_prompt_value(item.get("priority"))
+    category = _format_prompt_value(item.get("category"))
+    name = _format_prompt_value(item.get("name"))
+    description = _format_prompt_value(item.get("description"))
+    check_method = item.get("check_method")
+
+    header_parts = [part for part in [item_id, priority, category] if part]
+    header_prefix = f"[{']['.join(header_parts)}] " if header_parts else ""
+    title = name or _format_prompt_value(item)
+    if not title:
+        return []
+
+    lines = [f"- {header_prefix}{title}"]
+    if description:
+        lines.append(f"  描述: {description}")
+    lines.extend(_format_check_method_lines(check_method))
+    return lines
+
+
+def _format_check_method_lines(check_method) -> List[str]:
+    if not check_method:
+        return []
+
+    if isinstance(check_method, str):
+        formatted = _format_prompt_value(check_method)
+        return [f"  检查方式: {formatted}"] if formatted else []
+
+    if not isinstance(check_method, dict):
+        formatted = _format_prompt_value(check_method)
+        return [f"  检查方式: {formatted}"] if formatted else []
+
+    method_type = _format_prompt_value(check_method.get("type")) or "custom_rule"
+    match_mode = _format_prompt_value(check_method.get("match_mode")) or "all"
+    lines = [f"  检查方式: {method_type} (match_mode={match_mode})"]
+
+    rules = check_method.get("rules") or []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            formatted = _format_prompt_value(rule)
+            if formatted:
+                lines.append(f"  规则: {formatted}")
+            continue
+
+        rule_id = _format_prompt_value(rule.get("rule_id"))
+        target_file = _normalize_workspace_relative_path(rule.get("target_file"))
+        match_type = _format_prompt_value(rule.get("match_type"))
+        snippet = _format_prompt_value(rule.get("snippet")) or _format_prompt_value(rule.get("pattern"))
+        count = _format_prompt_value(rule.get("count"))
+
+        header_parts = [part for part in [rule_id, target_file, match_type] if part]
+        if header_parts:
+            lines.append(f"  规则: {' | '.join(header_parts)}")
+        if count:
+            lines.append(f"    count: {count}")
+        if snippet:
+            lines.append(f"    snippet: {snippet}")
+
+    return lines
 
 
 def resolve_case_original_project(case: dict) -> Optional[str]:
@@ -326,12 +450,32 @@ def load_agent(agent_id: str) -> Optional[dict]:
 def _resolve_skill_mount_path(path: str) -> str:
     if not path:
         raise ValueError("Skill 路径不能为空")
-    if os.path.isdir(path):
-        candidate = os.path.join(path, "SKILL.md")
-        if os.path.isfile(candidate):
-            return candidate
-    if os.path.isfile(path):
-        return path
+
+    candidate_paths = []
+    if os.path.isabs(path):
+        candidate_paths.append(path)
+    else:
+        repo_root = os.path.dirname(BASE_DIR)
+        candidate_paths.extend([
+            path,
+            os.path.join(repo_root, path),
+            os.path.join(BASE_DIR, path),
+        ])
+
+    checked = set()
+    for candidate_path in candidate_paths:
+        normalized_path = os.path.normpath(candidate_path)
+        if normalized_path in checked:
+            continue
+        checked.add(normalized_path)
+
+        if os.path.isdir(normalized_path):
+            skill_md_path = os.path.join(normalized_path, "SKILL.md")
+            if os.path.isfile(skill_md_path):
+                return skill_md_path
+        if os.path.isfile(normalized_path):
+            return normalized_path
+
     raise FileNotFoundError(f"Skill 文件不存在: {path}")
 
 
@@ -374,10 +518,19 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
     if not agent:
         return {}
 
+    generic_edit_prompt = (
+        "编辑工程文件时，必须遵守以下流程：\n"
+        "1. 修改任意目标文件前，先重新读取该文件当前内容，不要依赖过期上下文、旧行号或旧片段。\n"
+        "2. 如果一次补丁、替换或 apply_patch 校验失败，必须重新读取文件最新内容后再生成新的修改。\n"
+        "3. 优先进行小范围、可验证的编辑，避免基于猜测做大段替换。\n"
+        "4. 同一文件发生多轮修改时，每一轮修改后都要再次确认文件最新状态。\n"
+        "5. 输出总结时，只描述最终成功落盘的修改，不要把失败的补丁尝试当作已完成修改。"
+    )
+
     result = {
         "skills": [],
         "mcp_servers": list(agent.get("mcp_servers") or []),
-        "system_prompt": "",
+        "system_prompt": generic_edit_prompt,
         "tools": agent.get("tools"),
     }
 
@@ -396,7 +549,7 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
     if compile_loop.get("enabled"):
         max_rounds = int(compile_loop.get("max_rounds") or 5)
         skill_name = compile_loop.get("skill_name") or "harmonyos-hvigor"
-        result["system_prompt"] = (
+        compile_loop_prompt = (
             f"你已挂载 Skill `{skill_name}`，必须使用它执行当前 HarmonyOS 工程的内部编译自检。\n"
             f"每次完成一轮代码修改后，必须立即按该 Skill 的方法对当前工程执行一次 hvigor 编译检查。\n"
             f"如果编译失败，必须把完整编译日志作为下一轮分析输入，继续修改并再次编译。\n"
@@ -404,6 +557,20 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
             "达到最大轮次仍未通过时，必须明确说明最后一次编译错误、已尝试的修复和当前阻塞点。\n"
             "这条内部编译循环只是 agent 自检，不替代评测系统最终的外部编译验证。"
         )
+        result["system_prompt"] = f"{result['system_prompt']}\n\n{compile_loop_prompt}"
+
+    adapter_type = str(agent.get("adapter") or "").strip().lower()
+    runtime_system_prompt = str(agent.get("runtime_system_prompt") or "").strip()
+    if adapter_type == "codex_local" and not runtime_system_prompt:
+        runtime_system_prompt = (
+            "当前运行环境是 codex_local，本次任务必须优先收敛操作范围。\n"
+            "1. 仅在当前工作区和任务相关文件中搜索、读取和修改，不要做全盘搜索。\n"
+            "2. 不要递归扫描 C:\\、C:\\Users、C:\\Program Files、C:\\Program Files (x86) 等系统目录。\n"
+            "3. HarmonyOS 工具链优先复用现有环境变量和已确认路径，不要反复探测 node、hvigorw.js、java。\n"
+            "4. 如果一次命令失败，先缩小搜索范围或重读目标文件，不要重复执行大范围搜索。"
+        )
+    if runtime_system_prompt:
+        result["system_prompt"] = f"{result['system_prompt']}\n\n{runtime_system_prompt}"
 
     return _cleanup_enhancement_dict(result)
 

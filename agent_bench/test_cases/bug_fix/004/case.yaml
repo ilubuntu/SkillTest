@@ -39,6 +39,79 @@ agent:
     - 修复后达到了什么效果
 
 constraints:
-  - 保持现有业务流程不变
-  - 最小必要修改
-  - 路由跳转应使用Navigation替代router
+  - id: HM-BUGFIX-004-01
+    name: "@ObservedV2持久化属性必须使用@Trace"
+    description: 使用@ObservedV2配合PersistenceV2时，驱动界面刷新的关键属性必须使用@Trace修饰，确保fontSize变更能触发UI同步刷新。
+    category: 组件规范
+    priority: P0
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-BUGFIX-004-01-R1
+          target_file: original_project/entry/src/main/ets/model/FontSettings.ets
+          match_type: contains
+          snippet: "@ObservedV2"
+        - rule_id: HM-BUGFIX-004-01-R2
+          target_file: original_project/entry/src/main/ets/model/FontSettings.ets
+          match_type: regex_contains
+          pattern: "@Trace\\s+fontSize\\s*:\\s*number(?:\\s*=\\s*\\d+)?"
+  - id: HM-BUGFIX-004-02
+    name: 首页与设置页必须共享同一字体配置源
+    description: 预览文本、设置入口文字和滑块数值必须绑定同一份持久化字体配置，修改后页面间状态应立即保持一致。
+    category: 可靠性
+    priority: P0
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-BUGFIX-004-02-R1
+          target_file: original_project/entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "settings\\s*:\\s*FontSettings\\s*=\\s*getFontSettings\\(\\)"
+        - rule_id: HM-BUGFIX-004-02-R2
+          target_file: original_project/entry/src/main/ets/pages/FontSettingPage.ets
+          match_type: regex_contains
+          pattern: "settings\\s*:\\s*FontSettings\\s*=\\s*getFontSettings\\(\\)"
+        - rule_id: HM-BUGFIX-004-02-R3
+          target_file: original_project/entry/src/main/ets/pages/Index.ets
+          match_type: regex_count_at_least
+          pattern: "settings\\.fontSize"
+          count: 3
+        - rule_id: HM-BUGFIX-004-02-R4
+          target_file: original_project/entry/src/main/ets/pages/FontSettingPage.ets
+          match_type: regex_contains
+          pattern: "settings\\.fontSize\\s*=\\s*\\w+"
+  - id: HM-BUGFIX-004-03
+    name: 页面跳转必须使用Navigation声明式导航
+    description: 从首页进入字体设置页时应使用Navigation、NavDestination或NavPathStack等声明式导航，避免继续使用router造成导航模式不一致。
+    category: 生态规则
+    priority: P2
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-BUGFIX-004-03-R1
+          target_file: original_project/entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "Navigation\\s*\\("
+        - rule_id: HM-BUGFIX-004-03-R2
+          target_file: original_project/entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\("
+        - rule_id: HM-BUGFIX-004-03-R3
+          target_file: original_project/entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "pushPathByName\\(\\s*['\"]FontSettingPage['\"]\\s*,\\s*null\\s*\\)"
+        - rule_id: HM-BUGFIX-004-03-R4
+          target_file: original_project/entry/src/main/ets/pages/Index.ets
+          match_type: regex_not_contains
+          pattern: "router\\.pushUrl"
+        - rule_id: HM-BUGFIX-004-03-R5
+          target_file: original_project/entry/src/main/ets/pages/FontSettingPage.ets
+          match_type: regex_contains
+          pattern: "NavDestination\\s*\\("
+        - rule_id: HM-BUGFIX-004-03-R6
+          target_file: original_project/entry/src/main/ets/pages/FontSettingPage.ets
+          match_type: regex_contains
+          pattern: "pathStack\\.pop\\(\\)"

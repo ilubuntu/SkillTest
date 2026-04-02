@@ -10,7 +10,10 @@ import time
 import tempfile
 import subprocess
 import threading
+import shutil
+import glob
 from typing import Optional
+from pathlib import Path
 
 from agent_bench.runner.adapter import AgentAdapter
 
@@ -50,6 +53,71 @@ class CodexLocalAdapter(AgentAdapter):
     def _clip_line(text: str, limit: int = 200) -> str:
         text = text or ""
         return text if len(text) <= limit else text[:limit] + "...<truncated>"
+
+    @staticmethod
+    def _looks_like_code_error_snippet(text: str) -> bool:
+        snippet = (text or "").strip()
+        if not snippet:
+            return False
+
+        normalized = snippet.lstrip("+- ").strip()
+        code_error_patterns = [
+            r"\bnew\s+Error\s*\(",
+            r"\bthrow\s+new\s+Error\s*\(",
+            r"\breject\s*\(\s*new\s+Error\s*\(",
+            r"\bPromise\.reject\s*\(\s*new\s+Error\s*\(",
+        ]
+        return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in code_error_patterns)
+
+    @staticmethod
+    def _looks_like_search_result_snippet(text: str) -> bool:
+        snippet = (text or "").strip()
+        if not snippet:
+            return False
+
+        path_hit_patterns = [
+            r"^[A-Za-z]:\\.+\.(?:ets|ts|js|json|yaml|yml|md):\d+:",
+            r"^[.\\/\w-]+[\\/].+\.(?:ets|ts|js|json|yaml|yml|md):\d+:",
+            r"^\d+:\s+.*(?:console\.error|logFormatedErrorAndExit|catch\s*\(|ERROR_[0-9]{2}|\"[A-Z0-9_]*ERROR[A-Z0-9_]*\")",
+        ]
+        if not any(re.search(pattern, snippet, re.IGNORECASE) for pattern in path_hit_patterns):
+            return False
+
+        lowered = snippet.lower()
+        return any(token in lowered for token in [
+            "error",
+            "exception",
+            "catch(",
+            "catch((",
+            "throw ",
+            "console.error",
+            "verbose stack",
+            "message\":",
+        ])
+
+    def _resolve_command(self) -> Optional[str]:
+        candidates = []
+        if self.cli_path:
+            candidates.append(self.cli_path)
+
+        for candidate in candidates:
+            resolved = shutil.which(candidate)
+            if resolved:
+                return resolved
+            if os.path.isfile(candidate):
+                return candidate
+
+        user_home = Path.home()
+        fallback_patterns = [
+            user_home / ".vscode" / "extensions" / "openai.chatgpt-*" / "bin" / "windows-x86_64" / "codex.exe",
+            user_home / ".codex" / "bin" / "codex.exe",
+        ]
+        for pattern in fallback_patterns:
+            matches = sorted(glob.glob(str(pattern)))
+            if matches:
+                return matches[-1]
+
+        return None
 
     def setup(self, enhancements: dict, on_progress=None):
         if on_progress:
@@ -97,8 +165,13 @@ class CodexLocalAdapter(AgentAdapter):
         with tempfile.NamedTemporaryFile(prefix="codex_last_", suffix=".txt", delete=False) as tmp:
             output_path = tmp.name
 
+        executable = self._resolve_command()
+        if not executable:
+            self._log("ERROR", f"未找到 Codex CLI: {self.cli_path}", tag=tag)
+            return ""
+
         cmd = [
-            self.cli_path,
+            executable,
             "exec",
             "-C", workdir,
             "--skip-git-repo-check",
@@ -126,24 +199,23 @@ class CodexLocalAdapter(AgentAdapter):
         try:
             child_env = os.environ.copy()
             child_env.update({str(k): str(v) for k, v in (self.env or {}).items() if v is not None})
+            child_env.setdefault("AGENT_BENCH_ORIGINAL_USERPROFILE", os.environ.get("USERPROFILE", ""))
+            child_env.setdefault("AGENT_BENCH_ORIGINAL_LOCALAPPDATA", os.environ.get("LOCALAPPDATA", ""))
+            child_env.setdefault("AGENT_BENCH_ORIGINAL_APPDATA", os.environ.get("APPDATA", ""))
             proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
-                text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                bufsize=1,
+                bufsize=0,
                 cwd=workdir,
                 env=child_env,
                 start_new_session=True,
             )
             self._log("DEBUG", "Codex 进程已启动", tag=tag)
             if proc.stdin:
-                proc.stdin.write(effective_prompt)
+                proc.stdin.write(effective_prompt.encode("utf-8"))
                 proc.stdin.close()
-        except FileNotFoundError:
-            self._log("ERROR", f"未找到 Codex CLI: {self.cli_path}", tag=tag)
-            return ""
         except Exception as e:
             self._log("ERROR", f"启动 Codex 失败: {e}", tag=tag)
             return ""
@@ -232,8 +304,8 @@ class CodexLocalAdapter(AgentAdapter):
         self._log("DEBUG", "Codex 输出流收尾完成", tag=tag)
         elapsed_ms = round((time.time() - t0) * 1000)
 
-        stdout = "".join(stdout_chunks)
-        stderr = "".join(stderr_chunks)
+        stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+        stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
         output_text = ""
         if os.path.exists(output_path):
             try:
@@ -265,7 +337,7 @@ class CodexLocalAdapter(AgentAdapter):
         if pipe is None:
             return
         try:
-            for line in iter(pipe.readline, ""):
+            for line in iter(pipe.readline, b""):
                 line_queue.put((source, line))
         finally:
             try:
@@ -273,8 +345,11 @@ class CodexLocalAdapter(AgentAdapter):
             except Exception:
                 pass
 
-    def _log_cli_line(self, line: str, prompt_text: str, tag: str = ""):
-        text = (line or "").strip()
+    def _log_cli_line(self, line, prompt_text: str, tag: str = ""):
+        if isinstance(line, bytes):
+            text = line.decode("utf-8", errors="replace").strip()
+        else:
+            text = (line or "").strip()
         if not text:
             return None
         if text == "user":
@@ -283,9 +358,31 @@ class CodexLocalAdapter(AgentAdapter):
             return None
         level = "INFO"
         upper_text = text.upper()
-        if "ERROR" in upper_text or "PANICKED" in upper_text or "FAIL " in upper_text or text.startswith("fail "):
+
+        is_tool_router_error = (
+            "CODEX_CORE::TOOLS::ROUTER:" in upper_text
+            and "EXIT CODE:" in upper_text
+        )
+        is_tool_exit_line = re.match(r"^exited\s+\d+\s+in\s+\d+ms:", text, re.IGNORECASE) is not None
+
+        has_error_marker = re.search(r"\bERROR\b", upper_text) is not None
+        has_panicked_marker = re.search(r"\bPANICKED\b", upper_text) is not None
+        has_fail_marker = (
+            re.search(r"\bFAIL(?:ED)?\b", upper_text) is not None
+            or text.lower().startswith("fail ")
+        )
+        has_warning_marker = (
+            re.search(r"\bWARNING\b", upper_text) is not None
+            or "RECONNECTING" in upper_text
+        )
+        is_code_error_snippet = self._looks_like_code_error_snippet(text)
+        is_search_result_snippet = self._looks_like_search_result_snippet(text)
+
+        if is_tool_router_error or is_tool_exit_line:
+            level = "WARN"
+        elif (has_error_marker or has_panicked_marker or has_fail_marker) and not is_code_error_snippet and not is_search_result_snippet:
             level = "ERROR"
-        elif "WARNING" in upper_text or "RECONNECTING" in upper_text:
+        elif has_warning_marker:
             level = "WARN"
         clipped = self._clip_line(text)
         self._log(level, f"Codex 输出: {clipped}", tag=tag)

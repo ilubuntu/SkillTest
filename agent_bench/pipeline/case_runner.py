@@ -20,6 +20,13 @@ from typing import Callable
 from agent_bench.runner.factory import create_adapter
 from agent_bench.evaluator.llm_judge import LLMJudge
 from agent_bench.evaluator import internal_scorer, aggregator
+from agent_bench.evaluator.constraint_scorer import (
+    build_constraint_review_skill,
+    evaluate_constraints,
+    build_constraint_review_report,
+    append_constraint_review_report,
+    strip_constraint_review_report,
+)
 
 from agent_bench.pipeline.loader import (
     load_test_cases, load_enhancements,
@@ -30,6 +37,7 @@ from agent_bench.pipeline.artifacts import (
     save_runner_artifacts, load_runner_artifacts,
     save_evaluator_artifacts,
     save_interaction_metrics,
+    save_constraint_review_artifacts,
     save_compile_artifacts,
     save_rule_check_artifact,
     save_case_result,
@@ -48,6 +56,10 @@ TASK_PROMPT = """请直接在指定工程目录中修改代码完成任务。
 ## 工作方式
 - 这是一个已经准备好的 HarmonyOS ArkTS 工程
 - 你应直接修改工程目录中的文件，而不是只返回单个代码片段
+- 当前工作目录就是工程根目录，请直接使用 `entry/...` 这类相对路径，不要再拼 `original_project/...`
+- 修改任意文件前，先重新读取该文件当前内容，不要假设先前看到的上下文仍然有效
+- 如果一次补丁或替换失败，必须重新读取目标文件后再生成新的修改，不要反复套用旧补丁
+- 优先做小范围、可验证的修改；同一文件多次编辑时，每轮修改后都要再次确认最新内容
 - 完成后请简要说明修改了哪些文件、主要修改内容和最终效果
 
 ## 任务
@@ -59,6 +71,10 @@ TASK_PROMPT_MULTI_PAGE = """请直接在指定工程目录中修改代码完成�
 ## 工作方式
 - 这是一个已经准备好的 HarmonyOS ArkTS 工程
 - 你应直接修改工程目录中的文件，而不是只返回单个代码片段
+- 当前工作目录就是工程根目录，请直接使用 `entry/...` 这类相对路径，不要再拼 `original_project/...`
+- 修改任意文件前，先重新读取该文件当前内容，不要假设先前看到的上下文仍然有效
+- 如果一次补丁或替换失败，必须重新读取目标文件后再生成新的修改，不要反复套用旧补丁
+- 优先做小范围、可验证的修改；同一文件多次编辑时，每轮修改后都要再次确认最新内容
 - 完成后请简要说明修改了哪些文件、主要修改内容和最终效果
 
 ## 任务
@@ -69,6 +85,15 @@ TASK_PROMPT_MULTI_PAGE = """请直接在指定工程目录中修改代码完成�
 """
 
 MAX_LOGGED_PROMPT_CHARS = 4000
+
+
+def _resolve_agent_timeout(agent: dict, fallback_timeout: int) -> int:
+    raw_timeout = (agent or {}).get("timeout")
+    try:
+        timeout = int(raw_timeout)
+        return timeout if timeout > 0 else fallback_timeout
+    except (TypeError, ValueError):
+        return fallback_timeout
 
 
 def _summarize_compile_error(error_text: str, limit: int = 160) -> str:
@@ -136,6 +161,16 @@ def _notify(on_progress, event: str, data: dict):
     """安全地调用回调"""
     if on_progress:
         on_progress(event, data)
+
+
+def _append_dynamic_skill(enhancements: dict, skill_payload: dict):
+    if not skill_payload:
+        return enhancements
+    result = dict(enhancements or {})
+    skills = list(result.get("skills") or [])
+    skills.append(skill_payload)
+    result["skills"] = skills
+    return result
 
 
 def _log_skill_mount_status(case_id: str, side_label: str, enhancements: dict, on_progress):
@@ -298,6 +333,29 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             save_runner_artifacts(case_dir, side_a_output, side_b_output,
                                   task_prompt=task_prompt, enhancements=enhancements,
                                   include_side_b=not only_run_baseline)
+
+        case_spec = case.get("case_spec") or {}
+        if case_spec:
+            constraint_skill = build_constraint_review_skill(case_spec)
+            side_reports = [
+                ("side_a", side_a_output, os.path.join(case_dir, "side_a")),
+            ]
+            if not only_run_baseline:
+                side_reports.append(("side_b", side_b_output, os.path.join(case_dir, "side_b")))
+
+            for stage_name, raw_output, project_dir in side_reports:
+                normalized_output = strip_constraint_review_report(raw_output)
+                score_result = evaluate_constraints(case_spec, project_dir)
+                report_text = build_constraint_review_report(score_result)
+                display_output = append_constraint_review_report(normalized_output, report_text)
+                save_constraint_review_artifacts(
+                    case_dir=case_dir,
+                    stage=stage_name,
+                    raw_output=normalized_output,
+                    display_output=display_output,
+                    skill_content=constraint_skill.get("content", ""),
+                    score_result=score_result,
+                )
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Runner 产物..."})
         side_a_output, side_b_output = load_runner_artifacts(case_dir)
@@ -452,6 +510,9 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         build_agent_runtime_enhancements(enhanced_agent or baseline_agent),
         enhancements or {},
     )
+    constraint_skill = build_constraint_review_skill(case.get("case_spec") or {})
+    side_a_enhancements = _append_dynamic_skill(side_a_enhancements, constraint_skill)
+    side_b_enhancements = _append_dynamic_skill(side_b_enhancements, constraint_skill)
 
     # ── A 侧运行 ──
     if dry_run:
@@ -465,9 +526,11 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": 0, "skipped": True})
     else:
         prepare_project_workspace(template_project_path, side_a_dir)
+        baseline_agent_config = baseline_agent or enhanced_agent
+        baseline_timeout = _resolve_agent_timeout(baseline_agent_config, agent_timeout)
         baseline_adapter = create_adapter(
-            baseline_agent or enhanced_agent,
-            timeout=agent_timeout,
+            baseline_agent_config,
+            timeout=baseline_timeout,
             on_progress=on_progress,
             temperature=agent_temperature,
         )
@@ -478,7 +541,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             baseline_adapter.setup(side_a_enhancements, on_progress=on_progress)
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始 {side_a_label} 运行..."})
             _notify(on_progress, "log", {"level": "DEBUG",
-                "message": f"[{case_id}] Task Prompt={len(task_prompt)}字符, workspace={side_a_dir}"})
+                "message": f"[{case_id}] Task Prompt={len(task_prompt)}字符, workspace={side_a_dir}, timeout={baseline_timeout}s"})
             t0 = time.time()
             tag = f"[{case_id}][{side_a_label}] "
             side_a_output = baseline_adapter.execute(task_prompt, tag=tag, workspace_dir=side_a_dir)
@@ -540,9 +603,11 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧编译", "elapsed": 0, "skipped": True})
     else:
         prepare_project_workspace(template_project_path, side_b_dir)
+        enhanced_agent_config = enhanced_agent or baseline_agent
+        enhanced_timeout = _resolve_agent_timeout(enhanced_agent_config, agent_timeout)
         enhanced_adapter = create_adapter(
-            enhanced_agent or baseline_agent,
-            timeout=agent_timeout,
+            enhanced_agent_config,
+            timeout=enhanced_timeout,
             on_progress=on_progress,
             temperature=agent_temperature,
         )
@@ -552,6 +617,8 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             _log_skill_mount_status(case_id, side_b_label, side_b_enhancements, on_progress)
             enhanced_adapter.setup(side_b_enhancements, on_progress=on_progress)
             _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始 {side_b_label} 运行..."})
+            _notify(on_progress, "log", {"level": "DEBUG",
+                "message": f"[{case_id}] Task Prompt={len(task_prompt)}字符, workspace={side_b_dir}, timeout={enhanced_timeout}s"})
             t0 = time.time()
             tag = f"[{case_id}][{side_b_label}] "
             side_b_output = enhanced_adapter.execute(task_prompt, tag=tag, workspace_dir=side_b_dir)

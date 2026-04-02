@@ -67,6 +67,25 @@ def save_interaction_metrics(case_dir: str, stage: str, metrics: dict):
         json.dump(metrics, f, ensure_ascii=False, indent=2)
 
 
+def save_constraint_review_artifacts(case_dir: str,
+                                     stage: str,
+                                     raw_output: str,
+                                     display_output: str,
+                                     skill_content: str,
+                                     score_result: dict):
+    """保存约束评分 skill、评分结果，并将 output.txt 更新为带评分摘要的展示版本。"""
+    target_dir = stage_meta_dir(case_dir, stage)
+
+    with open(os.path.join(target_dir, "raw_output.txt"), "w", encoding="utf-8") as f:
+        f.write(raw_output or "")
+    with open(os.path.join(target_dir, "output.txt"), "w", encoding="utf-8") as f:
+        f.write(display_output or raw_output or "")
+    with open(os.path.join(target_dir, "constraint_review_skill.md"), "w", encoding="utf-8") as f:
+        f.write(skill_content or "")
+    with open(os.path.join(target_dir, "constraint_review_score.json"), "w", encoding="utf-8") as f:
+        json.dump(score_result or {}, f, ensure_ascii=False, indent=2)
+
+
 def save_compile_artifacts(case_dir: str, stage: str, compile_result: dict):
     """保存编译阶段产物。"""
     target_dir = stage_dir(case_dir, stage)
@@ -82,14 +101,16 @@ def load_runner_artifacts(case_dir: str) -> tuple:
     Returns:
         (side_a_output, side_b_output)
     """
-    side_a_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "output.txt")
-    side_b_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "output.txt")
-    if not os.path.exists(side_a_path):
+    side_a_display_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "output.txt")
+    side_a_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "raw_output.txt")
+    side_b_display_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "output.txt")
+    side_b_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "raw_output.txt")
+    if not os.path.exists(side_a_path) and not os.path.exists(side_a_display_path):
         raise FileNotFoundError(f"Runner 产物不存在: {case_dir}，请先运行 runner 阶段")
-    with open(side_a_path, "r", encoding="utf-8") as f:
+    with open(side_a_path if os.path.exists(side_a_path) else side_a_display_path, "r", encoding="utf-8") as f:
         side_a_output = f.read()
-    if os.path.exists(side_b_path):
-        with open(side_b_path, "r", encoding="utf-8") as f:
+    if os.path.exists(side_b_path) or os.path.exists(side_b_display_path):
+        with open(side_b_path if os.path.exists(side_b_path) else side_b_display_path, "r", encoding="utf-8") as f:
             side_b_output = f.read()
     else:
         side_b_output = ""

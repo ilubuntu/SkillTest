@@ -14,6 +14,16 @@ from typing import Dict, Tuple, Any
 INDEX_ETS_REL = os.path.join("entry", "src", "main", "ets", "pages", "Index.ets")
 META_DIR_NAME = ".agent_bench"
 IGNORED_COMPARE_DIRS = {"build", ".hvigor", "node_modules", "oh_modules", META_DIR_NAME}
+WINDOWS_RESERVED_NAMES = {
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+
+
+def _is_reserved_windows_name(name: str) -> bool:
+    base_name = os.path.splitext((name or "").strip())[0].lower()
+    return base_name in WINDOWS_RESERVED_NAMES
 
 
 def _clean_markdown_code_blocks(code: str) -> str:
@@ -48,7 +58,7 @@ def _copy_template(src: str, dest: str):
         if dir_name in ('build', '.hvigor', 'node_modules', 'oh_modules'):
             ignored.update(files)
         for f in files:
-            if f == 'oh-package-lock.json5':
+            if f == 'oh-package-lock.json5' or _is_reserved_windows_name(f):
                 ignored.add(f)
         return ignored
 
@@ -59,12 +69,15 @@ def _collect_project_files(root: str) -> Dict[str, str]:
     """收集工程文件快照（相对路径 -> 绝对路径）"""
     file_map: Dict[str, str] = {}
     for current_root, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in IGNORED_COMPARE_DIRS]
+        dirs[:] = [d for d in dirs if d not in IGNORED_COMPARE_DIRS and not _is_reserved_windows_name(d)]
         for name in files:
-            if name == "oh-package-lock.json5":
+            if name == "oh-package-lock.json5" or _is_reserved_windows_name(name):
                 continue
             abs_path = os.path.join(current_root, name)
-            rel_path = os.path.relpath(abs_path, root)
+            try:
+                rel_path = os.path.relpath(abs_path, root)
+            except ValueError:
+                continue
             file_map[rel_path] = abs_path
     return file_map
 
@@ -202,6 +215,66 @@ def _find_deveco_paths() -> Dict[str, str]:
     }
 
 
+def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Dict[str, str]:
+    """构造在工作区内隔离缓存目录的编译环境。"""
+    env = os.environ.copy()
+    meta_root = os.path.join(project_path, META_DIR_NAME)
+    home_root = os.path.join(meta_root, "hvigor-home")
+    local_appdata_root = os.path.join(home_root, "AppData", "Local")
+    temp_root = os.path.join(meta_root, "tmp")
+    npm_cache_root = os.path.join(local_appdata_root, "npm-cache")
+    corepack_home = os.path.join(local_appdata_root, "corepack")
+
+    os.makedirs(home_root, exist_ok=True)
+    os.makedirs(local_appdata_root, exist_ok=True)
+    os.makedirs(temp_root, exist_ok=True)
+    os.makedirs(npm_cache_root, exist_ok=True)
+    os.makedirs(corepack_home, exist_ok=True)
+
+    env["DEVECO_SDK_HOME"] = paths["sdk"]
+    env["JAVA_HOME"] = paths["java"]
+    env["PATH"] = (
+        os.path.join(paths["java"], "bin") + os.pathsep
+        + os.path.dirname(paths["node"]) + os.pathsep
+        + env.get("PATH", "")
+    )
+    env["HOME"] = home_root
+    env["USERPROFILE"] = home_root
+    env["LOCALAPPDATA"] = local_appdata_root
+    env["TEMP"] = temp_root
+    env["TMP"] = temp_root
+    env["NPM_CONFIG_CACHE"] = npm_cache_root
+    env["npm_config_cache"] = npm_cache_root
+    env["COREPACK_HOME"] = corepack_home
+    env["NPM_CONFIG_OFFLINE"] = "false"
+    env["npm_config_offline"] = "false"
+    env["NPM_CONFIG_PREFER_OFFLINE"] = "false"
+    env["npm_config_prefer_offline"] = "false"
+    env.pop("NODE_HOME", None)
+    env.pop("HVIGOR_APP_HOME", None)
+
+    proxy = env.get("HTTPS_PROXY") or env.get("https_proxy") or env.get("HTTP_PROXY") or env.get("http_proxy")
+    if proxy:
+        env.setdefault("NPM_CONFIG_HTTPS_PROXY", proxy)
+        env.setdefault("npm_config_https_proxy", proxy)
+        env.setdefault("NPM_CONFIG_PROXY", proxy)
+        env.setdefault("npm_config_proxy", proxy)
+
+    original_userprofile = os.environ.get("USERPROFILE") or ""
+    if original_userprofile:
+        user_npmrc = os.path.join(original_userprofile, ".npmrc")
+        if os.path.isfile(user_npmrc):
+            env["NPM_CONFIG_USERCONFIG"] = user_npmrc
+            env["npm_config_userconfig"] = user_npmrc
+
+    drive, tail = os.path.splitdrive(home_root)
+    if drive:
+        env["HOMEDRIVE"] = drive
+        env["HOMEPATH"] = tail or "\\"
+
+    return env
+
+
 def _compile_project(project_path: str, timeout: int = 300) -> Tuple[bool, str]:
     """在指定项目目录下执行 hvigor 编译"""
     paths = _find_deveco_paths()
@@ -214,14 +287,7 @@ def _compile_project(project_path: str, timeout: int = 300) -> Tuple[bool, str]:
         return False, f"DevEco Studio SDK 未找到: {paths['sdk']}"
 
     try:
-        env = os.environ.copy()
-        env["DEVECO_SDK_HOME"] = paths["sdk"]
-        env["JAVA_HOME"] = paths["java"]
-        env["PATH"] = (
-            os.path.join(paths["java"], "bin") + os.pathsep
-            + os.path.dirname(paths["node"]) + os.pathsep
-            + env.get("PATH", "")
-        )
+        env = _build_workspace_compile_env(project_path, paths)
 
         hvigor_cmd = [
             paths["node"], paths["hvigor"],

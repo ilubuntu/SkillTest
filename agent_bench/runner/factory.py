@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """AgentAdapter 工厂"""
 
+from agent_bench.runner.codex_adapter import CodexAdapter
 from agent_bench.runner.opencode_adapter import OpenCodeAdapter
 from agent_bench.runner.codex_local_adapter import CodexLocalAdapter
 
