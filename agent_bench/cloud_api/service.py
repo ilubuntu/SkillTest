@@ -133,12 +133,46 @@ def _find_project_root(search_root: str) -> str:
     raise FileNotFoundError(f"未在下载内容中找到可执行工程目录: {search_root}")
 
 
+def _normalize_cross_platform_path(file_url: str) -> Optional[str]:
+    """检测跨平台绝对路径并尝试转换为本地路径。
+    
+    当 fileUrl 是 /Users/xxx/work/.../agent_bench/test_cases/... 格式时，
+    提取 test_cases 之后的相对路径，尝试在本地 agent_bench 目录下定位。
+    """
+    file_url_normalized = file_url.replace("\\", "/").strip()
+    if not file_url_normalized.startswith("/"):
+        return None
+    
+    parts = file_url_normalized.strip("/").split("/")
+    try:
+        agent_bench_idx = parts.index("agent_bench")
+    except ValueError:
+        return None
+    
+    relative_path = "/".join(parts[agent_bench_idx + 1:])
+    if not relative_path.startswith("test_cases/"):
+        return None
+    
+    try:
+        from agent_bench.pipeline.loader import BASE_DIR
+        local_candidate = os.path.join(BASE_DIR, relative_path)
+        if os.path.isdir(local_candidate):
+            return local_candidate
+    except Exception:
+        pass
+    return None
+
+
 def _prepare_project_from_file_url(file_url: str, target_dir: str) -> str:
     os.makedirs(target_dir, exist_ok=True)
     parsed = urllib.parse.urlparse(file_url)
 
     if not parsed.scheme and os.path.isdir(file_url):
         return _find_project_root(file_url)
+    
+    local_mapped = _normalize_cross_platform_path(file_url)
+    if local_mapped and os.path.isdir(local_mapped):
+        return _find_project_root(local_mapped)
 
     archive_path = os.path.join(target_dir, "source.zip")
     _download_file(file_url, archive_path)

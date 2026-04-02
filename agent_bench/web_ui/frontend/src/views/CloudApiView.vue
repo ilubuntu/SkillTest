@@ -109,7 +109,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const STORAGE_KEY = 'cloud-api-view'
-const DEFAULT_CASE_FILE_URL = '/Users/bb/work/benchmark/github/agent_bench/test_cases/bug_fix/001/original_project'
+const DEFAULT_CASE_FILE_URL = 'agent_bench/test_cases/bug_fix/001/original_project'
 const DEFAULT_CASE_ID = 'bug_fix_001'
 const isPlaceholderText = (value) => {
   const normalized = (value || '').trim()
