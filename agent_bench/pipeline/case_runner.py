@@ -51,40 +51,16 @@ from agent_bench.pipeline.compile_checker import (
 
 # ── 任务 Prompt 模板 ─────────────────────────────────────────
 
-TASK_PROMPT = """请直接在指定工程目录中修改代码完成任务。
+TASK_PROMPT = """{prompt}"""
 
-## 工作方式
-- 这是一个已经准备好的 HarmonyOS ArkTS 工程
-- 你应直接修改工程目录中的文件，而不是只返回单个代码片段
-- 当前工作目录就是工程根目录，请直接使用 `entry/...` 这类相对路径，不要再拼 `original_project/...`
-- 修改任意文件前，先重新读取该文件当前内容，不要假设先前看到的上下文仍然有效
-- 如果一次补丁或替换失败，必须重新读取目标文件后再生成新的修改，不要反复套用旧补丁
-- 优先做小范围、可验证的修改；同一文件多次编辑时，每轮修改后都要再次确认最新内容
-- 完成后请简要说明修改了哪些文件、主要修改内容和最终效果
-
-## 任务
-{prompt}
-"""
-
-TASK_PROMPT_MULTI_PAGE = """请直接在指定工程目录中修改代码完成任务。
-
-## 工作方式
-- 这是一个已经准备好的 HarmonyOS ArkTS 工程
-- 你应直接修改工程目录中的文件，而不是只返回单个代码片段
-- 当前工作目录就是工程根目录，请直接使用 `entry/...` 这类相对路径，不要再拼 `original_project/...`
-- 修改任意文件前，先重新读取该文件当前内容，不要假设先前看到的上下文仍然有效
-- 如果一次补丁或替换失败，必须重新读取目标文件后再生成新的修改，不要反复套用旧补丁
-- 优先做小范围、可验证的修改；同一文件多次编辑时，每轮修改后都要再次确认最新内容
-- 完成后请简要说明修改了哪些文件、主要修改内容和最终效果
-
-## 任务
-{prompt}
+TASK_PROMPT_MULTI_PAGE = """{prompt}
 
 ## 参考补充文件
 {additional_pages}
 """
 
 MAX_LOGGED_PROMPT_CHARS = 4000
+MAX_LOGGED_OUTPUT_CHARS = 1000
 
 
 def _resolve_agent_timeout(agent: dict, fallback_timeout: int) -> int:
@@ -119,7 +95,8 @@ def _case_related_files(case: dict) -> list:
 
 
 def _load_changed_files(side_dir: str) -> list:
-    changed_path = os.path.join(side_dir, META_DIR_NAME, "changed_files.json")
+    case_dir = os.path.dirname(side_dir)
+    changed_path = os.path.join(stage_meta_dir(case_dir, os.path.basename(side_dir)), "changed_files.json")
     if not os.path.exists(changed_path):
         return []
     try:
@@ -161,6 +138,11 @@ def _notify(on_progress, event: str, data: dict):
     """安全地调用回调"""
     if on_progress:
         on_progress(event, data)
+
+
+def _clip_text(text: str, limit: int) -> str:
+    text = text or ""
+    return text if len(text) <= limit else text[:limit] + "\n...<truncated>"
 
 
 def _append_dynamic_skill(enhancements: dict, skill_payload: dict):
@@ -280,13 +262,13 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
         else:
             task_prompt = TASK_PROMPT.format(prompt=prompt)
 
-    if task_prompt:
-        prompt_preview = task_prompt[:MAX_LOGGED_PROMPT_CHARS]
-        if len(task_prompt) > MAX_LOGGED_PROMPT_CHARS:
+    if prompt:
+        prompt_preview = prompt[:MAX_LOGGED_PROMPT_CHARS]
+        if len(prompt) > MAX_LOGGED_PROMPT_CHARS:
             prompt_preview += "\n...<truncated>"
         _notify(on_progress, "log", {
-            "level": "DEBUG",
-            "message": f"[{case_id}] Agent Task Prompt:\n{prompt_preview}"
+            "level": "WARN",
+            "message": f"[{case_id}] Case Prompt:\n{prompt_preview}"
         })
 
     # rubric 从 scoring_standards.json 按场景加载，不再依赖 case YAML
@@ -306,8 +288,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     # ── Runner 阶段 ──
     if "runner" in stages:
         # 若产物已存在则直接复用，避免重复调用 Agent 引入随机性
-        side_a_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "output.txt")
-        side_b_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "output.txt")
+        side_a_path = os.path.join(stage_meta_dir(case_dir, "side_a"), "output.txt")
+        side_b_path = os.path.join(stage_meta_dir(case_dir, "side_b"), "output.txt")
         use_runner_cache = os.path.exists(side_a_path) and (os.path.exists(side_b_path) or only_run_baseline)
         if use_runner_cache:
             _notify(on_progress, "log", {"level": "INFO",
@@ -474,7 +456,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
     # general 场景：直接编译当前用例的 original_project 验证
     if is_general_case:
         prepare_project_workspace(template_project_path, side_a_dir)
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例：直接编译验证模板工程 {template_project_path}"})
+        _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 通用用例：直接编译验证模板工程 {template_project_path}"})
         t0 = time.time()
         compile_result = check_project_compilable(
             side_a_dir,
@@ -494,7 +476,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             compile_results["side_b_compilable"] = None
             compile_results["side_b_error"] = ""
         if compile_result["compilable"]:
-            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 通用用例编译成功"})
+            _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 通用用例编译成功"})
             stage_status = "done"
         else:
             _notify(on_progress, "log", {"level": "ERROR", 
@@ -522,10 +504,12 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
     elif skip_baseline:
         prepare_project_workspace(template_project_path, side_a_dir)
         side_a_output = ""
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 跳过 {side_a_label} 运行 (skip_baseline)"})
+        _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 跳过 {side_a_label} 运行 (skip_baseline)"})
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": 0, "skipped": True})
     else:
         prepare_project_workspace(template_project_path, side_a_dir)
+        if should_compile and os.path.isdir(side_a_dir):
+            _warmup_single_side(case_id, side_a_dir, side_a_label, on_progress)
         baseline_agent_config = baseline_agent or enhanced_agent
         baseline_timeout = _resolve_agent_timeout(baseline_agent_config, agent_timeout)
         baseline_adapter = create_adapter(
@@ -536,10 +520,10 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         )
         try:
             _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "A侧运行"})
-            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 配置 {side_a_label} 运行..."})
+            _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 配置 {side_a_label} 运行..."})
             _log_skill_mount_status(case_id, side_a_label, side_a_enhancements, on_progress)
             baseline_adapter.setup(side_a_enhancements, on_progress=on_progress)
-            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始 {side_a_label} 运行..."})
+            _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 开始 {side_a_label} 运行..."})
             _notify(on_progress, "log", {"level": "DEBUG",
                 "message": f"[{case_id}] Task Prompt={len(task_prompt)}字符, workspace={side_a_dir}, timeout={baseline_timeout}s"})
             t0 = time.time()
@@ -552,8 +536,13 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             save_interaction_metrics(case_dir, "side_a", baseline_adapter.get_last_interaction_metrics())
             baseline_adapter.teardown()
         elapsed = time.time() - t0
-        _notify(on_progress, "log", {"level": "INFO",
+        _notify(on_progress, "log", {"level": "WARNING",
             "message": f"[{case_id}] {side_a_label} 运行完成, 输出={len(side_a_output)}字符, 耗时={elapsed:.1f}s"})
+        if side_a_output:
+            _notify(on_progress, "log", {
+                "level": "WARNING",
+                "message": f"[{case_id}] {side_a_label} 输出预览:\n{_clip_text(side_a_output, MAX_LOGGED_OUTPUT_CHARS)}"
+            })
         _log_compile_self_check_signal(case_id, side_a_label, side_a_output, on_progress)
         
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": elapsed})
@@ -579,7 +568,7 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         side_b_output = ""
         compile_results["side_b_compilable"] = None
         compile_results["side_b_error"] = ""
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 仅运行 {side_a_label}，{side_b_label} 跳过执行"})
+        _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 仅运行 {side_a_label}，{side_b_label} 跳过执行"})
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": 0, "skipped": True})
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧编译", "elapsed": 0, "skipped": True})
     elif dry_run:
@@ -603,6 +592,8 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧编译", "elapsed": 0, "skipped": True})
     else:
         prepare_project_workspace(template_project_path, side_b_dir)
+        if should_compile and os.path.isdir(side_b_dir):
+            _warmup_single_side(case_id, side_b_dir, side_b_label, on_progress)
         enhanced_agent_config = enhanced_agent or baseline_agent
         enhanced_timeout = _resolve_agent_timeout(enhanced_agent_config, agent_timeout)
         enhanced_adapter = create_adapter(
@@ -613,10 +604,10 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         )
         try:
             _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "B侧运行"})
-            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 配置 {side_b_label} 运行..."})
+            _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 配置 {side_b_label} 运行..."})
             _log_skill_mount_status(case_id, side_b_label, side_b_enhancements, on_progress)
             enhanced_adapter.setup(side_b_enhancements, on_progress=on_progress)
-            _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 开始 {side_b_label} 运行..."})
+            _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 开始 {side_b_label} 运行..."})
             _notify(on_progress, "log", {"level": "DEBUG",
                 "message": f"[{case_id}] Task Prompt={len(task_prompt)}字符, workspace={side_b_dir}, timeout={enhanced_timeout}s"})
             t0 = time.time()
@@ -629,8 +620,13 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
             save_interaction_metrics(case_dir, "side_b", enhanced_adapter.get_last_interaction_metrics())
             enhanced_adapter.teardown()
         elapsed = time.time() - t0
-        _notify(on_progress, "log", {"level": "INFO",
+        _notify(on_progress, "log", {"level": "WARNING",
             "message": f"[{case_id}] {side_b_label} 运行完成, 输出={len(side_b_output)}字符, 耗时={elapsed:.1f}s"})
+        if side_b_output:
+            _notify(on_progress, "log", {
+                "level": "WARNING",
+                "message": f"[{case_id}] {side_b_label} 输出预览:\n{_clip_text(side_b_output, MAX_LOGGED_OUTPUT_CHARS)}"
+            })
         _log_compile_self_check_signal(case_id, side_b_label, side_b_output, on_progress)
         
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": elapsed})
@@ -664,7 +660,7 @@ def _compile_single_side(case_id: str,
                          artifact_stage: str,
                          on_progress):
     _notify(on_progress, "stage_start", {"case_id": case_id, "stage": stage_name})
-    _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 检查 {side_label} 工程可编译性..."})
+    _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 检查 {side_label} 工程可编译性..."})
     t0 = time.time()
     compile_result = check_project_compilable(side_dir, template_project_path=template_project_path)
     elapsed = time.time() - t0
@@ -680,9 +676,37 @@ def _compile_single_side(case_id: str,
         })
         stage_status = "error"
     else:
-        _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] {side_label} 工程可编译"})
+        _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] {side_label} 工程可编译"})
         stage_status = "done"
     _notify(on_progress, "stage_done", {"case_id": case_id, "stage": stage_name, "elapsed": elapsed, "status": stage_status})
+
+
+def _warmup_single_side(case_id: str,
+                        side_dir: str,
+                        side_label: str,
+                        on_progress):
+    """在 agent 修改前先预编译一次工程，预热依赖和缓存。
+
+    这是性能优化步骤，不参与最终结果判定，也不写正式编译产物。
+    """
+    _notify(on_progress, "log", {
+        "level": "WARNING",
+        "message": f"[{case_id}] 开始预编译预热 {side_label} 工程..."
+    })
+    t0 = time.time()
+    compile_result = check_project_compilable(side_dir)
+    elapsed = time.time() - t0
+    if compile_result.get("compilable"):
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"[{case_id}] {side_label} 工程预编译完成 ({elapsed:.1f}s)"
+        })
+    else:
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"[{case_id}] {side_label} 工程预编译失败，但继续执行 Agent ({elapsed:.1f}s)",
+            "detail": compile_result.get("error", "") or "未知错误",
+        })
 
 
 def _run_compile_stage(case: dict,

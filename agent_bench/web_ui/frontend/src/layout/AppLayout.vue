@@ -33,6 +33,10 @@
           <el-icon><DataAnalysis /></el-icon>
           <template #title>报告展示</template>
         </el-menu-item>
+        <el-menu-item index="/cloud-api">
+          <el-icon><Connection /></el-icon>
+          <template #title>云测桥接</template>
+        </el-menu-item>
         <div class="menu-divider" v-if="!isCollapsed"></div>
         <el-menu-item index="/about">
           <el-icon><InfoFilled /></el-icon>
@@ -62,7 +66,7 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  Document, Setting, Aim, VideoPlay, DataAnalysis, InfoFilled
+  Document, Setting, Aim, VideoPlay, DataAnalysis, InfoFilled, Connection
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -76,6 +80,7 @@ const titleMap = {
   '/rubrics': '评分标准管理',
   '/evaluation': '评测中心',
   '/reports': '报告展示',
+  '/cloud-api': '云测桥接',
   '/about': '关于系统',
 }
 const currentTitle = computed(() => titleMap[route.path] || '评测系统')

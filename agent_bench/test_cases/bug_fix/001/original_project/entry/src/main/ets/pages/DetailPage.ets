@@ -1,16 +1,5 @@
 import { promptAction, router } from '@kit.ArkUI'
-
-// 商品数据模型
-interface Goods {
-  id: number
-  name: string
-  price: number
-}
-
-interface GoodsRepository {
-  queryOne(table: string, id: number): Goods
-  update(table: string, data: Goods): Promise<void>
-}
+import { Goods, GoodsStore } from '../common/GoodsStore'
 
 interface DetailPageParams {
   id: number
@@ -23,43 +12,6 @@ interface DetailBackParams {
   changeToken?: number
 }
 
-const DEFAULT_GOODS: Goods = { id: -1, name: '', price: 0 }
-const GOODS_SOURCE: Goods[] = [
-  { id: 1, name: 'iPhone 15 Pro', price: 8999 },
-  { id: 2, name: 'iPad Air', price: 4599 },
-  { id: 3, name: 'MacBook Pro', price: 12999 },
-  { id: 4, name: 'AirPods Pro', price: 1899 },
-  { id: 5, name: 'Apple Watch', price: 2999 }
-]
-
-// 模拟数据库（实际项目中应该是真实的本地数据库调用）
-class MockGoodsRepository implements GoodsRepository {
-  queryOne(table: string, id: number): Goods {
-    const matched = GOODS_SOURCE.find((goods: Goods) => goods.id === id)
-    return matched ? matched : DEFAULT_GOODS
-  }
-
-  update(table: string, data: Goods): Promise<void> {
-    // 模拟异步数据库更新
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        if (!data.name || data.price <= 0) {
-          reject(new Error('Invalid data'))
-          return
-        }
-        console.info(`DB.update: ${JSON.stringify(data)}`)
-        resolve()
-      }, 500)
-    })
-  }
-}
-
-const DB: GoodsRepository = new MockGoodsRepository()
-
-// ============================================================
-// DetailPage - 商品编辑页
-// 修复: aboutToAppear 使用真正的异步加载
-// ============================================================
 @Entry
 @Component
 struct DetailPage {
@@ -85,7 +37,7 @@ struct DetailPage {
 
   async loadGoods() {
     this.isLoading = true
-    const goods = DB.queryOne('goods', this.goodsId)
+    const goods = GoodsStore.getById(this.goodsId)
     this.editName = goods.name
     this.editPrice = goods.price.toString()
     this.isLoading = false
@@ -203,13 +155,13 @@ struct DetailPage {
       changeToken: changeToken
     }
 
-    DB.update('goods', savedGoods)
-      .then(() => {
-        router.back({ url: 'pages/Index', params: backParams })
-      })
-      .catch((err: Error) => {
-        promptAction.showToast({ message: `保存失败: ${err.message}` })
-        this.isSaving = false
-      })
+    try {
+      GoodsStore.save(savedGoods)
+      router.back({ url: 'pages/Index', params: backParams })
+    } catch (err) {
+      const message = (err as Error).message
+      promptAction.showToast({ message: `保存失败: ${message}` })
+      this.isSaving = false
+    }
   }
 }

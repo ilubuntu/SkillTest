@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Harmony Project"
+  short_description: "Compile HarmonyOS projects safely"
+  default_prompt: "Use $build-harmony-project to build this HarmonyOS project with the local DevEco Studio toolchain."

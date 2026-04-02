@@ -1,38 +1,9 @@
-schema: case-spec/v1
-version: 1
-
 case:
   id: bug_fix_001
   scenario: bug_fix
   title: 商品列表与详情编辑工程缺陷修复
-
-project:
-  type: HarmonyOS ArkTS
-  project_dir: original_project
-  summary: >
-    这是一个商品管理工程。首页展示商品列表，
-    点击添加或编辑进入详情页，保存后返回首页并更新列表。
-
-problem:
-  summary: >
-    当前工程存在功能缺陷、错误用法以及可能的废弃 API / 可编译性问题。
-  related_files:
-    - entry/src/main/ets/pages/Index.ets
-    - entry/src/main/ets/pages/DetailPage.ets
-    - entry/src/main/resources/base/profile/main_pages.json
-  expected_result:
-    - 新增商品后返回首页并更新列表
-    - 编辑商品后返回首页并更新列表
-    - 异常场景有基本提示
-    - 修复后的代码可供后续验证
-
-agent:
-  purpose: 测试 agent 在已有工程中直接修改代码并完成修复的能力
-  work_mode: 直接在当前工程中修改代码
-  output_requirements:
-    - 修改了哪些文件
-    - 每个文件的主要修改内容
-    - 修复后达到了什么效果
+  prompt: 这是一个商品管理工程，首页展示商品列表（Index.ets），点击添加进入修改添加商品页面（DetailPage.ets），当前添加商品后首页列表不更新。
+  output_requirements: 请修复，直接在当前工程中修改代码,并说明修改了哪些文件
 
 constraints:
   - id: HM-BUGFIX-001-01

@@ -73,7 +73,7 @@ def _build_skill_summary(skill_name: str, skill_file_path: str) -> str:
     frontmatter = _load_skill_frontmatter(skill_file_path)
     description = (frontmatter.get("description") or "").strip()
 
-    if skill_name == "harmonyos-hvigor":
+    if skill_name == "build-harmony-project":
         lines = [
             f"Skill 名称: {skill_name}",
         ]
@@ -81,35 +81,18 @@ def _build_skill_summary(skill_name: str, skill_file_path: str) -> str:
             lines.append(f"Skill 说明: {description}")
         lines.extend([
             "使用原则:",
-            "- 修改代码后立即执行一次 hvigor 编译自检",
-            "- 使用 DevEco Studio 内置 node、hvigorw.js、sdk、java",
-            "- 不要依赖系统 node，不要调用裸 hvigorw",
-            "- 在 Windows 或受限环境下，先把 HOME、USERPROFILE、LOCALAPPDATA、TEMP、TMP 重定向到当前工作区内的可写目录",
-            "- 如果重定向用户目录后 npm/corepack 丢失原配置，显式设置 NPM_CONFIG_USERCONFIG 指回原用户 .npmrc，并把 NPM_CONFIG_CACHE / COREPACK_HOME 放到工作区",
-            "- 如果日志出现 EPERM / operation not permitted / C:\\Users\\<user>\\.hvigor，说明 hvigor 缓存写到了工作区外，先修正环境再重跑",
-            "- 编译失败时读取完整编译日志，继续修复并再次编译",
+            "- 修改代码后立即执行一次 HarmonyOS 编译自检",
+            "- 只使用 DevEco Studio 内置 node、hvigorw.js、sdk、java",
+            "- 不修改签名文件、签名配置、build-profile.json5",
+            "- 编译失败时读取完整日志，再继续修复并重试",
             "关键命令:",
-            "- Windows: 优先使用现有 DEVECO_SDK_HOME / HARMONYOS_SDK / JAVA_HOME 推导出 node.exe、hvigorw.js、jbr",
-            "- Windows: $env:HOME=$WorkspaceHome; $env:USERPROFILE=$WorkspaceHome; $env:LOCALAPPDATA=$WorkspaceLocalAppData; $env:TEMP=$WorkspaceTmp; $env:TMP=$WorkspaceTmp",
-            "- Windows: $env:NPM_CONFIG_CACHE=$WorkspaceLocalAppData\\npm-cache; $env:COREPACK_HOME=$WorkspaceLocalAppData\\corepack; $env:NPM_CONFIG_OFFLINE=false; $env:NPM_CONFIG_PREFER_OFFLINE=false",
-            "- Windows: if ($env:AGENT_BENCH_ORIGINAL_USERPROFILE) { $env:NPM_CONFIG_USERCONFIG = Join-Path $env:AGENT_BENCH_ORIGINAL_USERPROFILE '.npmrc' }",
-            "- Windows: Remove-Item Env:NODE_HOME -ErrorAction SilentlyContinue; Remove-Item Env:HVIGOR_APP_HOME -ErrorAction SilentlyContinue",
-            "- Windows: & $NodeBin $HvigorJs --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --no-daemon",
-            "- Windows: & $NodeBin $HvigorJs --stop-daemon",
             "- macOS: DEVECO_PATH=/Applications/DevEco-Studio.app",
             "- macOS: NODE_BIN=$DEVECO_PATH/Contents/tools/node/bin/node",
             "- macOS: HVIGOR_JS=$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js",
             "- macOS: export DEVECO_SDK_HOME=$DEVECO_PATH/Contents/sdk",
             "- macOS: export JAVA_HOME=$DEVECO_PATH/Contents/jbr/Contents/Home",
-            "- macOS: export HOME=$PWD/.agent_bench/hvigor-home && export TMPDIR=$PWD/.agent_bench/tmp",
-            "- macOS: unset NODE_HOME && unset HVIGOR_APP_HOME",
-            "- macOS: \"$NODE_BIN\" \"$HVIGOR_JS\" --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --no-daemon",
+            "- macOS: \"$NODE_BIN\" \"$HVIGOR_JS\" --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --daemon",
             "- macOS: \"$NODE_BIN\" \"$HVIGOR_JS\" --stop-daemon",
-            "环境关键点:",
-            "- 不要修改签名配置和 build-profile.json5",
-            "- 编译前先创建工作区内的缓存目录，再运行 hvigor",
-            "- 优先看工作区里的 build.log 和 npm-cache 日志，不要去搜索 DevEco 安装目录源码里的 ERROR 常量",
-            "- 如果日志出现 NODE_HOME / hvigorw.js / ohpm 错误，优先修正环境变量和工具路径",
         ])
         return "\n".join(lines)
 
@@ -193,58 +176,39 @@ def _load_case_spec(case: dict) -> dict:
 
 
 def _build_prompt_from_case_spec(case_spec: dict) -> str:
-    """根据最小可用 case.yaml 生成发给 agent 的任务描述"""
-    project = case_spec.get("project", {})
-    problem = case_spec.get("problem", {})
-    agent = case_spec.get("agent", {})
-    constraints = case_spec.get("constraints", []) or []
+    """根据最小 case.yaml 生成发给 agent 的任务描述。
 
-    lines = [
-        "这是一个已有的 HarmonyOS ArkTS 工程，请直接在当前工程中修改代码完成修复。",
-        "下面提到的文件路径都相对于当前工作目录；如果看到 `original_project/`、`baseline/`、`enhanced/` 前缀，请去掉前缀后再访问真实文件。",
-        "",
-        "## 工程说明",
-        project.get("summary", "").strip(),
-        "",
-        "## 当前问题",
-        problem.get("summary", "").strip(),
-        "",
-        "## 重点相关文件",
-    ]
+    当前只拼接两个字段：
+    - prompt
+    - output_requirements
+    """
+    case_meta = case_spec.get("case", {}) or {}
+    agent = case_spec.get("agent", {}) or {}
 
-    for path in problem.get("related_files", []) or []:
-        raw_path = path.get("path") if isinstance(path, dict) else path
-        normalized_path = _normalize_workspace_relative_path(raw_path)
-        if normalized_path:
-            lines.append(f"- {normalized_path}")
+    prompt = _format_prompt_value(case_meta.get("prompt") or case_spec.get("prompt"))
+    output_requirements = case_meta.get("output_requirements")
+    if output_requirements is None:
+        output_requirements = agent.get("output_requirements")
 
-    lines.extend([
-        "",
-        "## 期望效果",
-    ])
-    for item in problem.get("expected_result", []) or []:
-        formatted = _format_prompt_value(item)
-        if formatted:
-            lines.append(f"- {formatted}")
+    if not prompt:
+        return ""
 
-    lines.extend([
-        "",
-        "## 结果输出要求",
-    ])
-    for item in agent.get("output_requirements", []) or []:
-        formatted = _format_prompt_value(item)
-        if formatted:
-            lines.append(f"- {formatted}")
+    lines = []
+    lines.append(prompt)
 
-    if constraints:
-        lines.extend([
-            "",
-            "## 约束",
-        ])
-        for item in constraints:
-            lines.extend(_format_constraint_lines(item))
+    if output_requirements:
+        lines.extend(["", "## 结果输出要求"])
+        if isinstance(output_requirements, list):
+            for item in output_requirements:
+                formatted = _format_prompt_value(item)
+                if formatted:
+                    lines.append(f"- {formatted}")
+        else:
+            formatted = _format_prompt_value(output_requirements)
+            if formatted:
+                lines.append(f"- {formatted}")
 
-    return "\n".join([line for line in lines if line is not None]).strip()
+    return "\n".join(line for line in lines if line is not None).strip()
 
 
 def _format_prompt_value(value) -> str:
@@ -514,23 +478,16 @@ def merge_enhancements(base: Optional[dict], extra: Optional[dict]) -> dict:
 
 
 def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
-    """根据 Agent 配置构造运行时增强项。"""
+    """根据 Agent 配置构造运行时增强项。
+
+    当前仅保留精简的编译循环 system prompt。
+    """
     if not agent:
         return {}
-
-    generic_edit_prompt = (
-        "编辑工程文件时，必须遵守以下流程：\n"
-        "1. 修改任意目标文件前，先重新读取该文件当前内容，不要依赖过期上下文、旧行号或旧片段。\n"
-        "2. 如果一次补丁、替换或 apply_patch 校验失败，必须重新读取文件最新内容后再生成新的修改。\n"
-        "3. 优先进行小范围、可验证的编辑，避免基于猜测做大段替换。\n"
-        "4. 同一文件发生多轮修改时，每一轮修改后都要再次确认文件最新状态。\n"
-        "5. 输出总结时，只描述最终成功落盘的修改，不要把失败的补丁尝试当作已完成修改。"
-    )
 
     result = {
         "skills": [],
         "mcp_servers": list(agent.get("mcp_servers") or []),
-        "system_prompt": generic_edit_prompt,
         "tools": agent.get("tools"),
     }
 
@@ -547,30 +504,12 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
 
     compile_loop = agent.get("compile_loop") or {}
     if compile_loop.get("enabled"):
+        skill_name = compile_loop.get("skill_name") or "build-harmony-project"
         max_rounds = int(compile_loop.get("max_rounds") or 5)
-        skill_name = compile_loop.get("skill_name") or "harmonyos-hvigor"
-        compile_loop_prompt = (
-            f"你已挂载 Skill `{skill_name}`，必须使用它执行当前 HarmonyOS 工程的内部编译自检。\n"
-            f"每次完成一轮代码修改后，必须立即按该 Skill 的方法对当前工程执行一次 hvigor 编译检查。\n"
-            f"如果编译失败，必须把完整编译日志作为下一轮分析输入，继续修改并再次编译。\n"
-            f"重复“修改 -> 编译 -> 读取日志 -> 继续修复”的循环，最多执行 {max_rounds} 轮，直到编译通过。\n"
-            "达到最大轮次仍未通过时，必须明确说明最后一次编译错误、已尝试的修复和当前阻塞点。\n"
-            "这条内部编译循环只是 agent 自检，不替代评测系统最终的外部编译验证。"
+        result["system_prompt"] = (
+            f"每次修改代码后都必须使用 {skill_name} 做一次编译自检，"
+            f"失败就结合完整编译日志继续修复并重试，最多 {max_rounds} 轮。"
         )
-        result["system_prompt"] = f"{result['system_prompt']}\n\n{compile_loop_prompt}"
-
-    adapter_type = str(agent.get("adapter") or "").strip().lower()
-    runtime_system_prompt = str(agent.get("runtime_system_prompt") or "").strip()
-    if adapter_type == "codex_local" and not runtime_system_prompt:
-        runtime_system_prompt = (
-            "当前运行环境是 codex_local，本次任务必须优先收敛操作范围。\n"
-            "1. 仅在当前工作区和任务相关文件中搜索、读取和修改，不要做全盘搜索。\n"
-            "2. 不要递归扫描 C:\\、C:\\Users、C:\\Program Files、C:\\Program Files (x86) 等系统目录。\n"
-            "3. HarmonyOS 工具链优先复用现有环境变量和已确认路径，不要反复探测 node、hvigorw.js、java。\n"
-            "4. 如果一次命令失败，先缩小搜索范围或重读目标文件，不要重复执行大范围搜索。"
-        )
-    if runtime_system_prompt:
-        result["system_prompt"] = f"{result['system_prompt']}\n\n{runtime_system_prompt}"
 
     return _cleanup_enhancement_dict(result)
 

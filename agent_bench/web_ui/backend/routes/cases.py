@@ -43,6 +43,8 @@ def _load_all_cases() -> tuple:
         })
 
         for c in load_test_cases(scenario_name):
+            case_spec = c.get("case_spec") or {}
+            case_meta = case_spec.get("case") or {}
             all_cases.append({
                 "id": c.get("id", ""),
                 "title": c.get("title", ""),
@@ -51,6 +53,7 @@ def _load_all_cases() -> tuple:
                 "difficulty": s.get("difficulty", "medium"),
                 "tags": s.get("tags", []),
                 "prompt": c.get("prompt", ""),
+                "output_requirements": case_meta.get("output_requirements", ""),
             })
 
     return all_cases, scenarios

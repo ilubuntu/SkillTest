@@ -21,6 +21,22 @@ WINDOWS_RESERVED_NAMES = {
 }
 
 
+def _external_stage_meta_dir(project_root: str) -> str:
+    parent = os.path.dirname(project_root)
+    stage = os.path.basename(project_root)
+    meta_dir = os.path.join(parent, f"{stage}_meta")
+    os.makedirs(meta_dir, exist_ok=True)
+    return meta_dir
+
+
+def _external_stage_cache_dir(project_root: str) -> str:
+    parent = os.path.dirname(project_root)
+    stage = os.path.basename(project_root)
+    cache_dir = os.path.join(parent, f"{stage}_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    return cache_dir
+
+
 def _is_reserved_windows_name(name: str) -> bool:
     base_name = os.path.splitext((name or "").strip())[0].lower()
     return base_name in WINDOWS_RESERVED_NAMES
@@ -106,8 +122,7 @@ def _diff_project_files(original_root: str, final_root: str) -> list:
 
 def _save_changed_files(project_root: str, changed_files: list):
     """保存最简版 changed_files 产物"""
-    meta_dir = os.path.join(project_root, META_DIR_NAME)
-    os.makedirs(meta_dir, exist_ok=True)
+    meta_dir = _external_stage_meta_dir(project_root)
     with open(os.path.join(meta_dir, "changed_files.json"), "w", encoding="utf-8") as f:
         json.dump({"changed_files": changed_files}, f, ensure_ascii=False, indent=2)
 
@@ -218,7 +233,7 @@ def _find_deveco_paths() -> Dict[str, str]:
 def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Dict[str, str]:
     """构造在工作区内隔离缓存目录的编译环境。"""
     env = os.environ.copy()
-    meta_root = os.path.join(project_path, META_DIR_NAME)
+    meta_root = _external_stage_cache_dir(project_path)
     home_root = os.path.join(meta_root, "hvigor-home")
     local_appdata_root = os.path.join(home_root, "AppData", "Local")
     temp_root = os.path.join(meta_root, "tmp")

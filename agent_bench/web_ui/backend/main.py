@@ -28,6 +28,7 @@ from backend.routes.reports import router as reports_router
 from backend.routes.cases import router as cases_router
 from backend.routes.profiles import router as profiles_router
 from backend.routes.agents import router as agents_router
+from backend.routes.cloud_api import router as cloud_api_router
 
 
 @asynccontextmanager
@@ -58,6 +59,7 @@ app.include_router(reports_router)
 app.include_router(cases_router)
 app.include_router(profiles_router)
 app.include_router(agents_router)
+app.include_router(cloud_api_router)
 
 # ── 静态文件（前端 dist） ─────────────────────────────────────
 _dist_dir = Path(__file__).parent.parent / "frontend" / "dist"

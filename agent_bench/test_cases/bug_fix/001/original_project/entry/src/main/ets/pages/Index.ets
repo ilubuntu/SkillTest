@@ -1,108 +1,10 @@
 import { promptAction, router } from '@kit.ArkUI'
-
-// 商品数据模型
-interface Goods {
-  id: number
-  name: string
-  price: number
-}
+import { Goods, GoodsStore } from '../common/GoodsStore'
 
 interface DetailResultParams {
   saved?: boolean
   goods?: Goods
   changeToken?: number
-}
-
-interface GoodsRepository {
-  query(table: string): Goods[]
-  queryOne(table: string, id: number): Goods
-  update(table: string, data: Goods): Promise<void>
-}
-
-const DEFAULT_GOODS: Goods = { id: -1, name: '', price: 0 }
-const GOODS_SOURCE: Goods[] = [
-  { id: 1, name: 'iPhone 15 Pro', price: 8999 },
-  { id: 2, name: 'iPad Air', price: 4599 },
-  { id: 3, name: 'MacBook Pro', price: 12999 },
-  { id: 4, name: 'AirPods Pro', price: 1899 },
-  { id: 5, name: 'Apple Watch', price: 2999 }
-]
-
-// 模拟数据库（实际项目中应该是真实的本地数据库调用）
-class MockGoodsRepository implements GoodsRepository {
-  query(table: string): Goods[] {
-    return GOODS_SOURCE
-  }
-
-  queryOne(table: string, id: number): Goods {
-    const list: Goods[] = GOODS_SOURCE
-    const matched = list.find((goods: Goods) => goods.id === id)
-    return matched ? matched : DEFAULT_GOODS
-  }
-
-  update(table: string, data: Goods): Promise<void> {
-    // 模拟异步数据库更新
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        console.info(`DB.update: ${JSON.stringify(data)}`)
-        resolve()
-      }, 500)
-    })
-  }
-}
-
-const DB: GoodsRepository = new MockGoodsRepository()
-
-// 修复: 使用 LazyForEach + IDataSource 实现懒加载
-class GoodsDataSource implements IDataSource {
-  private goodsList: Goods[] = []
-  private listeners: DataChangeListener[] = []
-
-  constructor(goodsList: Goods[]) {
-    this.goodsList = goodsList
-  }
-
-  totalCount(): number {
-    return this.goodsList.length
-  }
-
-  getData(index: number): Goods {
-    return this.goodsList[index]
-  }
-
-  registerDataChangeListener(listener: DataChangeListener): void {
-    if (this.listeners.indexOf(listener) < 0) {
-      this.listeners.push(listener)
-    }
-  }
-
-  unregisterDataChangeListener(listener: DataChangeListener): void {
-    const idx = this.listeners.indexOf(listener)
-    if (idx >= 0) {
-      this.listeners.splice(idx, 1)
-    }
-  }
-
-  updateData(index: number, data: Goods): void {
-    this.goodsList[index] = data
-    this.listeners.forEach(listener => {
-      listener.onDataChange(index)
-    })
-  }
-
-  addData(index: number, data: Goods): void {
-    this.goodsList.splice(index, 0, data)
-    this.listeners.forEach(listener => {
-      listener.onDataAdd(index)
-    })
-  }
-
-  deleteData(index: number): void {
-    this.goodsList.splice(index, 1)
-    this.listeners.forEach(listener => {
-      listener.onDataDelete(index)
-    })
-  }
 }
 
 // ============================================================
@@ -113,11 +15,9 @@ class GoodsDataSource implements IDataSource {
 struct MainPage {
   @State goodsList: Goods[] = []
   @State isLoading: boolean = false
-  private dataSource: GoodsDataSource = new GoodsDataSource([])
   private lastHandledToken: number = 0
 
   aboutToAppear() {
-    this.handleReturnParams()
     this.loadGoods()
   }
 
@@ -140,23 +40,20 @@ struct MainPage {
     const targetId = returnedGoods.id
     const existingIndex = this.goodsList.findIndex((item: Goods) => item.id === targetId)
     if (existingIndex !== -1) {
-      this.dataSource.updateData(existingIndex, returnedGoods)
-      this.goodsList[existingIndex] = returnedGoods
+      const nextGoodsList: Goods[] = this.goodsList.slice()
+      nextGoodsList[existingIndex] = returnedGoods
+      this.goodsList = nextGoodsList
       promptAction.showToast({ message: '商品已更新' })
       return
     }
 
-    this.dataSource.addData(0, returnedGoods)
     this.goodsList = [returnedGoods, ...this.goodsList]
     promptAction.showToast({ message: '商品已新增' })
   }
 
   loadGoods() {
     this.isLoading = true
-    if (this.goodsList.length === 0) {
-      this.goodsList = DB.query('goods')
-      this.dataSource = new GoodsDataSource(this.goodsList)
-    }
+    this.goodsList = GoodsStore.list()
     this.isLoading = false
   }
 
@@ -168,7 +65,7 @@ struct MainPage {
           .height(50)
       } else {
         List() {
-          LazyForEach(this.dataSource, (goods: Goods) => {
+          ForEach(this.goodsList, (goods: Goods) => {
             ListItem() {
               GoodsCard({ goods: goods })
             }

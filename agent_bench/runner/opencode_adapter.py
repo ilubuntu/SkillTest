@@ -87,30 +87,25 @@ class OpenCodeAdapter(AgentAdapter):
             self._log("DEBUG", "基线模式: 无增强配置")
             return
 
-        # 1. System Prompt
         system_prompt = enhancements.get("system_prompt", "")
         if system_prompt:
             self._system_message = system_prompt.strip()
             self._log("INFO", f"已配置 System Prompt ({len(self._system_message)} 字符)")
-
-        # 2. Skills → 拼入 system message
-        skills = enhancements.get("skills", [])
-        for skill in skills:
+        for skill in enhancements.get("skills", []) or []:
             name = skill.get("name", "unknown")
             content = skill.get("content", "")
-            if content:
-                separator = "\n\n" if self._system_message else ""
-                self._system_message += f"{separator}## Skill: {name}\n\n{content}"
-                self._log("INFO", f"已配置 Skill: {name} ({len(content)} 字符)")
-            else:
-                self._log("WARN", f"Skill [{name}] 内容为空，跳过")
+            if not content:
+                continue
+            separator = "\n\n" if self._system_message else ""
+            self._system_message += f"{separator}## Skill: {name}\n\n{content}"
+            self._log("INFO", f"已配置 Skill: {name} ({len(content)} 字符)")
 
-        # 3. MCP Servers → 通过 API 注册
+        # 1. MCP Servers → 通过 API 注册
         mcp_servers = enhancements.get("mcp_servers", [])
         for mcp in mcp_servers:
             self._register_mcp(mcp)
 
-        # 4. Tools 开关
+        # 2. Tools 开关
         tools = enhancements.get("tools")
         if tools:
             self._tools_config = tools
@@ -198,6 +193,7 @@ class OpenCodeAdapter(AgentAdapter):
             payload_summary = {
                 "parts_count": len(message_payload.get("parts", [])),
                 "prompt_length": len(effective_prompt),
+                "prompt_preview": effective_prompt[:500] + "..." if len(effective_prompt) > 500 else effective_prompt,
                 "has_system": bool(self._system_message),
                 "system_length": len(self._system_message) if self._system_message else 0,
                 "system_preview": self._system_message[:200] + "..." if self._system_message and len(self._system_message) > 200 else self._system_message,

@@ -134,7 +134,6 @@ class CodexLocalAdapter(AgentAdapter):
         if system_prompt:
             self._system_message = system_prompt
             self._log("INFO", f"已配置 System Prompt ({len(system_prompt)} 字符)")
-
         for skill in enhancements.get("skills", []) or []:
             name = skill.get("name", "unknown")
             content = (skill.get("content") or "").strip()

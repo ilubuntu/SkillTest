@@ -23,8 +23,11 @@ def stage_dir(case_dir: str, stage: str) -> str:
 
 
 def stage_meta_dir(case_dir: str, stage: str) -> str:
-    """返回阶段元数据目录路径并确保存在"""
-    d = os.path.join(stage_dir(case_dir, stage), META_DIR_NAME)
+    """返回阶段元数据目录路径并确保存在。
+
+    元数据单独放在 case 根目录下，避免污染 side_a / side_b 工程目录。
+    """
+    d = os.path.join(case_dir, f"{stage}_meta")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -101,10 +104,12 @@ def load_runner_artifacts(case_dir: str) -> tuple:
     Returns:
         (side_a_output, side_b_output)
     """
-    side_a_display_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "output.txt")
-    side_a_path = os.path.join(case_dir, "side_a", META_DIR_NAME, "raw_output.txt")
-    side_b_display_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "output.txt")
-    side_b_path = os.path.join(case_dir, "side_b", META_DIR_NAME, "raw_output.txt")
+    side_a_meta = stage_meta_dir(case_dir, "side_a")
+    side_b_meta = stage_meta_dir(case_dir, "side_b")
+    side_a_display_path = os.path.join(side_a_meta, "output.txt")
+    side_a_path = os.path.join(side_a_meta, "raw_output.txt")
+    side_b_display_path = os.path.join(side_b_meta, "output.txt")
+    side_b_path = os.path.join(side_b_meta, "raw_output.txt")
     if not os.path.exists(side_a_path) and not os.path.exists(side_a_display_path):
         raise FileNotFoundError(f"Runner 产物不存在: {case_dir}，请先运行 runner 阶段")
     with open(side_a_path if os.path.exists(side_a_path) else side_a_display_path, "r", encoding="utf-8") as f:

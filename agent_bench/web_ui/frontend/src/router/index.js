@@ -36,6 +36,12 @@ const routes = [
     meta: { title: '报告展示', icon: 'DataAnalysis' },
   },
   {
+    path: '/cloud-api',
+    name: 'CloudApiView',
+    component: () => import('../views/CloudApiView.vue'),
+    meta: { title: '云测桥接', icon: 'Connection' },
+  },
+  {
     path: '/about',
     name: 'About',
     component: () => import('../views/AboutView.vue'),
