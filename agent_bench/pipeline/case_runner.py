@@ -48,6 +48,96 @@ from agent_bench.pipeline.compile_checker import (
     check_project_compilable,
 )
 
+try:
+    from agent_bench.storage_uploader import AgcStorageUploader
+    HAS_STORAGE_UPLOADER = True
+except ImportError:
+    HAS_STORAGE_UPLOADER = False
+
+
+AGC_BUCKET_NAME = "agent-bench-lpgvk"
+AGC_PROJECT_CLIENT_CONFIG = {
+    "type": "project_client_id",
+    "developer_id": "900086000150224722",
+    "project_id": "101653523863785276",
+    "client_id": "1919775246739619200",
+    "client_secret": "D1A9970837E38AAB4B7D4AFBDCAEC1B0D6511662C7026DAE1808298342F9192C",
+    "configuration_version": "3.0",
+    "region": "CN",
+}
+
+
+def _get_case_upload_root(case: dict) -> str:
+    cached = str((case or {}).get("_upload_root") or "").strip()
+    if cached:
+        return cached
+    upload_root = "agent_compare"
+    case["_upload_root"] = upload_root
+    return upload_root
+
+
+def _build_case_stage_object_name(case: dict, stage_name: str) -> str:
+    upload_root = _get_case_upload_root(case)
+    case_id = str(case.get("id") or "case").strip()
+    safe_stage = str(stage_name or "").strip().lower()
+    return f"{upload_root}/{safe_stage}/{case_id}.zip"
+
+
+def _upload_original_project(case: dict, on_progress: Callable = None) -> str:
+    """上传用例的 original_project 到云存储
+
+    Returns:
+        上传成功后的 download_url；无需上传或上传失败时返回空字符串
+    """
+    if not HAS_STORAGE_UPLOADER:
+        return ""
+
+    original_project_dir = case.get("original_project_dir")
+    if not original_project_dir:
+        return ""
+
+    if not os.path.exists(original_project_dir):
+        _notify(on_progress, "log", {
+            "level": "WARN",
+            "message": f"[{case['id']}] original_project 不存在，跳过上传: {original_project_dir}"
+        })
+        return ""
+
+    try:
+        object_name = _build_case_stage_object_name(case, "original")
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"[{case['id']}] 正在上传 original_project: {object_name}"
+        })
+
+        uploader = AgcStorageUploader(
+            **{
+                "project_id": AGC_PROJECT_CLIENT_CONFIG["project_id"],
+                "client_id": AGC_PROJECT_CLIENT_CONFIG["client_id"],
+                "client_secret": AGC_PROJECT_CLIENT_CONFIG["client_secret"],
+                "developer_id": AGC_PROJECT_CLIENT_CONFIG["developer_id"],
+                "credential_type": AGC_PROJECT_CLIENT_CONFIG["type"],
+                "region": AGC_PROJECT_CLIENT_CONFIG["region"],
+                "bucket_name": AGC_BUCKET_NAME,
+            },
+        )
+        result = uploader.upload_directory(
+            original_project_dir,
+            object_name=object_name,
+        )
+        upload_url = result.get("download_url") or result.get("url") or ""
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"[{case['id']}] original_project 上传成功: {object_name} | url={upload_url}"
+        })
+        return upload_url
+    except Exception as e:
+        _notify(on_progress, "log", {
+            "level": "ERROR",
+            "message": f"[{case['id']}] original_project 上传失败: {e}"
+        })
+        return ""
+
 
 # ── 任务 Prompt 模板 ─────────────────────────────────────────
 
@@ -153,6 +243,11 @@ def _append_dynamic_skill(enhancements: dict, skill_payload: dict):
     skills.append(skill_payload)
     result["skills"] = skills
     return result
+
+
+def _should_attach_constraint_skill(agent_config: dict) -> bool:
+    adapter = str((agent_config or {}).get("adapter") or "").strip().lower()
+    return adapter not in {"codex_local", "codex_http"}
 
 
 def _log_skill_mount_status(case_id: str, side_label: str, enhancements: dict, on_progress):
@@ -493,8 +588,10 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         enhancements or {},
     )
     constraint_skill = build_constraint_review_skill(case.get("case_spec") or {})
-    side_a_enhancements = _append_dynamic_skill(side_a_enhancements, constraint_skill)
-    side_b_enhancements = _append_dynamic_skill(side_b_enhancements, constraint_skill)
+    if _should_attach_constraint_skill(baseline_agent or enhanced_agent):
+        side_a_enhancements = _append_dynamic_skill(side_a_enhancements, constraint_skill)
+    if _should_attach_constraint_skill(enhanced_agent or baseline_agent):
+        side_b_enhancements = _append_dynamic_skill(side_b_enhancements, constraint_skill)
 
     # ── A 侧运行 ──
     if dry_run:
@@ -1117,6 +1214,15 @@ def run_scenario(scenario: str,
     if not cases:
         _notify(on_progress, "scenario_done", {"scenario": scenario, "case_count": 0})
         return []
+
+    if HAS_STORAGE_UPLOADER:
+        upload_root = os.path.basename(os.path.abspath(output_dir.rstrip(os.sep)))
+        for case in cases:
+            case["_upload_root"] = upload_root
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"开始上传 {len(cases)} 个用例的 original_project 到目录 {upload_root} 下的 original"})
+        for case in cases:
+            _upload_original_project(case, on_progress=on_progress)
 
     results = []
     futures = {}

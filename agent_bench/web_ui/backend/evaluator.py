@@ -161,6 +161,10 @@ class EvaluatorManager:
         }
         return self._comparison_labels.get(side, defaults.get(side, side))
 
+    @staticmethod
+    def _optional_score(value):
+        return value if value is not None else None
+
     # ── Pipeline 回调 ─────────────────────────────────────────
 
     def _pipeline_callback(self, event: str, data: dict):
@@ -477,8 +481,8 @@ class EvaluatorManager:
                     case_id=c.get("case_id", ""),
                     title=c.get("title", ""),
                     scenario=c.get("scenario", "general"),
-                    side_a_rule=c.get("side_a_rule", 0),
-                    side_b_rule=c.get("side_b_rule"),
+                    side_a_rule=self._optional_score(c.get("side_a_rule")),
+                    side_b_rule=self._optional_score(c.get("side_b_rule")),
                     side_a_total=c.get("side_a_total", 0),
                     side_b_total=c.get("side_b_total"),
                     gain=c.get("gain"),
@@ -537,8 +541,8 @@ class EvaluatorManager:
                     case_id=c.get("case_id", ""),
                     title=c.get("title", ""),
                     scenario=c.get("scenario", ""),
-                    side_a_rule=c.get("side_a_rule", 0),
-                    side_b_rule=c.get("side_b_rule"),
+                    side_a_rule=self._optional_score(c.get("side_a_rule")),
+                    side_b_rule=self._optional_score(c.get("side_b_rule")),
                     side_a_total=c.get("side_a_total", 0),
                     side_b_total=c.get("side_b_total"),
                     gain=gain,

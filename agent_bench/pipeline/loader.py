@@ -177,7 +177,6 @@ def _load_case_spec(case: dict) -> dict:
 
 def _build_prompt_from_case_spec(case_spec: dict) -> str:
     """根据最小 case.yaml 生成发给 agent 的任务描述。
-
     当前只拼接两个字段：
     - prompt
     - output_requirements
@@ -253,24 +252,13 @@ def _format_constraint_lines(item) -> List[str]:
         formatted = _format_prompt_value(item)
         return [f"- {formatted}"] if formatted else []
 
-    item_id = _format_prompt_value(item.get("id"))
     priority = _format_prompt_value(item.get("priority"))
-    category = _format_prompt_value(item.get("category"))
     name = _format_prompt_value(item.get("name"))
-    description = _format_prompt_value(item.get("description"))
-    check_method = item.get("check_method")
-
-    header_parts = [part for part in [item_id, priority, category] if part]
-    header_prefix = f"[{']['.join(header_parts)}] " if header_parts else ""
     title = name or _format_prompt_value(item)
     if not title:
         return []
-
-    lines = [f"- {header_prefix}{title}"]
-    if description:
-        lines.append(f"  描述: {description}")
-    lines.extend(_format_check_method_lines(check_method))
-    return lines
+    priority_prefix = f"[{priority}] " if priority else ""
+    return [f"- {priority_prefix}{title}"]
 
 
 def _format_check_method_lines(check_method) -> List[str]:
@@ -300,7 +288,9 @@ def _format_check_method_lines(check_method) -> List[str]:
         rule_id = _format_prompt_value(rule.get("rule_id"))
         target_file = _normalize_workspace_relative_path(rule.get("target_file"))
         match_type = _format_prompt_value(rule.get("match_type"))
-        snippet = _format_prompt_value(rule.get("snippet")) or _format_prompt_value(rule.get("pattern"))
+        snippet = _compact_prompt_hint(
+            _format_prompt_value(rule.get("snippet")) or _format_prompt_value(rule.get("pattern"))
+        )
         count = _format_prompt_value(rule.get("count"))
 
         header_parts = [part for part in [rule_id, target_file, match_type] if part]
@@ -309,9 +299,16 @@ def _format_check_method_lines(check_method) -> List[str]:
         if count:
             lines.append(f"    count: {count}")
         if snippet:
-            lines.append(f"    snippet: {snippet}")
+            lines.append(f"    hint: {snippet}")
 
     return lines
+
+
+def _compact_prompt_hint(text: str, limit: int = 120) -> str:
+    compact = " ".join((text or "").split())
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit] + "..."
 
 
 def resolve_case_original_project(case: dict) -> Optional[str]:

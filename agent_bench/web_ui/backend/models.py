@@ -73,7 +73,7 @@ class CaseResult(BaseModel):
     case_id: str
     title: str
     scenario: str
-    side_a_rule: float
+    side_a_rule: Optional[float] = None
     side_b_rule: Optional[float] = None
     side_a_total: float
     side_b_total: Optional[float] = None

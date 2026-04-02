@@ -20,10 +20,12 @@ description: 使用 DevEco Studio 内置工具链对 HarmonyOS 工程做 hvigor 
 ## 核心原则
 
 - 优先复用已有的 `DEVECO_SDK_HOME`、`HARMONYOS_SDK`、`JAVA_HOME` 等环境变量
+- 如果运行器已经预置了 `AGENT_BENCH_NODE_BIN`、`AGENT_BENCH_HVIGOR_JS`、`AGENT_BENCH_SDK_ROOT`，直接复用这些值，不要再搜索 DevEco 安装目录
 - 如果没有现成环境，再去定位 DevEco Studio 安装目录
 - 所有编译缓存、用户目录缓存、临时目录都放到当前工程下的 `.agent_bench` 或 `.hvigor`
 - 如果重定向 `HOME` / `USERPROFILE` 后 npm 或 corepack 丢失了原用户配置，必须显式恢复 `NPM_CONFIG_USERCONFIG`
 - 如果日志里出现 `EPERM`、`EACCES`、`operation not permitted`，优先怀疑缓存目录写到了工作区之外
+- 如果同一类 `SDK component missing`、`Configuration Error`、`build-profile.json5`、`hvigorfile.ts` 错误重复出现，不要继续反复改构建脚本；应尽快总结阻塞点
 
 ## Windows 推荐做法
 
@@ -67,8 +69,9 @@ Remove-Item Env:HVIGOR_APP_HOME -ErrorAction SilentlyContinue
 如果机器上已经有可用环境变量，优先使用：
 
 ```powershell
-$SdkHome = if ($env:DEVECO_SDK_HOME) { $env:DEVECO_SDK_HOME } elseif ($env:HARMONYOS_SDK) { $env:HARMONYOS_SDK } else { "D:\\deveco\\DevEco Studio\\sdk\\default" }
-$DevEcoRoot = Split-Path -Parent $SdkHome
+$SdkHome = if ($env:DEVECO_SDK_HOME) { $env:DEVECO_SDK_HOME } elseif ($env:HARMONYOS_SDK) { $env:HARMONYOS_SDK } else { "D:\\deveco\\DevEco Studio\\sdk" }
+$SdkHome = $SdkHome.TrimEnd('\')
+$DevEcoRoot = if ($SdkHome -like '*\\sdk\\default') { Split-Path -Parent (Split-Path -Parent $SdkHome) } elseif ($SdkHome -like '*\\sdk') { Split-Path -Parent $SdkHome } else { Split-Path -Parent $SdkHome }
 $NodeBin = Join-Path $DevEcoRoot "tools\\node\\node.exe"
 $HvigorJs = Join-Path $DevEcoRoot "tools\\hvigor\\bin\\hvigorw.js"
 $JavaHome = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { Join-Path $DevEcoRoot "jbr" }
@@ -168,6 +171,7 @@ entry/build/default/outputs/default/entry-default-unsigned.hap
   - `JAVA_HOME` 未设置
   - `EPERM: operation not permitted, mkdir ... .hvigor ...`
   - `npm install pnpm` 命中 `ENOTCACHED` 或 `only-if-cached`
+- 如果连续两次仍是同一类环境/配置阻塞，不要继续大范围改工程结构，直接记录阻塞并结束本轮
 
 如果看到类似下面的日志：
 

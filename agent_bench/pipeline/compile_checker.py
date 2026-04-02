@@ -247,6 +247,7 @@ def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Di
     os.makedirs(corepack_home, exist_ok=True)
 
     env["DEVECO_SDK_HOME"] = paths["sdk"]
+    env["HARMONYOS_SDK"] = paths["sdk"]
     env["JAVA_HOME"] = paths["java"]
     env["PATH"] = (
         os.path.join(paths["java"], "bin") + os.pathsep
@@ -287,6 +288,18 @@ def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Di
         env["HOMEDRIVE"] = drive
         env["HOMEPATH"] = tail or "\\"
 
+    return env
+
+
+def build_agent_workspace_env(project_path: str) -> Dict[str, str]:
+    """构造给 agent 进程复用的 HarmonyOS/DevEco 工作区环境。"""
+    paths = _find_deveco_paths()
+    env = _build_workspace_compile_env(project_path, paths)
+    env["AGENT_BENCH_NODE_BIN"] = paths["node"]
+    env["AGENT_BENCH_HVIGOR_JS"] = paths["hvigor"]
+    env["AGENT_BENCH_JAVA_HOME"] = paths["java"]
+    env["AGENT_BENCH_SDK_ROOT"] = paths["sdk"]
+    env["AGENT_BENCH_WORKSPACE_DIR"] = project_path
     return env
 
 
