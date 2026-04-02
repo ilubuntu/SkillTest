@@ -19,32 +19,26 @@ agents:
     api_base: "http://127.0.0.1:4096"
     model: "minimax-cn-coding-plan/MiniMax-M2.7"
     enabled: true
-    
-  # - id: "agent_agc"
-  #   name: "AGC"
-  #   adapter: opencode
-  #   api_base: "http://127.0.0.1:4096"
-  #   model: "minimax-cn-coding-plan/MiniMax-M2.7"
-  #   enabled: true
 
   - id: "codex_local"
     name: "Codex Local"
-    adapter: codex_local
+    adapter: codex_http
+    transport: "cli"
+    api_base: "http://127.0.0.1:8001"
     cli_path: "codex"
-    model: "gpt-5.4"
+    model: "gpt-5.1-codex-mini"
     timeout: 900
     compile_loop:
       enabled: true
-      max_rounds: 2
+      max_rounds: 5
       skill_name: "harmonyos-hvigor"
     runtime_system_prompt: |
-      你当前运行在受限的本地工作区中，必须优先收敛操作范围。
-      1. 只在当前工作区和当前任务明确相关的文件内搜索、读取和修改，不要递归扫描整个磁盘。
-      2. 禁止递归搜索 C:\、C:\Users、C:\Program Files、C:\Program Files (x86) 等大范围系统目录。
-      3. HarmonyOS 工具链优先从现有环境变量 DEVECO_SDK_HOME、HARMONYOS_SDK、JAVA_HOME 推导；只有这些都缺失时，才检查少量固定候选目录，例如 D:\deveco\DevEco Studio。
-      4. 如果一次命令已经确认了 node、hvigorw.js、java 路径，就复用结果，不要重复做全盘探测。
-      5. 遇到权限拒绝、路径不存在或补丁校验失败时，先缩小范围、重读目标文件或复用已有路径信息，不要重复大范围搜索。
-      6. 分析 HarmonyOS 编译失败时，只查看当前工作区生成的 build.log、npm-cache 日志和命令输出，不要去搜索 DevEco Studio 安装目录源码里的 ERROR 字符串。
+      你当前运行在受限的本地工作区中，必须收敛操作范围。
+      1. 只在当前工作区和相关文件内搜索、读取和修改，不要全盘搜索。
+      2. 禁止递归搜索 C:\、C:\Users、C:\Program Files 和 C:\Program Files (x86)。
+      3. HarmonyOS 工具链环境已预置到当前进程，优先直接复用 DEVECO_SDK_HOME、HARMONYOS_SDK、JAVA_HOME、AGENT_BENCH_NODE_BIN、AGENT_BENCH_HVIGOR_JS，不要重复全盘探测。
+      4. 编译失败时只看当前工作区里的 build.log、npm-cache 日志和命令输出。
+      5. 首轮可以做 1 次大范围修改；后续只做定点修补，同一批文件连续失败且无新证据时直接总结阻塞点。
     env:
       http_proxy: "http://127.0.0.1:7890"
       https_proxy: "http://127.0.0.1:7890"

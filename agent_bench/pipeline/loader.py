@@ -74,6 +74,22 @@ def _build_skill_summary(skill_name: str, skill_file_path: str) -> str:
     description = (frontmatter.get("description") or "").strip()
 
     if skill_name == "harmonyos-hvigor":
+        compact_lines = [f"Skill: {skill_name}"]
+        compact_lines.extend([
+            "- 每轮修改后做 1 次 hvigor 自检",
+            "- 只用 DevEco 自带 node、hvigorw.js、sdk、java",
+            "- 环境已预置 DEVECO_SDK_HOME / HARMONYOS_SDK / JAVA_HOME / HOME / cache，直接复用，不要重复搜索 DevEco 路径",
+            "- 路径优先用 DEVECO_SDK_HOME / HARMONYOS_SDK / JAVA_HOME，SDK 优先指向 DevEco 的 sdk 根目录",
+            "- HOME / USERPROFILE / LOCALAPPDATA / TEMP / TMP / NPM_CONFIG_CACHE / COREPACK_HOME 都放到工作区",
+            "- 编译前清理 NODE_HOME / HVIGOR_APP_HOME，结束后执行 --stop-daemon",
+            "- 只看工作区内 build.log 和 npm-cache，不搜索 DevEco 安装目录源码",
+            "- 不改签名配置和 build-profile.json5",
+            "- 同类 SDK/Configuration Error 重复出现时，尽快总结阻塞，不要反复改构建脚本",
+            "命令:",
+            "- & $NodeBin $HvigorJs --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --no-daemon",
+            "- & $NodeBin $HvigorJs --stop-daemon",
+        ])
+        return "\n".join(compact_lines)
         lines = [
             f"Skill 名称: {skill_name}",
         ]
@@ -201,15 +217,15 @@ def _build_prompt_from_case_spec(case_spec: dict) -> str:
 
     lines = [
         "这是一个已有的 HarmonyOS ArkTS 工程，请直接在当前工程中修改代码完成修复。",
-        "下面提到的文件路径都相对于当前工作目录；如果看到 `original_project/`、`baseline/`、`enhanced/` 前缀，请去掉前缀后再访问真实文件。",
+        "下面提到的路径都相对于当前工作目录；如果看到 `original_project/`、`baseline/`、`enhanced/` 前缀，请先去掉前缀。",
         "",
-        "## 工程说明",
+        "## 工程",
         project.get("summary", "").strip(),
         "",
-        "## 当前问题",
+        "## 问题",
         problem.get("summary", "").strip(),
         "",
-        "## 重点相关文件",
+        "## 相关文件",
     ]
 
     for path in problem.get("related_files", []) or []:
@@ -220,7 +236,7 @@ def _build_prompt_from_case_spec(case_spec: dict) -> str:
 
     lines.extend([
         "",
-        "## 期望效果",
+        "## 目标",
     ])
     for item in problem.get("expected_result", []) or []:
         formatted = _format_prompt_value(item)
@@ -229,7 +245,7 @@ def _build_prompt_from_case_spec(case_spec: dict) -> str:
 
     lines.extend([
         "",
-        "## 结果输出要求",
+        "## 输出要求",
     ])
     for item in agent.get("output_requirements", []) or []:
         formatted = _format_prompt_value(item)
@@ -289,24 +305,13 @@ def _format_constraint_lines(item) -> List[str]:
         formatted = _format_prompt_value(item)
         return [f"- {formatted}"] if formatted else []
 
-    item_id = _format_prompt_value(item.get("id"))
     priority = _format_prompt_value(item.get("priority"))
-    category = _format_prompt_value(item.get("category"))
     name = _format_prompt_value(item.get("name"))
-    description = _format_prompt_value(item.get("description"))
-    check_method = item.get("check_method")
-
-    header_parts = [part for part in [item_id, priority, category] if part]
-    header_prefix = f"[{']['.join(header_parts)}] " if header_parts else ""
     title = name or _format_prompt_value(item)
     if not title:
         return []
-
-    lines = [f"- {header_prefix}{title}"]
-    if description:
-        lines.append(f"  描述: {description}")
-    lines.extend(_format_check_method_lines(check_method))
-    return lines
+    priority_prefix = f"[{priority}] " if priority else ""
+    return [f"- {priority_prefix}{title}"]
 
 
 def _format_check_method_lines(check_method) -> List[str]:
@@ -336,7 +341,9 @@ def _format_check_method_lines(check_method) -> List[str]:
         rule_id = _format_prompt_value(rule.get("rule_id"))
         target_file = _normalize_workspace_relative_path(rule.get("target_file"))
         match_type = _format_prompt_value(rule.get("match_type"))
-        snippet = _format_prompt_value(rule.get("snippet")) or _format_prompt_value(rule.get("pattern"))
+        snippet = _compact_prompt_hint(
+            _format_prompt_value(rule.get("snippet")) or _format_prompt_value(rule.get("pattern"))
+        )
         count = _format_prompt_value(rule.get("count"))
 
         header_parts = [part for part in [rule_id, target_file, match_type] if part]
@@ -345,9 +352,16 @@ def _format_check_method_lines(check_method) -> List[str]:
         if count:
             lines.append(f"    count: {count}")
         if snippet:
-            lines.append(f"    snippet: {snippet}")
+            lines.append(f"    hint: {snippet}")
 
     return lines
+
+
+def _compact_prompt_hint(text: str, limit: int = 120) -> str:
+    compact = " ".join((text or "").split())
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit] + "..."
 
 
 def resolve_case_original_project(case: dict) -> Optional[str]:
@@ -519,14 +533,8 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
         return {}
 
     generic_edit_prompt = (
-        "编辑工程文件时，必须遵守以下流程：\n"
-        "1. 修改任意目标文件前，先重新读取该文件当前内容，不要依赖过期上下文、旧行号或旧片段。\n"
-        "2. 如果一次补丁、替换或 apply_patch 校验失败，必须重新读取文件最新内容后再生成新的修改。\n"
-        "3. 优先进行小范围、可验证的编辑，避免基于猜测做大段替换。\n"
-        "4. 同一文件发生多轮修改时，每一轮修改后都要再次确认文件最新状态。\n"
-        "5. 输出总结时，只描述最终成功落盘的修改，不要把失败的补丁尝试当作已完成修改。"
+        "编辑规则：改前先重读文件；补丁失败后先重读再改；优先小范围修改，只汇报最终成功落盘的结果。"
     )
-
     result = {
         "skills": [],
         "mcp_servers": list(agent.get("mcp_servers") or []),
@@ -550,24 +558,19 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
         max_rounds = int(compile_loop.get("max_rounds") or 5)
         skill_name = compile_loop.get("skill_name") or "harmonyos-hvigor"
         compile_loop_prompt = (
-            f"你已挂载 Skill `{skill_name}`，必须使用它执行当前 HarmonyOS 工程的内部编译自检。\n"
-            f"每次完成一轮代码修改后，必须立即按该 Skill 的方法对当前工程执行一次 hvigor 编译检查。\n"
-            f"如果编译失败，必须把完整编译日志作为下一轮分析输入，继续修改并再次编译。\n"
-            f"重复“修改 -> 编译 -> 读取日志 -> 继续修复”的循环，最多执行 {max_rounds} 轮，直到编译通过。\n"
-            "达到最大轮次仍未通过时，必须明确说明最后一次编译错误、已尝试的修复和当前阻塞点。\n"
-            "这条内部编译循环只是 agent 自检，不替代评测系统最终的外部编译验证。"
+            f"已挂载 `{skill_name}`：每轮修改后立刻做 1 次 hvigor 自检；失败则基于日志继续修，最多 {max_rounds} 轮；超限时只总结最后一次编译错误和阻塞点。"
         )
         result["system_prompt"] = f"{result['system_prompt']}\n\n{compile_loop_prompt}"
 
     adapter_type = str(agent.get("adapter") or "").strip().lower()
     runtime_system_prompt = str(agent.get("runtime_system_prompt") or "").strip()
-    if adapter_type == "codex_local" and not runtime_system_prompt:
+    if adapter_type in {"codex_local", "codex_http"} and not runtime_system_prompt:
         runtime_system_prompt = (
-            "当前运行环境是 codex_local，本次任务必须优先收敛操作范围。\n"
-            "1. 仅在当前工作区和任务相关文件中搜索、读取和修改，不要做全盘搜索。\n"
-            "2. 不要递归扫描 C:\\、C:\\Users、C:\\Program Files、C:\\Program Files (x86) 等系统目录。\n"
-            "3. HarmonyOS 工具链优先复用现有环境变量和已确认路径，不要反复探测 node、hvigorw.js、java。\n"
-            "4. 如果一次命令失败，先缩小搜索范围或重读目标文件，不要重复执行大范围搜索。"
+            "当前运行环境是 codex_local。\n"
+            "1. 只在工作区和相关文件内操作，不做全盘搜索。\n"
+            "2. 不递归扫描 C:\\、C:\\Users、C:\\Program Files、C:\\Program Files (x86)。\n"
+            "3. 优先复用环境变量和已确认的 HarmonyOS 工具路径。\n"
+            "4. 命令失败后先缩小范围或重读文件，不重复大范围探测。"
         )
     if runtime_system_prompt:
         result["system_prompt"] = f"{result['system_prompt']}\n\n{runtime_system_prompt}"

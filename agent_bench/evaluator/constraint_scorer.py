@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """基于 case constraints 的确定性约束评分器。"""
 
-import json
 import os
 import re
 from typing import Dict, List, Tuple
@@ -26,6 +25,30 @@ def build_constraint_review_skill(case_spec: dict) -> dict:
     """根据当前 case constraints 渲染一份 skill 内容。"""
     case_meta = case_spec.get("case", {}) if isinstance(case_spec, dict) else {}
     constraints = case_spec.get("constraints", []) or []
+    compact_lines = [
+        "---",
+        f"name: {SKILL_NAME}",
+        "description: Keep current case constraints satisfied.",
+        "---",
+        "",
+        f"- Case: {_fmt(case_meta.get('id')) or 'unknown'} | {_fmt(case_meta.get('title')) or 'unknown'}",
+        "- 优先满足 P0，再处理 P1/P2。",
+        "- 只关注当前 case 相关文件和行为。",
+        "",
+        "## Constraints",
+    ]
+    if not constraints:
+        compact_lines.append("- No constraints defined.")
+    else:
+        for item in constraints:
+            priority = (_fmt(item.get("priority")) or "P1").upper()
+            name = _fmt(item.get("name")) or "unnamed constraint"
+            compact_lines.append(f"- [{priority}] {name}")
+    return {
+        "name": SKILL_NAME,
+        "path": None,
+        "content": "\n".join(compact_lines).strip(),
+    }
     lines = [
         "---",
         f"name: {SKILL_NAME}",
@@ -131,70 +154,19 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
         },
         "category_scores": category_scores,
         "items": item_results,
-        "constraint_score_objects": _build_constraint_score_objects(item_results),
     }
 
 
 def build_constraint_review_report(score_result: dict) -> str:
     """构造可追加到 output.txt 的约束评分报告。"""
     summary = score_result.get("summary", {})
-    category_scores = score_result.get("category_scores", {}) or {}
-    items = score_result.get("items", []) or []
-    constraint_score_objects = score_result.get("constraint_score_objects", []) or []
 
     lines = [
         REPORT_MARKER,
         "",
         f"- Skill: {score_result.get('skill_name') or SKILL_NAME}",
-        f"- Constraint Points: {summary.get('earned_points', 0):.1f}/{summary.get('total_points', TOTAL_CONSTRAINT_POINTS):.1f}",
-        f"- Overall Score: {summary.get('overall_score', 0):.1f}/100",
-        f"- Effectiveness Score (P0): {summary.get('effectiveness_score', 0):.1f}/100",
-        f"- Quality Score (P1/P2): {summary.get('quality_score', 0):.1f}/100",
-        f"- Constraint Pass Rate: {summary.get('constraints_passed', 0)}/{summary.get('constraints_total', 0)}",
+        f"- Internal Rule Total Score: {summary.get('overall_score', 0):.1f}/100",
     ]
-
-    if category_scores:
-        lines.append("- Category Scores:")
-        for category, score in sorted(category_scores.items()):
-            lines.append(f"  - {category}: {score:.1f}/100")
-
-    lines.extend([
-        "",
-        "### Constraint Details",
-    ])
-
-    for item in items:
-        status = "PASS" if item.get("passed") else "FAIL"
-        lines.append(
-            f"- [{status}] {item.get('id') or '-'} | {item.get('priority') or '-'} | "
-            f"{item.get('category') or '-'} | score={item.get('score', 0):.1f}/100 | "
-            f"points={item.get('earned_points', 0):.1f}/{item.get('max_points', 0):.1f} | "
-            f"matched={item.get('matched_rules', 0)}/{item.get('total_rules', 0)}"
-        )
-        if item.get("name"):
-            lines.append(f"  name: {item['name']}")
-        if item.get("description"):
-            lines.append(f"  description: {item['description']}")
-        if item.get("detail"):
-            lines.append(f"  detail: {item['detail']}")
-        for rule in item.get("rules", []) or []:
-            rule_status = "PASS" if rule.get("passed") else "FAIL"
-            lines.append(
-                f"  - [{rule_status}] {rule.get('rule_id') or '-'} | "
-                f"{rule.get('target_file') or '-'} | {rule.get('match_type') or '-'}"
-            )
-            if rule.get("snippet"):
-                lines.append(f"    snippet: {rule['snippet']}")
-            if rule.get("detail"):
-                lines.append(f"    detail: {rule['detail']}")
-
-    lines.extend([
-        "",
-        "### Constraint Score Objects",
-        "```json",
-        json.dumps(constraint_score_objects, ensure_ascii=False, indent=2),
-        "```",
-    ])
 
     return "\n".join(lines).strip()
 
@@ -389,24 +361,6 @@ def _attach_rule_scores(item: dict) -> None:
         rule["earned_points"] = per_rule_max_points if rule.get("passed") else 0.0
 
 
-def _build_constraint_score_objects(items: List[dict]) -> List[dict]:
-    objects = []
-    for item in items or []:
-        objects.append({
-            "constraint_id": item.get("id") or "",
-            "name": item.get("name") or "",
-            "max_points": round(float(item.get("max_points", 0.0) or 0.0), 1),
-            "earned_points": round(float(item.get("earned_points", 0.0) or 0.0), 1),
-            "rules": [
-                {
-                    "rule_id": rule.get("rule_id") or "",
-                    "max_points": round(float(rule.get("max_points", 0.0) or 0.0), 2),
-                    "earned_points": round(float(rule.get("earned_points", 0.0) or 0.0), 2),
-                }
-                for rule in (item.get("rules", []) or [])
-            ],
-        })
-    return objects
 
 
 def _normalize_target_file(target_file: str) -> str:

@@ -48,19 +48,107 @@ from agent_bench.pipeline.compile_checker import (
     check_project_compilable,
 )
 
+try:
+    from agent_bench.storage_uploader import AgcStorageUploader
+    HAS_STORAGE_UPLOADER = True
+except ImportError:
+    HAS_STORAGE_UPLOADER = False
+
+
+AGC_BUCKET_NAME = "agent-bench-lpgvk"
+AGC_PROJECT_CLIENT_CONFIG = {
+    "type": "project_client_id",
+    "developer_id": "900086000150224722",
+    "project_id": "101653523863785276",
+    "client_id": "1919775246739619200",
+    "client_secret": "D1A9970837E38AAB4B7D4AFBDCAEC1B0D6511662C7026DAE1808298342F9192C",
+    "configuration_version": "3.0",
+    "region": "CN",
+}
+
+
+def _get_case_upload_root(case: dict) -> str:
+    cached = str((case or {}).get("_upload_root") or "").strip()
+    if cached:
+        return cached
+    upload_root = "agent_compare"
+    case["_upload_root"] = upload_root
+    return upload_root
+
+
+def _build_case_stage_object_name(case: dict, stage_name: str) -> str:
+    upload_root = _get_case_upload_root(case)
+    case_id = str(case.get("id") or "case").strip()
+    safe_stage = str(stage_name or "").strip().lower()
+    return f"{upload_root}/{safe_stage}/{case_id}.zip"
+
+
+def _upload_original_project(case: dict, on_progress: Callable = None) -> str:
+    """上传用例的 original_project 到云存储
+
+    Returns:
+        上传成功后的 download_url；无需上传或上传失败时返回空字符串
+    """
+    if not HAS_STORAGE_UPLOADER:
+        return ""
+
+    original_project_dir = case.get("original_project_dir")
+    if not original_project_dir:
+        return ""
+
+    if not os.path.exists(original_project_dir):
+        _notify(on_progress, "log", {
+            "level": "WARN",
+            "message": f"[{case['id']}] original_project 不存在，跳过上传: {original_project_dir}"
+        })
+        return ""
+
+    try:
+        object_name = _build_case_stage_object_name(case, "original")
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"[{case['id']}] 正在上传 original_project: {object_name}"
+        })
+
+        uploader = AgcStorageUploader(
+            **{
+                "project_id": AGC_PROJECT_CLIENT_CONFIG["project_id"],
+                "client_id": AGC_PROJECT_CLIENT_CONFIG["client_id"],
+                "client_secret": AGC_PROJECT_CLIENT_CONFIG["client_secret"],
+                "developer_id": AGC_PROJECT_CLIENT_CONFIG["developer_id"],
+                "credential_type": AGC_PROJECT_CLIENT_CONFIG["type"],
+                "region": AGC_PROJECT_CLIENT_CONFIG["region"],
+                "bucket_name": AGC_BUCKET_NAME,
+            },
+        )
+        result = uploader.upload_directory(
+            original_project_dir,
+            object_name=object_name,
+        )
+        upload_url = result.get("download_url") or result.get("url") or ""
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"[{case['id']}] original_project 上传成功: {object_name} | url={upload_url}"
+        })
+        return upload_url
+    except Exception as e:
+        _notify(on_progress, "log", {
+            "level": "ERROR",
+            "message": f"[{case['id']}] original_project 上传失败: {e}"
+        })
+        return ""
+
 
 # ── 任务 Prompt 模板 ─────────────────────────────────────────
 
 TASK_PROMPT = """请直接在指定工程目录中修改代码完成任务。
 
 ## 工作方式
-- 这是一个已经准备好的 HarmonyOS ArkTS 工程
-- 你应直接修改工程目录中的文件，而不是只返回单个代码片段
-- 当前工作目录就是工程根目录，请直接使用 `entry/...` 这类相对路径，不要再拼 `original_project/...`
-- 修改任意文件前，先重新读取该文件当前内容，不要假设先前看到的上下文仍然有效
-- 如果一次补丁或替换失败，必须重新读取目标文件后再生成新的修改，不要反复套用旧补丁
-- 优先做小范围、可验证的修改；同一文件多次编辑时，每轮修改后都要再次确认最新内容
-- 完成后请简要说明修改了哪些文件、主要修改内容和最终效果
+- 当前目录就是工程根目录，直接修改工程文件
+- 使用 `entry/...` 相对路径
+- 修改前先重读文件；补丁失败后先重读再改
+- 优先小范围修改
+- 完成后简要说明修改文件和结果
 
 ## 任务
 {prompt}
@@ -69,13 +157,11 @@ TASK_PROMPT = """请直接在指定工程目录中修改代码完成任务。
 TASK_PROMPT_MULTI_PAGE = """请直接在指定工程目录中修改代码完成任务。
 
 ## 工作方式
-- 这是一个已经准备好的 HarmonyOS ArkTS 工程
-- 你应直接修改工程目录中的文件，而不是只返回单个代码片段
-- 当前工作目录就是工程根目录，请直接使用 `entry/...` 这类相对路径，不要再拼 `original_project/...`
-- 修改任意文件前，先重新读取该文件当前内容，不要假设先前看到的上下文仍然有效
-- 如果一次补丁或替换失败，必须重新读取目标文件后再生成新的修改，不要反复套用旧补丁
-- 优先做小范围、可验证的修改；同一文件多次编辑时，每轮修改后都要再次确认最新内容
-- 完成后请简要说明修改了哪些文件、主要修改内容和最终效果
+- 当前目录就是工程根目录，直接修改工程文件
+- 使用 `entry/...` 相对路径
+- 修改前先重读文件；补丁失败后先重读再改
+- 优先小范围修改
+- 完成后简要说明修改文件和结果
 
 ## 任务
 {prompt}
@@ -171,6 +257,11 @@ def _append_dynamic_skill(enhancements: dict, skill_payload: dict):
     skills.append(skill_payload)
     result["skills"] = skills
     return result
+
+
+def _should_attach_constraint_skill(agent_config: dict) -> bool:
+    adapter = str((agent_config or {}).get("adapter") or "").strip().lower()
+    return adapter not in {"codex_local", "codex_http"}
 
 
 def _log_skill_mount_status(case_id: str, side_label: str, enhancements: dict, on_progress):
@@ -511,8 +602,10 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         enhancements or {},
     )
     constraint_skill = build_constraint_review_skill(case.get("case_spec") or {})
-    side_a_enhancements = _append_dynamic_skill(side_a_enhancements, constraint_skill)
-    side_b_enhancements = _append_dynamic_skill(side_b_enhancements, constraint_skill)
+    if _should_attach_constraint_skill(baseline_agent or enhanced_agent):
+        side_a_enhancements = _append_dynamic_skill(side_a_enhancements, constraint_skill)
+    if _should_attach_constraint_skill(enhanced_agent or baseline_agent):
+        side_b_enhancements = _append_dynamic_skill(side_b_enhancements, constraint_skill)
 
     # ── A 侧运行 ──
     if dry_run:
@@ -1093,6 +1186,15 @@ def run_scenario(scenario: str,
     if not cases:
         _notify(on_progress, "scenario_done", {"scenario": scenario, "case_count": 0})
         return []
+
+    if HAS_STORAGE_UPLOADER:
+        upload_root = os.path.basename(os.path.abspath(output_dir.rstrip(os.sep)))
+        for case in cases:
+            case["_upload_root"] = upload_root
+        _notify(on_progress, "log", {"level": "INFO",
+            "message": f"开始上传 {len(cases)} 个用例的 original_project 到目录 {upload_root} 下的 original"})
+        for case in cases:
+            _upload_original_project(case, on_progress=on_progress)
 
     results = []
     futures = {}
