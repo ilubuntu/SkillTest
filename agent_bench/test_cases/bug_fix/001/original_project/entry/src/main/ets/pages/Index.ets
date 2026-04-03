@@ -18,7 +18,10 @@ struct MainPage {
   private lastHandledToken: number = 0
 
   aboutToAppear() {
+    // Load latest goods first, then apply any return params to update the list
+    // This ensures updates from DetailPage are reflected without being overwritten.
     this.loadGoods()
+    this.handleReturnParams()
   }
 
   handleReturnParams() {

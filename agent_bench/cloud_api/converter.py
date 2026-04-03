@@ -12,7 +12,6 @@ from agent_bench.cloud_api.models import (
     CloudStatusReportPayload,
     RemoteExecutionStatus,
 )
-from agent_bench.pipeline.loader import load_test_cases
 from agent_bench.pipeline.artifacts import stage_meta_dir
 
 
@@ -57,42 +56,15 @@ def is_placeholder_text(value: str) -> bool:
     return normalized in placeholders or lowered in placeholders
 
 
-def load_template_case_defaults(template_case_id: str = "bug_fix_001") -> Dict[str, str]:
-    for case in load_test_cases("bug_fix"):
-        if case.get("id") != template_case_id:
-            continue
-        case_spec = case.get("case_spec") or {}
-        case_meta = case_spec.get("case") or {}
-        return {
-            "prompt": (case_meta.get("prompt") or "").strip(),
-            "output_requirements": (case_meta.get("output_requirements") or "").strip(),
-        }
+def build_case(execution_id: int, project_dir: str, prompt: str) -> Dict[str, Any]:
     return {
-        "prompt": "",
-        "output_requirements": "",
+        "id": f"cloud_execution_{execution_id}",
+        "title": f"Cloud Execution {execution_id}",
+        "scenario": "cloud_api",
+        "prompt": prompt,
+        "case_spec": {},
+        "original_project_dir": project_dir,
     }
-
-
-def build_case(execution_id: int, project_dir: str, prompt: str, template_case_id: str = "bug_fix_001") -> Dict[str, Any]:
-    template_case = None
-    for case in load_test_cases("bug_fix"):
-        if case.get("id") == template_case_id:
-            template_case = dict(case)
-            break
-
-    if not template_case:
-        return {
-            "id": template_case_id,
-            "title": f"Cloud Execution {execution_id}",
-            "scenario": "bug_fix",
-            "prompt": prompt,
-            "case_spec": {},
-            "original_project_dir": project_dir,
-        }
-
-    template_case["prompt"] = prompt or template_case.get("prompt", "")
-    template_case["original_project_dir"] = project_dir
-    return template_case
 
 
 def stage_to_local_status(stage_name: str) -> Optional[str]:

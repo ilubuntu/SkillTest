@@ -18,9 +18,11 @@ import uuid
 import zipfile
 import base64
 from urllib.parse import quote
+import urllib.error
+import urllib.request
 from typing import Dict, Optional
 
-import requests
+import json
 
 
 class AgcCloudStorageClient:
@@ -117,23 +119,32 @@ class AgcCloudStorageClient:
             "Accept": "application/json",
         }
 
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            url=self.token_url,
+            data=body,
+            headers=headers,
+            method="POST",
+        )
         try:
-            response = requests.post(
-                self.token_url,
-                json=payload,
-                headers=headers,
-                timeout=min(self.timeout, 30),
-            )
-        except requests.RequestException as exc:
+            with urllib.request.urlopen(request, timeout=min(self.timeout, 30)) as response:
+                status_code = response.getcode()
+                response_text = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            body_preview = exc.read().decode("utf-8", errors="replace").strip()[:500]
+            raise Exception(
+                f"Token request failed: {self.token_url} -> {exc.code} {body_preview}"
+            ) from exc
+        except Exception as exc:
             raise Exception(f"Token request failed: {self.token_url} -> {exc}") from exc
 
-        if response.status_code != 200:
-            body_preview = (response.text or "").strip()[:500]
+        if status_code != 200:
+            body_preview = response_text.strip()[:500]
             raise Exception(
-                f"Token request failed: {self.token_url} -> {response.status_code} {body_preview}"
+                f"Token request failed: {self.token_url} -> {status_code} {body_preview}"
             )
 
-        result = response.json() or {}
+        result = json.loads(response_text or "{}")
         access_token = str(result.get("access_token") or "").strip()
         if not access_token:
             raise Exception(f"No access_token in response: {result}")
@@ -219,26 +230,35 @@ class AgcCloudStorageClient:
             "productId": self.project_id,
         }
 
+        request = urllib.request.Request(
+            url=upload_url,
+            data=content,
+            headers=headers,
+            method="PUT",
+        )
         try:
-            response = requests.put(
-                upload_url,
-                headers=headers,
-                data=content,
-                timeout=self.timeout,
-            )
-        except requests.RequestException as exc:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                status_code = response.getcode()
+                response_bytes = response.read()
+                response_text = response_bytes.decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            body_preview = exc.read().decode("utf-8", errors="replace").strip()[:500]
+            raise Exception(
+                f"Upload request failed: {upload_url} -> {exc.code} {body_preview}"
+            ) from exc
+        except Exception as exc:
             raise Exception(f"Upload request failed: {upload_url} -> {exc}") from exc
 
-        if response.status_code not in (200, 201):
-            body_preview = (response.text or "").strip()[:500]
+        if status_code not in (200, 201):
+            body_preview = response_text.strip()[:500]
             raise Exception(
-                f"Upload request failed: {upload_url} -> {response.status_code} {body_preview}"
+                f"Upload request failed: {upload_url} -> {status_code} {body_preview}"
             )
 
         try:
-            payload = response.json() if response.content else {}
+            payload = json.loads(response_text) if response_text else {}
         except ValueError:
-            payload = {"raw": (response.text or "").strip()}
+            payload = {"raw": response_text.strip()}
         download_url = self.build_download_url(
             object_name=target_name,
             bucket_name=target_bucket,
@@ -258,7 +278,7 @@ class AgcCloudStorageClient:
             "download_url": download_url,
             "shared_download_url": shared_download_url,
             "share_token": share_token,
-            "status_code": response.status_code,
+            "status_code": status_code,
             "response": payload,
         }
 

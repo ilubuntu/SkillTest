@@ -3,133 +3,116 @@
     <div class="card">
       <div class="section-head">
         <div>
-          <h3>云测调试入口</h3>
-          <p>手工填写云测任务参数，本地接收后直接执行，并按云测协议上报状态和结果。</p>
+          <h3>云测任务列表</h3>
+          <p>本地接收云测下发任务后，自动准备沙箱、下载工程包、解压并执行。</p>
         </div>
         <div class="actions">
-          <el-button @click="refreshStatus">刷新状态</el-button>
-          <el-button type="primary" :loading="submitting" @click="startExecution">启动执行</el-button>
-        </div>
-      </div>
-
-      <el-form label-width="120px" class="form-grid">
-        <el-form-item label="云测地址">
-          <el-input v-model="form.cloudBaseUrl" placeholder="留空则写本地文件，不发云端" />
-        </el-form-item>
-        <el-form-item label="executionId">
-          <el-input-number v-model="form.executionId" :min="1" :step="1" controls-position="right" style="width: 220px;" />
-        </el-form-item>
-        <el-form-item label="执行 Agent">
-          <el-select v-model="form.agentId" placeholder="选择一个 agent" style="width: 320px;">
-            <el-option v-for="agent in agents" :key="agent.id" :label="`${agent.name} (${agent.adapter})`" :value="agent.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="工程包地址">
-          <el-input v-model="form.fileUrl" placeholder="zip 地址或本地路径" />
-        </el-form-item>
-        <el-form-item label="任务输入" class="span-2">
-          <el-input v-model="form.input" type="textarea" :rows="4" placeholder="云测下发给 agent 的输入" />
-        </el-form-item>
-        <el-form-item label="期望结果" class="span-2">
-          <el-input v-model="form.expectedOutput" type="textarea" :rows="3" placeholder="用于 expectedOutputScore 的参考结果" />
-        </el-form-item>
-      </el-form>
-    </div>
-
-    <div class="status-grid">
-      <div class="card stat-card">
-        <div class="stat-label">本地状态</div>
-        <div class="stat-value">{{ statusData.local_status || statusData.status || 'idle' }}</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">当前阶段</div>
-        <div class="stat-value">{{ statusData.local_stage || '-' }}</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">executionId</div>
-        <div class="stat-value">{{ statusData.execution_id || form.executionId || '-' }}</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">输出代码</div>
-        <div class="stat-value small">
-          <a v-if="statusData.output_code_url" :href="statusData.output_code_url" target="_blank">下载</a>
-          <span v-else>-</span>
-        </div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">状态文件</div>
-        <div class="stat-value small path-text">{{ statusData.last_status_file || '-' }}</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">结果文件</div>
-        <div class="stat-value small path-text">{{ statusData.last_result_file || '-' }}</div>
-      </div>
-    </div>
-
-    <div class="card" v-if="statusData.error_message">
-      <h3>错误信息</h3>
-      <pre class="json-block error-block">{{ statusData.error_message }}</pre>
-    </div>
-
-    <div class="card">
-      <h3>会话轨迹</h3>
-      <div class="timeline">
-        <div v-for="(item, idx) in statusData.conversation || []" :key="idx" class="timeline-item">
-          <span class="timeline-time">{{ item.timestamp }}</span>
-          <span class="timeline-type">{{ item.type }}</span>
-          <span class="timeline-message">{{ item.message }}</span>
+          <el-button @click="refreshTasks">刷新</el-button>
         </div>
       </div>
     </div>
 
-    <div class="payload-grid">
-      <div class="card">
-        <h3>最近一次状态上报</h3>
-        <pre class="json-block">{{ formatJson(statusData.last_status_payload) }}</pre>
+    <div class="layout">
+      <div class="card task-list-card">
+        <div class="sub-title">收到的任务</div>
+        <div v-if="tasks.length === 0" class="empty-text">暂无任务</div>
+        <div
+          v-for="item in tasks"
+          :key="item.execution_id"
+          class="task-item"
+          :class="{ active: selectedExecutionId === item.execution_id }"
+          @click="selectTask(item.execution_id)"
+        >
+          <div class="task-header">
+            <span class="task-id">#{{ item.execution_id }}</span>
+            <span class="task-status">{{ item.local_status || 'pending' }}</span>
+          </div>
+          <div class="task-meta">{{ item.case_title || item.case_id || '-' }}</div>
+          <div class="task-meta small">{{ item.created_at || '-' }}</div>
+        </div>
       </div>
-      <div class="card">
-        <h3>最近一次结果上报</h3>
-        <pre class="json-block">{{ formatJson(statusData.last_result_payload) }}</pre>
-      </div>
-      <div class="card">
-        <h3>状态接口响应</h3>
-        <pre class="json-block">{{ formatJson(statusData.last_status_response) }}</pre>
-      </div>
-      <div class="card">
-        <h3>结果接口响应</h3>
-        <pre class="json-block">{{ formatJson(statusData.last_result_response) }}</pre>
+
+      <div class="detail-column">
+        <div class="status-grid">
+          <div class="card stat-card">
+            <div class="stat-label">本地状态</div>
+            <div class="stat-value">{{ currentTask.local_status || 'idle' }}</div>
+          </div>
+          <div class="card stat-card">
+            <div class="stat-label">当前阶段</div>
+            <div class="stat-value">{{ currentTask.local_stage || '-' }}</div>
+          </div>
+          <div class="card stat-card">
+            <div class="stat-label">executionId</div>
+            <div class="stat-value">{{ currentTask.execution_id || '-' }}</div>
+          </div>
+          <div class="card stat-card">
+            <div class="stat-label">任务标识</div>
+            <div class="stat-value small">{{ currentTask.case_id || '-' }}</div>
+          </div>
+          <div class="card stat-card">
+            <div class="stat-label">工程包地址</div>
+            <div class="stat-value small path-text">{{ currentTask.project_source_url || currentTask.test_case?.fileUrl || '-' }}</div>
+          </div>
+          <div class="card stat-card">
+            <div class="stat-label">输出代码</div>
+            <div class="stat-value small">
+              <a v-if="currentTask.output_code_url" :href="currentTask.output_code_url" target="_blank">下载</a>
+              <span v-else>-</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" v-if="currentTask.error_message">
+          <h3>错误信息</h3>
+          <pre class="json-block error-block">{{ currentTask.error_message }}</pre>
+        </div>
+
+        <div class="card">
+          <h3>会话轨迹</h3>
+          <div class="timeline">
+            <div v-for="(item, idx) in currentTask.conversation || []" :key="idx" class="timeline-item">
+              <span class="timeline-time">{{ item.timestamp }}</span>
+              <span class="timeline-type">{{ item.type }}</span>
+              <span class="timeline-message">{{ item.message }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="payload-grid">
+          <div class="card">
+            <h3>最近一次状态上报</h3>
+            <pre class="json-block">{{ formatJson(currentTask.last_status_payload) }}</pre>
+          </div>
+          <div class="card">
+            <h3>最近一次结果上报</h3>
+            <pre class="json-block">{{ formatJson(currentTask.last_result_payload) }}</pre>
+          </div>
+          <div class="card">
+            <h3>状态接口响应</h3>
+            <pre class="json-block">{{ formatJson(currentTask.last_status_response) }}</pre>
+          </div>
+          <div class="card">
+            <h3>结果接口响应</h3>
+            <pre class="json-block">{{ formatJson(currentTask.last_result_response) }}</pre>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
 
-const STORAGE_KEY = 'cloud-api-view'
-const DEFAULT_CASE_FILE_URL = 'agent_bench/test_cases/bug_fix/001/original_project'
-const DEFAULT_CASE_ID = 'bug_fix_001'
-const isPlaceholderText = (value) => {
-  const normalized = (value || '').trim()
-  if (!normalized) return true
-  const placeholders = new Set(['输入内容', '输出内容', '期望结果', '任务输入', 'expectedoutput', 'input', 'output'])
-  return placeholders.has(normalized) || placeholders.has(normalized.toLowerCase().replaceAll(' ', ''))
-}
-
-const agents = ref([])
-const statusData = ref({})
-const submitting = ref(false)
+const tasks = ref([])
+const selectedExecutionId = ref(null)
 const pollTimer = ref(null)
 
-const form = reactive({
-  cloudBaseUrl: '',
-  executionId: 1,
-  agentId: '',
-  fileUrl: DEFAULT_CASE_FILE_URL,
-  input: '',
-  expectedOutput: '',
+const currentTask = computed(() => {
+  if (!tasks.value.length) return {}
+  return tasks.value.find(item => item.execution_id === selectedExecutionId.value) || tasks.value[0] || {}
 })
 
 const formatJson = (value) => {
@@ -137,84 +120,24 @@ const formatJson = (value) => {
   return JSON.stringify(value, null, 2)
 }
 
-const persistForm = () => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(form))
-}
-
-const restoreForm = () => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return
-    const data = JSON.parse(raw)
-    Object.assign(form, data || {})
-  } catch {
-    // ignore
+const refreshTasks = async () => {
+  const res = await axios.get('/api/cloud-api/status')
+  tasks.value = res.data?.items || []
+  if (!selectedExecutionId.value && tasks.value.length > 0) {
+    selectedExecutionId.value = tasks.value[0].execution_id
   }
-  if (!form.fileUrl) form.fileUrl = DEFAULT_CASE_FILE_URL
-}
-
-const loadDefaultCase = async () => {
-  const res = await axios.get(`/api/cases/${DEFAULT_CASE_ID}`)
-  const data = res.data || {}
-  if (isPlaceholderText(form.input)) form.input = data.prompt || ''
-  if (isPlaceholderText(form.expectedOutput)) form.expectedOutput = data.output_requirements || ''
-}
-
-const loadAgents = async () => {
-  const res = await axios.get('/api/agents')
-  agents.value = res.data || []
-  const agentExists = agents.value.some(agent => agent.id === form.agentId)
-  if ((!form.agentId || !agentExists) && agents.value.length > 0) {
-    form.agentId = agents.value[0].id
+  if (selectedExecutionId.value && !tasks.value.some(item => item.execution_id === selectedExecutionId.value)) {
+    selectedExecutionId.value = tasks.value[0]?.execution_id || null
   }
 }
 
-const refreshStatus = async () => {
-  const params = {}
-  if (form.executionId) params.execution_id = form.executionId
-  const res = await axios.get('/api/cloud-api/status', { params })
-  statusData.value = res.data || {}
-  const localStatus = statusData.value.local_status || statusData.value.status
-  if (['pending', 'running'].includes(localStatus)) {
-    ensurePolling()
-  } else {
-    stopPolling()
-  }
-}
-
-const startExecution = async () => {
-  const missingFields = []
-  if (!form.executionId) missingFields.push('executionId')
-  if (!form.agentId) missingFields.push('执行 Agent')
-  if (!form.fileUrl?.trim()) missingFields.push('工程包地址')
-  if (missingFields.length > 0) {
-    ElMessage.error(`请先填写: ${missingFields.join('、')}`)
-    return
-  }
-  submitting.value = true
-  try {
-    await axios.post('/api/cloud-api/start', {
-      cloudBaseUrl: (form.cloudBaseUrl || '').trim(),
-      executionId: Number(form.executionId),
-      agentId: form.agentId,
-      testCase: {
-        input: form.input || '',
-        expectedOutput: form.expectedOutput || '',
-        fileUrl: form.fileUrl,
-      },
-    })
-    ElMessage.success('任务已提交到本地执行器')
-    await refreshStatus()
-  } catch (error) {
-    ElMessage.error(error?.response?.data?.detail || '启动失败')
-  } finally {
-    submitting.value = false
-  }
+const selectTask = (executionId) => {
+  selectedExecutionId.value = executionId
 }
 
 const ensurePolling = () => {
   if (pollTimer.value) return
-  pollTimer.value = setInterval(refreshStatus, 2000)
+  pollTimer.value = setInterval(refreshTasks, 2000)
 }
 
 const stopPolling = () => {
@@ -223,13 +146,9 @@ const stopPolling = () => {
   pollTimer.value = null
 }
 
-watch(form, persistForm, { deep: true })
-
 onMounted(async () => {
-  restoreForm()
-  await loadAgents()
-  await loadDefaultCase()
-  await refreshStatus()
+  await refreshTasks()
+  ensurePolling()
 })
 
 onUnmounted(() => {
@@ -255,7 +174,6 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
 }
 
 .section-head h3 {
@@ -270,17 +188,71 @@ onUnmounted(() => {
 .actions {
   display: flex;
   gap: 8px;
-  align-items: flex-start;
 }
 
-.form-grid {
+.layout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 20px;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
 }
 
-.span-2 {
-  grid-column: 1 / -1;
+.task-list-card {
+  min-height: 480px;
+}
+
+.sub-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.task-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.task-item.active {
+  border-color: #409eff;
+  background: #f5f9ff;
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.task-id {
+  font-weight: 700;
+}
+
+.task-status {
+  color: #666;
+  font-size: 12px;
+}
+
+.task-meta {
+  color: #333;
+  line-height: 1.5;
+}
+
+.task-meta.small {
+  color: #888;
+  font-size: 12px;
+}
+
+.empty-text {
+  color: #888;
+  font-size: 14px;
+}
+
+.detail-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .status-grid,
@@ -307,78 +279,54 @@ onUnmounted(() => {
 }
 
 .stat-value.small {
-  font-size: 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-all;
 }
 
 .path-text {
-  font-size: 12px;
-  line-height: 1.5;
   word-break: break-all;
 }
 
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   max-height: 320px;
-  overflow-y: auto;
+  overflow: auto;
 }
 
 .timeline-item {
   display: grid;
-  grid-template-columns: 170px 100px 1fr;
-  gap: 10px;
-  font-size: 13px;
-  padding-bottom: 10px;
-  border-bottom: 1px dashed #eee;
+  grid-template-columns: 160px 100px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
 }
 
-.timeline-time {
-  color: #888;
-}
-
+.timeline-time,
 .timeline-type {
-  color: #3152b3;
-  font-weight: 600;
+  color: #666;
+  font-size: 12px;
 }
 
 .timeline-message {
-  color: #222;
-  white-space: pre-wrap;
   word-break: break-word;
 }
 
 .json-block {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
-  line-height: 1.5;
   background: #0f172a;
   color: #e2e8f0;
-  padding: 14px;
-  border-radius: 10px;
-  min-height: 120px;
+  padding: 12px;
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 320px;
+  font-size: 12px;
 }
 
 .error-block {
-  background: #2a1010;
-  color: #ffd5d5;
-}
-
-@media (max-width: 1100px) {
-  .form-grid,
-  .status-grid,
-  .payload-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .section-head {
-    flex-direction: column;
-  }
-
-  .timeline-item {
-    grid-template-columns: 1fr;
-  }
+  background: #3f1d1d;
+  color: #ffd6d6;
 }
 </style>

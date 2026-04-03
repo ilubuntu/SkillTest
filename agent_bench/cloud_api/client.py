@@ -4,15 +4,18 @@
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
-def _post_json(url: str, payload: Dict[str, Any], timeout: int = 20) -> Dict[str, Any]:
+def _post_json(url: str, payload: Dict[str, Any], timeout: int = 20, token: Optional[str] = None) -> Dict[str, Any]:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(
         url=url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -46,10 +49,9 @@ def build_execution_result_url(cloud_base_url: str) -> str:
     return f"{cloud_base_url.rstrip('/')}/api/execution-results"
 
 
-def report_status(cloud_base_url: str, execution_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
-    return _post_json(build_status_report_url(cloud_base_url, execution_id), payload)
+def report_status(cloud_base_url: str, execution_id: int, payload: Dict[str, Any], token: Optional[str] = None) -> Dict[str, Any]:
+    return _post_json(build_status_report_url(cloud_base_url, execution_id), payload, token=token)
 
 
-def upload_execution_result(cloud_base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    return _post_json(build_execution_result_url(cloud_base_url), payload)
-
+def upload_execution_result(cloud_base_url: str, payload: Dict[str, Any], token: Optional[str] = None) -> Dict[str, Any]:
+    return _post_json(build_execution_result_url(cloud_base_url), payload, token=token)

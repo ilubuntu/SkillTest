@@ -20,20 +20,34 @@ from agent_bench.cloud_api.converter import (
     build_execution_result_payload,
     build_prompt,
     build_status_payload,
-    is_placeholder_text,
     load_side_output,
     load_side_scoring_text,
-    load_template_case_defaults,
     map_internal_status_to_remote,
     stage_to_local_status,
 )
 from agent_bench.cloud_api.models import CloudExecutionStartRequest, RemoteExecutionStatus
 from agent_bench.evaluator.llm_judge import LLMJudge
 from agent_bench.pipeline.case_runner import run_single_case
-from agent_bench.pipeline.loader import load_agent, load_agent_defaults, load_config
+from agent_bench.pipeline.loader import load_agent, load_agent_defaults, load_agents, load_config
 from agent_bench.runner.opencode_adapter import OpenCodeAdapter
+try:
+    from agent_bench.storage_uploader import AgcStorageUploader
+    HAS_STORAGE_UPLOADER = True
+except ImportError:
+    HAS_STORAGE_UPLOADER = False
 
 RESULTS_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results", "cloud_api")
+CLOUD_BASE_URL = "http://47.100.28.161:3000"
+AGC_BUCKET_NAME = "agent-bench-lpgvk"
+AGC_PROJECT_CLIENT_CONFIG = {
+    "type": "project_client_id",
+    "developer_id": "900086000150224722",
+    "project_id": "101653523863785276",
+    "client_id": "1919775246739619200",
+    "client_secret": "D1A9970837E38AAB4B7D4AFBDCAEC1B0D6511662C7026DAE1808298342F9192C",
+    "configuration_version": "3.0",
+    "region": "CN",
+}
 
 
 def _now_iso() -> str:
@@ -95,6 +109,40 @@ def _score_cloud_case(case_dir: str,
     }
 
 
+def _upload_output_code_dir(side_dir: str, execution_id: int, on_progress=None) -> str:
+    if not HAS_STORAGE_UPLOADER:
+        return ""
+    if not os.path.isdir(side_dir):
+        return ""
+    try:
+        object_name = f"cloud_api/output_code/execution_{execution_id}_output.zip"
+        if on_progress:
+            on_progress("log", {"level": "WARN", "message": f"[cloud_api] 开始上传输出代码: {object_name}"})
+        uploader = AgcStorageUploader(
+            **{
+                "project_id": AGC_PROJECT_CLIENT_CONFIG["project_id"],
+                "client_id": AGC_PROJECT_CLIENT_CONFIG["client_id"],
+                "client_secret": AGC_PROJECT_CLIENT_CONFIG["client_secret"],
+                "developer_id": AGC_PROJECT_CLIENT_CONFIG["developer_id"],
+                "credential_type": AGC_PROJECT_CLIENT_CONFIG["type"],
+                "region": AGC_PROJECT_CLIENT_CONFIG["region"],
+                "bucket_name": AGC_BUCKET_NAME,
+            },
+        )
+        result = uploader.upload_directory(
+            side_dir,
+            object_name=object_name,
+        )
+        upload_url = result.get("download_url") or ""
+        if on_progress:
+            on_progress("log", {"level": "WARN", "message": f"[cloud_api] 输出代码上传完成: {upload_url}"})
+        return upload_url
+    except Exception as exc:
+        if on_progress:
+            on_progress("log", {"level": "ERROR", "message": f"[cloud_api] 输出代码上传失败: {exc}"})
+        return ""
+
+
 def _download_file(file_url: str, target_path: str):
     parsed = urllib.parse.urlparse(file_url)
     if parsed.scheme in ("http", "https", "file"):
@@ -133,46 +181,12 @@ def _find_project_root(search_root: str) -> str:
     raise FileNotFoundError(f"未在下载内容中找到可执行工程目录: {search_root}")
 
 
-def _normalize_cross_platform_path(file_url: str) -> Optional[str]:
-    """检测跨平台绝对路径并尝试转换为本地路径。
-    
-    当 fileUrl 是 /Users/xxx/work/.../agent_bench/test_cases/... 格式时，
-    提取 test_cases 之后的相对路径，尝试在本地 agent_bench 目录下定位。
-    """
-    file_url_normalized = file_url.replace("\\", "/").strip()
-    if not file_url_normalized.startswith("/"):
-        return None
-    
-    parts = file_url_normalized.strip("/").split("/")
-    try:
-        agent_bench_idx = parts.index("agent_bench")
-    except ValueError:
-        return None
-    
-    relative_path = "/".join(parts[agent_bench_idx + 1:])
-    if not relative_path.startswith("test_cases/"):
-        return None
-    
-    try:
-        from agent_bench.pipeline.loader import BASE_DIR
-        local_candidate = os.path.join(BASE_DIR, relative_path)
-        if os.path.isdir(local_candidate):
-            return local_candidate
-    except Exception:
-        pass
-    return None
-
-
 def _prepare_project_from_file_url(file_url: str, target_dir: str) -> str:
     os.makedirs(target_dir, exist_ok=True)
     parsed = urllib.parse.urlparse(file_url)
 
     if not parsed.scheme and os.path.isdir(file_url):
         return _find_project_root(file_url)
-    
-    local_mapped = _normalize_cross_platform_path(file_url)
-    if local_mapped and os.path.isdir(local_mapped):
-        return _find_project_root(local_mapped)
 
     archive_path = os.path.join(target_dir, "source.zip")
     _download_file(file_url, archive_path)
@@ -202,8 +216,9 @@ class CloudExecutionManager:
 
             state = {
                 "execution_id": payload.executionId,
-                "cloud_base_url": payload.cloudBaseUrl.rstrip("/"),
+                "cloud_base_url": (payload.cloudBaseUrl or CLOUD_BASE_URL).rstrip("/"),
                 "agent_id": payload.agentId,
+                "token": (payload.token or "").strip(),
                 "test_case": payload.testCase.model_dump(),
                 "local_status": "pending",
                 "local_stage": "preparing",
@@ -246,6 +261,12 @@ class CloudExecutionManager:
                 return None
             return json.loads(json.dumps(state))
 
+    def list_states(self) -> list[Dict[str, Any]]:
+        with self._lock:
+            states = [json.loads(json.dumps(item)) for item in self._states.values()]
+        states.sort(key=lambda item: (item.get("created_at") or "", item.get("execution_id") or 0), reverse=True)
+        return states
+
     def _append_conversation(self, state: Dict[str, Any], item_type: str, message: str, level: str = "INFO"):
         state["conversation"].append({
             "timestamp": _now_iso(),
@@ -256,38 +277,17 @@ class CloudExecutionManager:
         state["conversation"] = state["conversation"][-200:]
         state["updated_at"] = _now_iso()
 
-    def _payload_dir(self, state: Dict[str, Any]) -> str:
-        run_dir = state.get("run_dir") or RESULTS_ROOT
-        payload_dir = os.path.join(run_dir, "cloud_payloads")
-        os.makedirs(payload_dir, exist_ok=True)
-        return payload_dir
-
-    def _persist_local_payload(self, state: Dict[str, Any], filename: str, payload: Dict[str, Any]) -> str:
-        payload_dir = self._payload_dir(state)
-        path = os.path.join(payload_dir, filename)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        return path
-
     def _report_remote_status(self, state: Dict[str, Any]):
         remote_status = map_internal_status_to_remote(state.get("local_status"))
         payload = build_status_payload(remote_status, state.get("error_message"))
-        if state["cloud_base_url"]:
-            response = report_status(state["cloud_base_url"], state["execution_id"], payload)
-        else:
-            latest_path = self._persist_local_payload(state, "status_report_latest.json", payload)
-            history_path = os.path.join(self._payload_dir(state), "status_report_history.jsonl")
-            with open(history_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            response = {
-                "ok": True,
-                "mode": "local_file",
-                "latest_path": latest_path,
-                "history_path": history_path,
-            }
+        response = report_status(
+            state["cloud_base_url"],
+            state["execution_id"],
+            payload,
+            token=state.get("token"),
+        )
         state["last_status_payload"] = payload
         state["last_status_response"] = response
-        state["last_status_file"] = response.get("latest_path")
         state["updated_at"] = _now_iso()
 
     def _run_execution(self, payload: CloudExecutionStartRequest, local_base_url: str):
@@ -345,14 +345,10 @@ class CloudExecutionManager:
             os.makedirs(run_dir, exist_ok=True)
 
             project_root = _prepare_project_from_file_url(payload.testCase.fileUrl, source_dir)
-            template_defaults = load_template_case_defaults("bug_fix_001")
             raw_input = (payload.testCase.input or "").strip()
             raw_expected_output = (payload.testCase.expectedOutput or "").strip()
-            input_text = template_defaults.get("prompt", "") if is_placeholder_text(raw_input) else raw_input
-            expected_output = (
-                template_defaults.get("output_requirements", "")
-                if is_placeholder_text(raw_expected_output) else raw_expected_output
-            )
+            input_text = raw_input
+            expected_output = raw_expected_output
             if not input_text.strip() or not expected_output.strip():
                 raise ValueError("缺少真实的任务输入或期望结果，已终止执行")
             prompt = build_prompt(input_text, expected_output)
@@ -361,6 +357,9 @@ class CloudExecutionManager:
             with self._lock:
                 state["run_dir"] = run_dir
                 state["case_dir"] = case_dir
+                state["case_id"] = case.get("id") or f"cloud_execution_{execution_id}"
+                state["case_title"] = case.get("title") or f"Cloud Execution {execution_id}"
+                state["project_source_url"] = payload.testCase.fileUrl
                 self._append_conversation(state, "prepare", f"工程已就绪: {project_root}")
 
             defaults = load_agent_defaults()
@@ -368,6 +367,9 @@ class CloudExecutionManager:
             default_temperature = defaults.get("temperature")
 
             baseline_agent = load_agent(payload.agentId or "")
+            if not baseline_agent:
+                agents = load_agents()
+                baseline_agent = agents[0] if agents else None
             if not baseline_agent:
                 raise ValueError("必须选择一个可用 agent")
             candidate_agent = None
@@ -397,7 +399,12 @@ class CloudExecutionManager:
                 agent_temperature=default_temperature,
             )
 
-            output_code_url = f"{local_base_url.rstrip('/')}/api/cloud-api/executions/{execution_id}/output-code"
+            uploaded_output_code_url = _upload_output_code_dir(
+                os.path.join(case_dir, "side_a"),
+                execution_id,
+                on_progress=on_progress,
+            )
+            output_code_url = uploaded_output_code_url or ""
             result_payload = build_execution_result_payload(
                 execution_id=execution_id,
                 case_dir=case_dir,
@@ -439,18 +446,13 @@ class CloudExecutionManager:
                 state["result"] = result
                 state["last_result_payload"] = result_payload
 
-            if state["cloud_base_url"]:
-                result_response = upload_execution_result(state["cloud_base_url"], result_payload)
-            else:
-                result_path = self._persist_local_payload(state, "execution_result.json", result_payload)
-                result_response = {
-                    "ok": True,
-                    "mode": "local_file",
-                    "path": result_path,
-                }
+            result_response = upload_execution_result(
+                state["cloud_base_url"],
+                result_payload,
+                token=state.get("token"),
+            )
             with self._lock:
                 state["last_result_response"] = result_response
-                state["last_result_file"] = result_response.get("path")
 
             update_local_status("completed", "completed")
             with self._lock:

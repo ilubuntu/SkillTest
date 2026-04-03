@@ -23,8 +23,9 @@ class CloudDispatchPayload(BaseModel):
 
 
 class CloudExecutionStartRequest(CloudDispatchPayload):
-    cloudBaseUrl: str
-    agentId: str
+    cloudBaseUrl: str = ""
+    agentId: str = ""
+    token: str = ""
 
 
 class CloudStatusReportPayload(BaseModel):
