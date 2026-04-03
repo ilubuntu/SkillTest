@@ -91,6 +91,7 @@ When deployment is requested, use the detailed guidance in [references/build-wor
 
 ## Response Expectations
 
+- When you actually use this skill for a build attempt, include the literal marker `[[BUILD_HARMONY_PROJECT_CALLED]]` in your final response summary.
 - State the DevEco Studio path being used.
 - Summarize whether the build succeeded.
 - Provide the generated HAP path if present.

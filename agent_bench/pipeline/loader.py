@@ -504,8 +504,11 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
         skill_name = compile_loop.get("skill_name") or "build-harmony-project"
         max_rounds = int(compile_loop.get("max_rounds") or 5)
         result["system_prompt"] = (
-            f"每次修改代码后都必须使用 {skill_name} 做一次编译自检，"
-            f"失败就结合完整编译日志继续修复并重试，最多 {max_rounds} 轮。"
+            f"你已具备一个用于 HarmonyOS 工程编译验证的 skill：{skill_name}。"
+            f"当你完成一轮代码修改并准备结束本轮任务时，必须先调用该 skill 对当前工程执行一次编译验证。"
+            f"如果编译失败，必须根据完整编译错误继续修改代码，并在下一轮代码修改完成后再次执行编译验证。"
+            f"只有在编译验证通过后，当前任务才算真正完成。整个“修改代码 -> 编译验证 -> 根据错误继续修复”的循环最多执行 {max_rounds} 轮。"
+            f"在最终输出中，必须单独说明 {skill_name} 的执行情况，包括是否已调用、是否执行成功；如果失败，必须说明失败发生的具体阶段和错误原因。"
         )
 
     return _cleanup_enhancement_dict(result)

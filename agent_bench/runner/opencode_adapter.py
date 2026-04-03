@@ -196,7 +196,7 @@ class OpenCodeAdapter(AgentAdapter):
                 "prompt_preview": effective_prompt[:500] + "..." if len(effective_prompt) > 500 else effective_prompt,
                 "has_system": bool(self._system_message),
                 "system_length": len(self._system_message) if self._system_message else 0,
-                "system_preview": self._system_message[:200] + "..." if self._system_message and len(self._system_message) > 200 else self._system_message,
+                "system_prompt": self._system_message,
                 "has_tools": bool(self._tools_config),
                 "tools": self._tools_config,
                 "has_model": bool(self.model),

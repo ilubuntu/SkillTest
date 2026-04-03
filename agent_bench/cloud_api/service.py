@@ -61,6 +61,12 @@ def _safe_json(data: Any) -> str:
         return str(data)
 
 
+def _append_jsonl(path: str, payload: Dict[str, Any]):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
 def _build_cloud_llm_judge(on_progress=None) -> LLMJudge:
     config = load_config()
     agent_defaults = load_agent_defaults()
@@ -268,27 +274,38 @@ class CloudExecutionManager:
         return states
 
     def _append_conversation(self, state: Dict[str, Any], item_type: str, message: str, level: str = "INFO"):
-        state["conversation"].append({
+        record = {
             "timestamp": _now_iso(),
             "type": item_type,
             "level": level,
             "message": message,
-        })
+        }
+        state["conversation"].append(record)
         state["conversation"] = state["conversation"][-200:]
         state["updated_at"] = _now_iso()
+        self._append_local_event(state, "conversation", record)
+
+    def _append_local_event(self, state: Dict[str, Any], event_type: str, payload: Dict[str, Any]):
+        run_dir = str(state.get("run_dir") or "").strip()
+        if not run_dir:
+            return
+        log_path = os.path.join(run_dir, "cloud_bridge_events.jsonl")
+        _append_jsonl(log_path, {
+            "timestamp": _now_iso(),
+            "event": event_type,
+            "payload": payload,
+        })
 
     def _report_remote_status(self, state: Dict[str, Any]):
         remote_status = map_internal_status_to_remote(state.get("local_status"))
         payload = build_status_payload(remote_status, state.get("error_message"))
-        response = report_status(
-            state["cloud_base_url"],
-            state["execution_id"],
-            payload,
-            token=state.get("token"),
-        )
         state["last_status_payload"] = payload
-        state["last_status_response"] = response
+        state["last_status_response"] = None
         state["updated_at"] = _now_iso()
+        self._append_local_event(state, "status_report", {
+            "payload": payload,
+            "response": None,
+        })
 
     def _run_execution(self, payload: CloudExecutionStartRequest, local_base_url: str):
         execution_id = payload.executionId
@@ -304,7 +321,6 @@ class CloudExecutionManager:
                 state["updated_at"] = _now_iso()
 
         def on_progress(event: str, data: Dict[str, Any]):
-            should_push_running = False
             with self._lock:
                 current = self._states[execution_id]
                 if event == "log":
@@ -315,13 +331,11 @@ class CloudExecutionManager:
                     if stage:
                         current["local_stage"] = stage
                     self._append_conversation(current, "stage_start", data.get("stage", ""))
-                    should_push_running = True
                 elif event == "stage_done":
                     stage = stage_to_local_status(data.get("stage", ""))
                     if stage and data.get("status") == "error":
                         current["local_stage"] = "failed"
                     self._append_conversation(current, "stage_done", f"{data.get('stage', '')}:{data.get('status', 'done')}")
-                    should_push_running = True
                 elif event == "error":
                     current["error_message"] = data.get("message", "")
                     current["local_stage"] = "failed"
@@ -329,21 +343,20 @@ class CloudExecutionManager:
                 elif event == "case_done":
                     self._append_conversation(current, "case_done", data.get("case_id", ""))
                 current["updated_at"] = _now_iso()
-            if should_push_running:
-                self._report_remote_status(state)
 
         try:
-            update_local_status("running", "preparing")
-            with self._lock:
-                self._append_conversation(state, "status", "任务开始执行")
-            self._report_remote_status(state)
-
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             run_dir = os.path.join(RESULTS_ROOT, f"execution_{execution_id}_{timestamp}")
             source_dir = os.path.join(run_dir, "source")
             case_dir = os.path.join(run_dir, "case")
             os.makedirs(run_dir, exist_ok=True)
+            with self._lock:
+                state["run_dir"] = run_dir
+                state["case_dir"] = case_dir
 
+            update_local_status("running", "preparing")
+            with self._lock:
+                self._append_conversation(state, "status", "任务开始执行")
             project_root = _prepare_project_from_file_url(payload.testCase.fileUrl, source_dir)
             raw_input = (payload.testCase.input or "").strip()
             raw_expected_output = (payload.testCase.expectedOutput or "").strip()
@@ -369,7 +382,7 @@ class CloudExecutionManager:
             baseline_agent = load_agent(payload.agentId or "")
             if not baseline_agent:
                 agents = load_agents()
-                baseline_agent = agents[0] if agents else None
+                baseline_agent = load_agent(agents[0].get("id")) if agents else None
             if not baseline_agent:
                 raise ValueError("必须选择一个可用 agent")
             candidate_agent = None
@@ -416,54 +429,27 @@ class CloudExecutionManager:
                 expected_output_score=None,
             )
 
-            try:
-                with self._lock:
-                    self._append_conversation(state, "status", "开始模型评分")
-                llm_scores = _score_cloud_case(
-                    case_dir=case_dir,
-                    case=case,
-                    prompt=input_text,
-                    expected_output=expected_output,
-                    on_progress=on_progress,
-                )
-                result_payload["data"]["codeQualityScore"] = llm_scores.get("code_quality_score") or 0
-                result_payload["data"]["expectedOutputScore"] = llm_scores.get("expected_output_score") or 0
-                with self._lock:
-                    state["llm_scores"] = llm_scores
-                    self._append_conversation(
-                        state,
-                        "status",
-                        f"模型评分完成: codeQualityScore={result_payload['data']['codeQualityScore']}, expectedOutputScore={result_payload['data']['expectedOutputScore']}",
-                    )
-            except Exception as exc:
-                with self._lock:
-                    state["llm_scores_error"] = str(exc)
-                    self._append_conversation(state, "error", f"模型评分失败，回退本地规则: {exc}", "WARNING")
-
             with self._lock:
                 state["output_code_url"] = output_code_url
                 state["reporting_side"] = "side_a"
                 state["result"] = result
                 state["last_result_payload"] = result_payload
 
-            result_response = upload_execution_result(
-                state["cloud_base_url"],
-                result_payload,
-                token=state.get("token"),
-            )
             with self._lock:
-                state["last_result_response"] = result_response
+                state["last_result_response"] = None
+                self._append_local_event(state, "result_report", {
+                    "payload": result_payload,
+                    "response": None,
+                })
 
             update_local_status("completed", "completed")
             with self._lock:
                 self._append_conversation(state, "status", "任务执行完成")
-            self._report_remote_status(state)
         except Exception as exc:
             with self._lock:
                 state["error_message"] = str(exc)
                 self._append_conversation(state, "error", str(exc), "ERROR")
             update_local_status("failed", "failed")
-            self._report_remote_status(state)
         finally:
             with self._lock:
                 self._active_execution_id = None

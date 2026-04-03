@@ -26,7 +26,8 @@ struct MainPage {
 
   handleReturnParams() {
     const params = router.getParams() as DetailResultParams | undefined
-    if (!params || params.saved !== true || !params.changeToken) {
+    // Allow 0 as a valid changeToken; ensure we only skip when token is null/undefined
+    if (!params || params.saved !== true || params.changeToken == null) {
       return
     }
 

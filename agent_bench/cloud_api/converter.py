@@ -189,6 +189,39 @@ def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
     return 0
 
 
+def _extract_iteration_count(metrics: Dict[str, Any], output_text: str = "") -> int:
+    if not isinstance(metrics, dict):
+        return 1 if (output_text or "").strip() else 0
+
+    raw = metrics.get("raw") or {}
+    parts = []
+    if isinstance(raw, dict):
+        message_info = raw.get("message_info") or {}
+        if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
+            parts = message_info.get("parts") or []
+        elif isinstance(raw.get("parts"), list):
+            parts = raw.get("parts") or []
+
+    step_count = 0
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        if str(part.get("type") or "").lower() == "step-start":
+            step_count += 1
+    if step_count > 0:
+        return step_count
+
+    observed_calls = (((metrics.get("tools") or {}).get("observed_calls")) or [])
+    if isinstance(observed_calls, list) and observed_calls:
+        return len(observed_calls) + 1
+
+    if (metrics.get("session_id") or "").strip():
+        return 1
+    if _extract_total_tokens(metrics) > 0:
+        return 1
+    return 1 if (output_text or "").strip() else 0
+
+
 def _score_expected_output(expected_output: str, actual_output: str) -> int:
     expected = " ".join((expected_output or "").split()).strip()
     actual = " ".join((actual_output or "").split()).strip()
@@ -221,6 +254,7 @@ def build_execution_result_payload(execution_id: int,
 
     is_build_success = bool(compile_results.get("side_a_compilable"))
     token_consumption = _extract_total_tokens(metrics)
+    iteration_count = _extract_iteration_count(metrics, output_text)
 
     payload = CloudExecutionResultPayload(
         testExecutionId=execution_id,
@@ -228,7 +262,7 @@ def build_execution_result_payload(execution_id: int,
             isBuildSuccess=is_build_success,
             executionTime=max(0, int(execution_time_ms)),
             tokenConsumption=max(0, int(token_consumption)),
-            iterationCount=0,
+            iterationCount=max(0, int(iteration_count)),
             codeQualityScore=_score_code_quality(is_build_success) if code_quality_score is None else max(0, min(100, int(code_quality_score))),
             expectedOutputScore=_score_expected_output(expected_output, output_text) if expected_output_score is None else max(0, min(100, int(expected_output_score))),
             outputCodeUrl=output_code_url,

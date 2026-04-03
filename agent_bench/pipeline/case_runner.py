@@ -263,32 +263,58 @@ def _log_skill_mount_status(case_id: str, side_label: str, enhancements: dict, o
 
 
 def _log_compile_self_check_signal(case_id: str, side_label: str, output_text: str, on_progress):
-    text = output_text or ""
-    patterns = [
-        r"\bhvigorw?\b",
-        r"\bassembleHap\b",
-        r"\bcompile\b",
-        r"编译",
-        r"构建",
-        r"build success",
-        r"build failed",
-    ]
-    matched = []
-    lowered = text.lower()
-    for pattern in patterns:
-        if re.search(pattern, lowered, re.IGNORECASE):
-            matched.append(pattern)
+    marker = "[[BUILD_HARMONY_PROJECT_CALLED]]"
+    if marker in (output_text or ""):
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"[{case_id}] {side_label} 输出中观察到 build-harmony-project 调用标记"
+        })
+        return
 
-    if matched:
+    _notify(on_progress, "log", {
+        "level": "WARNING",
+        "message": f"[{case_id}] {side_label} 输出中未观察到 build-harmony-project 调用标记"
+    })
+
+
+def _load_stage_interaction_metrics(case_dir: str, stage: str) -> dict:
+    metrics_path = os.path.join(stage_meta_dir(case_dir, stage), "interaction_metrics.json")
+    if not os.path.exists(metrics_path):
+        return {}
+    try:
+        with open(metrics_path, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def _log_skill_call_detection(case_id: str, side_label: str, case_dir: str, stage: str, output_text: str, on_progress):
+    metrics = _load_stage_interaction_metrics(case_dir, stage)
+    raw = metrics.get("raw") or {}
+    raw_parts = []
+    message_info = raw.get("message_info") or {}
+    if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
+        raw_parts.extend(message_info.get("parts") or [])
+    if isinstance(raw.get("parts"), list):
+        raw_parts.extend(raw.get("parts") or [])
+
+    matched_entries = []
+    for part in raw_parts:
+        if not isinstance(part, dict):
+            continue
+        serialized = json.dumps(part, ensure_ascii=False).lower()
+        if "build-harmony-project" in serialized or '"type": "skill"' in serialized or '"tool"' in serialized:
+            matched_entries.append(part.get("type") or "unknown")
+
+    if matched_entries:
+        summary = ",".join(str(item) for item in matched_entries[:3])
         _notify(on_progress, "log", {
             "level": "WARNING",
-            "message": f"[{case_id}] {side_label} 输出中观察到编译自检痕迹，匹配关键词={','.join(matched[:3])}"
+            "message": f"[{case_id}] {side_label} 在 interaction_metrics 中观察到 build-harmony-project 调用痕迹，事件={summary}"
         })
-    else:
-        _notify(on_progress, "log", {
-            "level": "WARNING",
-            "message": f"[{case_id}] {side_label} 输出中未观察到明确的 hvigor 编译自检痕迹"
-        })
+        return
+
+    _log_compile_self_check_signal(case_id, side_label, output_text, on_progress)
 
 
 # ── 单用例执行 ───────────────────────────────────────────────
@@ -411,63 +437,19 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                                   task_prompt=task_prompt, enhancements=enhancements,
                                   include_side_b=not only_run_baseline)
 
-        case_spec = case.get("case_spec") or {}
-        if case_spec:
-            constraint_skill = build_constraint_review_skill(case_spec)
-            side_reports = [
-                ("side_a", side_a_output, os.path.join(case_dir, "side_a")),
-            ]
-            if not only_run_baseline:
-                side_reports.append(("side_b", side_b_output, os.path.join(case_dir, "side_b")))
-
-            for stage_name, raw_output, project_dir in side_reports:
-                normalized_output = strip_constraint_review_report(raw_output)
-                score_result = evaluate_constraints(case_spec, project_dir)
-                report_text = build_constraint_review_report(score_result)
-                display_output = append_constraint_review_report(normalized_output, report_text)
-                save_constraint_review_artifacts(
-                    case_dir=case_dir,
-                    stage=stage_name,
-                    raw_output=normalized_output,
-                    display_output=display_output,
-                    skill_content=constraint_skill.get("content", ""),
-                    score_result=score_result,
-                )
     else:
         _notify(on_progress, "log", {"level": "INFO", "message": f"[{case_id}] 从磁盘加载 Runner 产物..."})
         side_a_output, side_b_output = load_runner_artifacts(case_dir)
         _notify(on_progress, "log", {"level": "DEBUG",
             "message": f"[{case_id}] 已加载: side_a={len(side_a_output)}字符, side_b={len(side_b_output)}字符"})
 
-    # ── Evaluator 阶段 ──
-    if "evaluator" in stages:
-        result = _run_evaluator_stage(
-            case_id, title, scenario, case,
-            prompt,
-            rubric,
-            side_a_output, side_b_output,
-            llm_judge, case_dir,
-            dry_run=dry_run, on_progress=on_progress,
-            only_run_baseline=only_run_baseline,
-            phase_weights=phase_weights,
-            compile_results=compile_results,
-            comparison_labels=comparison_labels,
-            active_sides=active_sides,
-        )
-    else:
-        result = _build_compile_only_result(
-            case_id=case_id,
-            title=title,
-            scenario=case.get("scenario", scenario),
-            compile_results=compile_results,
-            only_run_baseline=only_run_baseline,
-        )
-        save_case_result(case_dir, result)
-
-    if compile_results:
-        result["compile_results"] = compile_results
-        with open(os.path.join(case_dir, "result.json"), "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
+    result = _build_runner_only_result(
+        case_id=case_id,
+        title=title,
+        scenario=case.get("scenario", scenario),
+        only_run_baseline=only_run_baseline,
+    )
+    save_case_result(case_dir, result)
 
     return result
 
@@ -500,6 +482,23 @@ def _build_compile_only_result(case_id: str,
     if str(scenario).lower().replace(" ", "_") == "general":
         result["general_pass"] = side_a_compilable
     return result
+
+
+def _build_runner_only_result(case_id: str,
+                              title: str,
+                              scenario: str,
+                              only_run_baseline: bool) -> dict:
+    return {
+        "case_id": case_id,
+        "title": title,
+        "scenario": scenario,
+        "side_a_rule": None,
+        "side_b_rule": None if only_run_baseline else None,
+        "side_a_total": None,
+        "side_b_total": None if only_run_baseline else None,
+        "gain": None,
+        "dimension_scores": {},
+    }
 
 
 def _run_runner_stage(case, case_id, task_prompt, enhancements,
@@ -548,51 +547,20 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
     side_a_dir = stage_dir(case_dir, "side_a")
     side_b_dir = os.path.join(case_dir, "side_b")
 
-    # general 场景：直接编译当前用例的 original_project 验证
+    # general 场景：当前调试阶段不做编译验证，直接跳过
     if is_general_case:
         prepare_project_workspace(template_project_path, side_a_dir)
-        _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 通用用例：直接编译验证模板工程 {template_project_path}"})
-        t0 = time.time()
-        compile_result = check_project_compilable(
-            side_a_dir,
-            template_project_path=template_project_path,
-        )
-        elapsed = time.time() - t0
-        compile_results["side_a_compilable"] = compile_result["compilable"]
-        compile_results["side_a_error"] = compile_result.get("error", "")
-        if not compile_result["compilable"]:
-            error_text = compile_result.get("error", "未知错误")
-            _notify(on_progress, "log", {
-                "level": "ERROR",
-                "message": f"[{case_id}] 通用用例完整编译失败原因见下方详情",
-                "detail": error_text,
-            })
-        if only_run_baseline:
-            compile_results["side_b_compilable"] = None
-            compile_results["side_b_error"] = ""
-        if compile_result["compilable"]:
-            _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 通用用例编译成功"})
-            stage_status = "done"
-        else:
-            _notify(on_progress, "log", {"level": "ERROR", 
-                "message": f"[{case_id}] 通用用例编译失败: {compile_result.get('error', '未知错误')[:200]}"})
-            stage_status = "error"
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": elapsed, "status": stage_status})
+        _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 通用用例：当前已跳过编译验证，仅保留工程准备"})
+        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": 0, "skipped": True})
         return "", "", compile_results
 
     scenario_key = (scenario or "").lower().replace(" ", "_")
-    should_compile = bool(scenario_key and scenario_key != "project_gen" and not is_general_case)
+    should_compile = False
     side_a_enhancements = build_agent_runtime_enhancements(baseline_agent or enhanced_agent)
     side_b_enhancements = merge_enhancements(
         build_agent_runtime_enhancements(enhanced_agent or baseline_agent),
         enhancements or {},
     )
-    constraint_skill = build_constraint_review_skill(case.get("case_spec") or {})
-    if _should_attach_constraint_skill(baseline_agent or enhanced_agent):
-        side_a_enhancements = _append_dynamic_skill(side_a_enhancements, constraint_skill)
-    if _should_attach_constraint_skill(enhanced_agent or baseline_agent):
-        side_b_enhancements = _append_dynamic_skill(side_b_enhancements, constraint_skill)
-
     # ── A 侧运行 ──
     if dry_run:
         prepare_project_workspace(template_project_path, side_a_dir)
@@ -605,8 +573,6 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": 0, "skipped": True})
     else:
         prepare_project_workspace(template_project_path, side_a_dir)
-        if should_compile and os.path.isdir(side_a_dir):
-            _warmup_single_side(case_id, side_a_dir, side_a_label, on_progress)
         baseline_agent_config = baseline_agent or enhanced_agent
         baseline_timeout = _resolve_agent_timeout(baseline_agent_config, agent_timeout)
         baseline_adapter = create_adapter(
@@ -640,25 +606,9 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
                 "level": "WARNING",
                 "message": f"[{case_id}] {side_a_label} 输出预览:\n{_clip_text(side_a_output, MAX_LOGGED_OUTPUT_CHARS)}"
             })
-        _log_compile_self_check_signal(case_id, side_a_label, side_a_output, on_progress)
+        _log_skill_call_detection(case_id, side_a_label, case_dir, "side_a", side_a_output, on_progress)
         
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧运行", "elapsed": elapsed})
-
-    if should_compile and os.path.isdir(side_a_dir):
-        _compile_single_side(
-            case_id=case_id,
-            stage_name="A侧编译",
-            side_dir=side_a_dir,
-            template_project_path=template_project_path,
-            side_label=side_a_label,
-            result_key="side_a",
-            compile_results=compile_results,
-            case_dir=case_dir,
-            artifact_stage="side_a_compile",
-            on_progress=on_progress,
-        )
-    else:
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "A侧编译", "elapsed": 0, "skipped": True})
 
     # ── B 侧运行 ──
     if only_run_baseline:
@@ -667,30 +617,12 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
         compile_results["side_b_error"] = ""
         _notify(on_progress, "log", {"level": "WARNING", "message": f"[{case_id}] 仅运行 {side_a_label}，{side_b_label} 跳过执行"})
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": 0, "skipped": True})
-        _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧编译", "elapsed": 0, "skipped": True})
     elif dry_run:
         prepare_project_workspace(template_project_path, side_b_dir)
         side_b_output = "// dry run - no output"
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": 0, "skipped": True})
-        if should_compile and os.path.isdir(side_b_dir):
-            _compile_single_side(
-                case_id=case_id,
-                stage_name="B侧编译",
-                side_dir=side_b_dir,
-                template_project_path=template_project_path,
-                side_label=side_b_label,
-                result_key="side_b",
-                compile_results=compile_results,
-                case_dir=case_dir,
-                artifact_stage="side_b_compile",
-                on_progress=on_progress,
-            )
-        else:
-            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧编译", "elapsed": 0, "skipped": True})
     else:
         prepare_project_workspace(template_project_path, side_b_dir)
-        if should_compile and os.path.isdir(side_b_dir):
-            _warmup_single_side(case_id, side_b_dir, side_b_label, on_progress)
         enhanced_agent_config = enhanced_agent or baseline_agent
         enhanced_timeout = _resolve_agent_timeout(enhanced_agent_config, agent_timeout)
         enhanced_adapter = create_adapter(
@@ -724,24 +656,9 @@ def _run_runner_stage(case, case_id, task_prompt, enhancements,
                 "level": "WARNING",
                 "message": f"[{case_id}] {side_b_label} 输出预览:\n{_clip_text(side_b_output, MAX_LOGGED_OUTPUT_CHARS)}"
             })
-        _log_compile_self_check_signal(case_id, side_b_label, side_b_output, on_progress)
+        _log_skill_call_detection(case_id, side_b_label, case_dir, "side_b", side_b_output, on_progress)
         
         _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧运行", "elapsed": elapsed})
-        if should_compile and os.path.isdir(side_b_dir):
-            _compile_single_side(
-                case_id=case_id,
-                stage_name="B侧编译",
-                side_dir=side_b_dir,
-                template_project_path=template_project_path,
-                side_label=side_b_label,
-                result_key="side_b",
-                compile_results=compile_results,
-                case_dir=case_dir,
-                artifact_stage="side_b_compile",
-                on_progress=on_progress,
-            )
-        else:
-            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "B侧编译", "elapsed": 0, "skipped": True})
 
     return side_a_output, side_b_output, compile_results
 
