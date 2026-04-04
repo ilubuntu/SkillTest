@@ -55,54 +55,6 @@ def load_text_file(file_path: str) -> str:
         return f.read()
 
 
-def _load_skill_frontmatter(skill_file_path: str) -> dict:
-    content = load_text_file(skill_file_path)
-    match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
-    if not match:
-        return {}
-    import yaml
-    try:
-        data = yaml.safe_load(match.group(1)) or {}
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _build_skill_summary(skill_name: str, skill_file_path: str) -> str:
-    """构造简版 skill 摘要，避免把整份 SKILL.md 注入 prompt。"""
-    frontmatter = _load_skill_frontmatter(skill_file_path)
-    description = (frontmatter.get("description") or "").strip()
-
-    if skill_name == "build-harmony-project":
-        lines = [
-            f"Skill 名称: {skill_name}",
-        ]
-        if description:
-            lines.append(f"Skill 说明: {description}")
-        lines.extend([
-            "使用原则:",
-            "- 修改代码后立即执行一次 HarmonyOS 编译自检",
-            "- 只使用 DevEco Studio 内置 node、hvigorw.js、sdk、java",
-            "- 不修改签名文件、签名配置、build-profile.json5",
-            "- 编译失败时读取完整日志，再继续修复并重试",
-            "关键命令:",
-            "- macOS: DEVECO_PATH=/Applications/DevEco-Studio.app",
-            "- macOS: NODE_BIN=$DEVECO_PATH/Contents/tools/node/bin/node",
-            "- macOS: HVIGOR_JS=$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js",
-            "- macOS: export DEVECO_SDK_HOME=$DEVECO_PATH/Contents/sdk",
-            "- macOS: export JAVA_HOME=$DEVECO_PATH/Contents/jbr/Contents/Home",
-            "- macOS: \"$NODE_BIN\" \"$HVIGOR_JS\" --mode module -p product=default assembleHap --analyze=normal --parallel --incremental --daemon",
-            "- macOS: \"$NODE_BIN\" \"$HVIGOR_JS\" --stop-daemon",
-        ])
-        return "\n".join(lines)
-
-    lines = [f"Skill 名称: {skill_name}"]
-    if description:
-        lines.append(f"Skill 说明: {description}")
-    lines.append("该 Skill 已挂载，请按其说明执行，不要忽略。")
-    return "\n".join(lines)
-
-
 def _resolve_case_dir(case: dict) -> str:
     """解析测试用例目录（相对于 agent_bench/）"""
     explicit_case_dir = case.get("case_dir", "")
@@ -236,7 +188,7 @@ def _format_prompt_value(value) -> str:
 
 def _normalize_workspace_relative_path(path: str) -> str:
     normalized = _format_prompt_value(path).replace("\\", "/").strip()
-    prefixes = ("original_project/", "baseline/", "enhanced/")
+    prefixes = ("original_project/", "agent_workspace/")
     for prefix in prefixes:
         if normalized.startswith(prefix):
             return normalized[len(prefix):]
@@ -477,7 +429,7 @@ def merge_enhancements(base: Optional[dict], extra: Optional[dict]) -> dict:
 def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
     """根据 Agent 配置构造运行时增强项。
 
-    当前仅保留精简的编译循环 system prompt。
+    当前仅保留 mounted_skills 元信息和额外的 system prompt。
     """
     if not agent:
         return {}
@@ -496,20 +448,11 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
         result["skills"].append({
             "name": skill_name,
             "path": skill_path,
-            "content": _build_skill_summary(skill_name, skill_path),
         })
 
-    compile_loop = agent.get("compile_loop") or {}
-    if compile_loop.get("enabled"):
-        skill_name = compile_loop.get("skill_name") or "build-harmony-project"
-        max_rounds = int(compile_loop.get("max_rounds") or 5)
-        result["system_prompt"] = (
-            f"你已具备一个用于 HarmonyOS 工程编译验证的 skill：{skill_name}。"
-            f"当你完成一轮代码修改并准备结束本轮任务时，必须先调用该 skill 对当前工程执行一次编译验证。"
-            f"如果编译失败，必须根据完整编译错误继续修改代码，并在下一轮代码修改完成后再次执行编译验证。"
-            f"只有在编译验证通过后，当前任务才算真正完成。整个“修改代码 -> 编译验证 -> 根据错误继续修复”的循环最多执行 {max_rounds} 轮。"
-            f"在最终输出中，必须单独说明 {skill_name} 的执行情况，包括是否已调用、是否执行成功；如果失败，必须说明失败发生的具体阶段和错误原因。"
-        )
+    extra_prompt = str(agent.get("extra_prompt") or "").strip()
+    if extra_prompt:
+        result["system_prompt"] = extra_prompt
 
     return _cleanup_enhancement_dict(result)
 

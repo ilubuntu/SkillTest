@@ -313,14 +313,6 @@ class CodexLocalAdapter(AgentAdapter):
         if system_prompt:
             self._system_message = system_prompt
             self._log("INFO", f"已配置 System Prompt ({len(system_prompt)} 字符)")
-        for skill in enhancements.get("skills", []) or []:
-            name = skill.get("name", "unknown")
-            content = (skill.get("content") or "").strip()
-            if not content:
-                continue
-            sep = "\n\n" if self._system_message else ""
-            self._system_message += f"{sep}## Skill: {name}\n\n{content}"
-            self._log("INFO", f"已配置 Skill: {name} ({len(content)} 字符)")
 
         if enhancements.get("mcp_servers"):
             self._log("WARN", "CodexLocalAdapter 当前不支持动态 MCP 注册，已忽略 mcp_servers")

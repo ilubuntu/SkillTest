@@ -3,23 +3,21 @@
 # Agent Bench 一键部署脚本（macOS）
 #
 # 用法:
-#   ./deploy.sh              启动所有服务（默认），已运行的跳过
+#   ./deploy.sh              启动执行器（默认）
 #   ./deploy.sh stop         停止所有服务
-#   ./deploy.sh restart      重启所有服务（含 OpenCode）
-#   ./deploy.sh restart-web  只重启 FastAPI + Vue（不动 OpenCode）
+#   ./deploy.sh restart      重启执行器（含 OpenCode）
+#   ./deploy.sh restart-executor  只重启执行器服务（不动 OpenCode）
+#   ./deploy.sh logs         查看执行器流程日志
 #   ./deploy.sh status       查看服务状态
 #
 # 服务列表:
 #   - OpenCode Server   端口 4096   Agent 执行引擎
-#   - FastAPI 后端      端口 8000   评测 API 服务
-#   - Vue 前端          端口 5177   Web UI 界面
+#   - 执行器服务        端口 8000   本地任务接收与状态上报
 #
 # 依赖:
 #   - opencode  (https://opencode.ai)
 #   - python3 + pip3
-#   - node + npm
 #
-# 启动后浏览器打开: http://localhost:5177
 # ================================================================
 
 set -e
@@ -28,14 +26,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OPENCODE_PORT=4096
 BACKEND_PORT=8000
-FRONTEND_PORT=5177
-
-BACKEND_DIR="$SCRIPT_DIR/agent_bench/web_ui"
-FRONTEND_DIR="$SCRIPT_DIR/agent_bench/web_ui/frontend"
+EXECUTOR_DIR="$SCRIPT_DIR/agent_bench/executor"
 LOG_DIR="$SCRIPT_DIR/logs"
 OPENCODE_LOG="$LOG_DIR/opencode.log"
-BACKEND_LOG="$LOG_DIR/backend.log"
-FRONTEND_LOG="$LOG_DIR/frontend.log"
+CURRENT_EXECUTOR_LOG_FILE="$LOG_DIR/current_executor_log"
+BACKEND_LOG=""
 
 
 # ── 颜色 ──────────────────────────────────────────────────
@@ -61,15 +56,6 @@ check_deps() {
         error "python3 未安装"
         missing=1
     fi
-    if ! command -v node &>/dev/null; then
-        error "node 未安装"
-        missing=1
-    fi
-    if ! command -v npm &>/dev/null; then
-        error "npm 未安装"
-        missing=1
-    fi
-
     if [ $missing -eq 1 ]; then
         error "缺少必要依赖，请先安装后重试"
         exit 1
@@ -79,6 +65,25 @@ check_deps() {
 
 ensure_log_dir() {
     mkdir -p "$LOG_DIR"
+}
+
+set_executor_log_file() {
+    local stamp
+    stamp="$(date +"%Y%m%d_%H%M%S")"
+    BACKEND_LOG="$LOG_DIR/agent_bench_${stamp}.log"
+    printf "%s\n" "$BACKEND_LOG" > "$CURRENT_EXECUTOR_LOG_FILE"
+}
+
+resolve_executor_log_file() {
+    if [ -n "${BACKEND_LOG:-}" ]; then
+        echo "$BACKEND_LOG"
+        return
+    fi
+    if [ -f "$CURRENT_EXECUTOR_LOG_FILE" ]; then
+        cat "$CURRENT_EXECUTOR_LOG_FILE"
+        return
+    fi
+    ls -t "$LOG_DIR"/agent_bench_*.log 2>/dev/null | head -1
 }
 
 # ── 清理已有进程 ──────────────────────────────────────────
@@ -121,7 +126,7 @@ start_opencode() {
 # ── 安装 Python 依赖 ─────────────────────────────────────
 install_python_deps() {
     info "检查 Python 依赖..."
-    local req="$BACKEND_DIR/backend/requirements.txt"
+    local req="$EXECUTOR_DIR/requirements.txt"
     if [ -f "$req" ]; then
         pip3 install --break-system-packages -q -r "$req" 2>/dev/null || \
         pip3 install -q -r "$req" 2>/dev/null || \
@@ -129,61 +134,56 @@ install_python_deps() {
     fi
 }
 
-# ── 启动 FastAPI 后端 ────────────────────────────────────
+# ── 启动执行器服务 ──────────────────────────────────────
 start_backend() {
-    info "启动 FastAPI 后端 (端口 $BACKEND_PORT)..."
+    info "启动执行器服务 (端口 $BACKEND_PORT)..."
 
     if curl -s "http://localhost:$BACKEND_PORT/api/health" &>/dev/null; then
-        info "FastAPI 后端已在运行，跳过启动"
+        info "执行器服务已在运行，跳过启动"
         return
     fi
 
     kill_port $BACKEND_PORT
 
-    cd "$BACKEND_DIR"
-    nohup python3 -m uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT >>"$BACKEND_LOG" 2>&1 &
+    if [ -z "${BACKEND_LOG:-}" ]; then
+        set_executor_log_file
+    fi
+    cd "$SCRIPT_DIR"
+    nohup python3 -m uvicorn agent_bench.executor.main:app --host 0.0.0.0 --port $BACKEND_PORT --no-access-log --log-level warning >>"$BACKEND_LOG" 2>&1 &
 
     # 等待启动
     for i in $(seq 1 10); do
         if curl -s "http://localhost:$BACKEND_PORT/api/health" &>/dev/null; then
-            info "FastAPI 后端启动成功"
+            info "执行器服务启动成功"
             return
         fi
         sleep 1
     done
-    warn "FastAPI 后端可能未完全启动"
+    warn "执行器服务可能未完全启动"
 }
 
-# ── 安装前端依赖 ─────────────────────────────────────────
-install_frontend_deps() {
-    if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-        info "安装前端依赖..."
-        cd "$FRONTEND_DIR"
-        npm install --silent 2>/dev/null || warn "前端依赖安装失败，请手动执行: cd $FRONTEND_DIR && npm install"
-    fi
-}
-
-# ── 启动 Vue 前端 ────────────────────────────────────────
-start_frontend() {
-    info "启动 Vue 前端 (端口 $FRONTEND_PORT)..."
-
-    if lsof -ti :$FRONTEND_PORT &>/dev/null; then
-        info "Vue 前端已在运行，跳过启动"
-        return
-    fi
-
-    cd "$FRONTEND_DIR"
-    nohup npm run dev >>"$FRONTEND_LOG" 2>&1 &
-
-    # 等待启动
-    for i in $(seq 1 10); do
-        if curl -s "http://localhost:$FRONTEND_PORT" &>/dev/null; then
-            info "Vue 前端启动成功"
-            return
-        fi
-        sleep 1
-    done
-    warn "Vue 前端可能未完全启动"
+# ── 启动执行器模式 ───────────────────────────────────────
+start_executor() {
+    echo ""
+    echo "=========================================="
+    echo "  Agent Bench 执行器"
+    echo "=========================================="
+    echo ""
+    check_deps
+    ensure_log_dir
+    start_opencode
+    install_python_deps
+    start_backend
+    echo ""
+    info "执行器已就绪，等待任务下发..."
+    info "任务入口: http://localhost:$BACKEND_PORT/api/cloud-api/start"
+    info "执行器日志:  $BACKEND_LOG"
+    echo ""
+    info "进入执行器流程日志视图，日志同时写入本地文件: $BACKEND_LOG"
+    info "按 Ctrl+C 将退出日志查看并停止本次启动的所有服务"
+    echo ""
+    trap 'echo ""; warn "收到退出信号，停止本次启动的所有服务..."; stop_all; exit 0' INT TERM
+    follow_executor_logs
 }
 
 # ── 停止所有服务 ─────────────────────────────────────────
@@ -191,7 +191,6 @@ stop_all() {
     info "停止所有服务..."
     kill_port $OPENCODE_PORT
     kill_port $BACKEND_PORT
-    kill_port $FRONTEND_PORT
     info "所有服务已停止"
 }
 
@@ -208,46 +207,38 @@ status() {
         echo -e "  OpenCode Server  :  ${RED}未运行${NC}"
     fi
 
-    # Backend
+    # Executor
     if curl -s "http://localhost:$BACKEND_PORT/api/health" &>/dev/null; then
-        echo -e "  FastAPI 后端     :  ${GREEN}运行中${NC}  http://localhost:$BACKEND_PORT"
+        echo -e "  执行器服务       :  ${GREEN}运行中${NC}  http://localhost:$BACKEND_PORT"
     else
-        echo -e "  FastAPI 后端     :  ${RED}未运行${NC}"
-    fi
-
-    # Frontend
-    if lsof -ti :$FRONTEND_PORT &>/dev/null; then
-        echo -e "  Vue 前端         :  ${GREEN}运行中${NC}  http://localhost:$FRONTEND_PORT"
-    else
-        echo -e "  Vue 前端         :  ${RED}未运行${NC}"
+        echo -e "  执行器服务       :  ${RED}未运行${NC}"
     fi
 
     echo ""
     echo "=========================================="
 }
 
+# ── 查看执行器流程日志 ───────────────────────────────────
+follow_executor_logs() {
+    ensure_log_dir
+    local log_file
+    log_file="$(resolve_executor_log_file)"
+    if [ -z "$log_file" ]; then
+        warn "当前没有可查看的执行器日志"
+        return 1
+    fi
+    touch "$log_file"
+    tail -n 80 -f "$log_file" | awk '
+        /GET \/api\/health/ { next }
+        /GET \/api\/cloud-api\/status/ { next }
+        { print }
+    '
+}
+
 # ── 主流程 ───────────────────────────────────────────────
 case "${1:-start}" in
     start)
-        echo ""
-        echo "=========================================="
-        echo "  Agent Bench 一键部署"
-        echo "=========================================="
-        echo ""
-        check_deps
-        ensure_log_dir
-        start_opencode
-        install_python_deps
-        start_backend
-        install_frontend_deps
-        start_frontend
-        status
-        echo ""
-        info "部署完成! 浏览器打开: http://localhost:$FRONTEND_PORT"
-        info "日志目录: $LOG_DIR"
-        info "OpenCode 日志: $OPENCODE_LOG"
-        info "Backend 日志:  $BACKEND_LOG"
-        info "Frontend 日志: $FRONTEND_LOG"
+        start_executor
         ;;
     stop)
         stop_all
@@ -257,28 +248,30 @@ case "${1:-start}" in
         sleep 2
         exec "$0" start
         ;;
-    restart-web)
-        info "重启 Web 服务（FastAPI + Vue）..."
+    restart-executor)
+        info "重启执行器服务..."
         ensure_log_dir
+        BACKEND_LOG="$(resolve_executor_log_file)"
         kill_port $BACKEND_PORT
-        kill_port $FRONTEND_PORT
         sleep 1
         install_python_deps
         start_backend
-        install_frontend_deps
-        start_frontend
         status
+        ;;
+    logs)
+        follow_executor_logs
         ;;
     status)
         status
         ;;
     *)
-        echo "用法: $0 {start|stop|restart|restart-web|status}"
+        echo "用法: $0 {start|stop|restart|restart-executor|logs|status}"
         echo ""
-        echo "  start        后台启动所有服务（默认），日志写入 logs/ 目录"
+        echo "  start        启动执行器（默认），日志写入 logs/ 目录"
         echo "  stop         停止所有服务"
-        echo "  restart      重启所有服务（含 OpenCode）"
-        echo "  restart-web  只重启 FastAPI 后端 + Vue 前端（不动 OpenCode）"
+        echo "  restart      重启执行器（含 OpenCode）"
+        echo "  restart-executor  只重启执行器服务（不动 OpenCode）"
+        echo "  logs         查看执行器流程日志"
         echo "  status       查看服务状态"
         exit 1
         ;;

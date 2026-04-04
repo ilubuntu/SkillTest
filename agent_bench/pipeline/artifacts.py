@@ -1,71 +1,56 @@
 # -*- coding: utf-8 -*-
-"""产物持久化
+"""产物持久化。
 
-按阶段子目录组织：
-  side_a/     — A 侧运行工程与元数据
-  side_b/     — B 侧运行工程与元数据
-  rule_check/ — 内部规则评分结果
-  llm_judge/  — LLM Judge 评分结果
-  result.json — 汇总结果（case 根目录）
+当前执行模型为单 agent：
+  agent_workspace/ — Agent 修改后的工程目录
+  agent_meta/      — prompt / output / metrics / changed_files 等元数据
+  result.json      — 汇总结果
 """
 
 import json
 import os
 
-META_DIR_NAME = ".agent_bench"
-
-
 def stage_dir(case_dir: str, stage: str) -> str:
-    """返回指定阶段的子目录路径并确保存在"""
+    """返回指定阶段目录并确保存在。"""
     d = os.path.join(case_dir, stage)
     os.makedirs(d, exist_ok=True)
     return d
 
 
 def stage_meta_dir(case_dir: str, stage: str) -> str:
-    """返回阶段元数据目录路径并确保存在。
-
-    元数据单独放在 case 根目录下，避免污染 side_a / side_b 工程目录。
-    """
+    """返回阶段元数据目录并确保存在。"""
     d = os.path.join(case_dir, f"{stage}_meta")
     os.makedirs(d, exist_ok=True)
     return d
 
 
+def agent_workspace_dir(case_dir: str) -> str:
+    return stage_dir(case_dir, "agent_workspace")
+
+
+def agent_meta_dir(case_dir: str) -> str:
+    return stage_meta_dir(case_dir, "agent")
+
+
 # ── Runner 阶段 ──────────────────────────────────────────────
 
-def save_runner_stage_artifacts(case_dir: str,
-                                stage: str,
-                                output: str,
-                                task_prompt: str = "",
-                                enhancements: dict = None):
-    """保存单个 Runner 阶段产物，支持失败时保留已完成阶段。"""
-    sd = stage_meta_dir(case_dir, stage)
+def save_runner_artifacts(case_dir: str,
+                          output: str,
+                          task_prompt: str = ""):
+    """保存单 agent 执行产物。"""
+    sd = agent_meta_dir(case_dir)
     with open(os.path.join(sd, "output.txt"), "w", encoding="utf-8") as f:
         f.write(output)
     if task_prompt:
         with open(os.path.join(sd, "input.txt"), "w", encoding="utf-8") as f:
             f.write(task_prompt)
-    if stage == "side_b" and enhancements:
-        with open(os.path.join(sd, "enhancements.json"), "w", encoding="utf-8") as f:
-            json.dump(enhancements, f, ensure_ascii=False, indent=2)
-
-def save_runner_artifacts(case_dir: str,
-                          side_a_output: str, side_b_output: str,
-                          task_prompt: str = "",
-                          enhancements: dict = None,
-                          include_side_b: bool = True):
-    """保存 Runner 阶段产物到 side_a/ 和 side_b/ 子目录"""
-    save_runner_stage_artifacts(case_dir, "side_a", side_a_output, task_prompt=task_prompt)
-    if include_side_b:
-        save_runner_stage_artifacts(case_dir, "side_b", side_b_output, task_prompt=task_prompt, enhancements=enhancements)
 
 
 def save_interaction_metrics(case_dir: str, stage: str, metrics: dict):
     """保存统一交互指标文件。"""
     if not metrics:
         return
-    target_dir = stage_meta_dir(case_dir, stage) if stage in ("side_a", "side_b") else stage_dir(case_dir, stage)
+    target_dir = agent_meta_dir(case_dir) if stage == "agent" else stage_dir(case_dir, stage)
     with open(os.path.join(target_dir, "interaction_metrics.json"), "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
 
@@ -99,27 +84,15 @@ def save_compile_artifacts(case_dir: str, stage: str, compile_result: dict):
 
 
 def load_runner_artifacts(case_dir: str) -> tuple:
-    """加载 Runner 阶段产物
-
-    Returns:
-        (side_a_output, side_b_output)
-    """
-    side_a_meta = stage_meta_dir(case_dir, "side_a")
-    side_b_meta = stage_meta_dir(case_dir, "side_b")
-    side_a_display_path = os.path.join(side_a_meta, "output.txt")
-    side_a_path = os.path.join(side_a_meta, "raw_output.txt")
-    side_b_display_path = os.path.join(side_b_meta, "output.txt")
-    side_b_path = os.path.join(side_b_meta, "raw_output.txt")
-    if not os.path.exists(side_a_path) and not os.path.exists(side_a_display_path):
+    """加载单 agent Runner 产物。"""
+    meta_dir = agent_meta_dir(case_dir)
+    display_path = os.path.join(meta_dir, "output.txt")
+    raw_path = os.path.join(meta_dir, "raw_output.txt")
+    if not os.path.exists(raw_path) and not os.path.exists(display_path):
         raise FileNotFoundError(f"Runner 产物不存在: {case_dir}，请先运行 runner 阶段")
-    with open(side_a_path if os.path.exists(side_a_path) else side_a_display_path, "r", encoding="utf-8") as f:
-        side_a_output = f.read()
-    if os.path.exists(side_b_path) or os.path.exists(side_b_display_path):
-        with open(side_b_path if os.path.exists(side_b_path) else side_b_display_path, "r", encoding="utf-8") as f:
-            side_b_output = f.read()
-    else:
-        side_b_output = ""
-    return side_a_output, side_b_output
+    with open(raw_path if os.path.exists(raw_path) else display_path, "r", encoding="utf-8") as f:
+        output = f.read()
+    return output
 
 
 # ── Evaluator 阶段 ───────────────────────────────────────────

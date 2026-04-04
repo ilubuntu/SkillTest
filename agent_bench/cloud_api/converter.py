@@ -12,7 +12,7 @@ from agent_bench.cloud_api.models import (
     CloudStatusReportPayload,
     RemoteExecutionStatus,
 )
-from agent_bench.pipeline.artifacts import stage_meta_dir
+from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir
 
 
 CLOUD_SCORE_RUBRIC = [
@@ -30,13 +30,8 @@ CLOUD_SCORE_RUBRIC = [
 
 
 def build_prompt(input_text: str, expected_output: str) -> str:
-    prompt = (input_text or "").strip()
-    expected = (expected_output or "").strip()
-    if expected:
-        if prompt:
-            prompt += "\n\n"
-        prompt += f"期望结果：{expected}"
-    return prompt
+    _ = expected_output
+    return (input_text or "").strip()
 
 
 def is_placeholder_text(value: str) -> bool:
@@ -69,8 +64,7 @@ def build_case(execution_id: int, project_dir: str, prompt: str) -> Dict[str, An
 
 def stage_to_local_status(stage_name: str) -> Optional[str]:
     mapping = {
-        "A侧运行": "agent_running",
-        "A侧编译": "agent_compile_checking",
+        "Agent运行": "agent_running",
     }
     return mapping.get(stage_name)
 
@@ -92,7 +86,7 @@ def build_status_payload(remote_status: RemoteExecutionStatus,
     payload = CloudStatusReportPayload(
         status=remote_status,
         errorMessage=error_message,
-        conversation=None,
+        conversation=conversation,
     )
     return payload.model_dump(by_alias=True, exclude_none=True)
 
@@ -117,12 +111,12 @@ def _load_text_if_exists(path: str) -> str:
         return ""
 
 
-def load_side_metrics(case_dir: str, side: str) -> Dict[str, Any]:
-    return _load_json_if_exists(os.path.join(stage_meta_dir(case_dir, side), "interaction_metrics.json"))
+def load_agent_metrics(case_dir: str) -> Dict[str, Any]:
+    return _load_json_if_exists(os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json"))
 
 
-def load_side_output(case_dir: str, side: str) -> str:
-    return _load_text_if_exists(os.path.join(stage_meta_dir(case_dir, side), "output.txt"))
+def load_agent_output(case_dir: str) -> str:
+    return _load_text_if_exists(os.path.join(agent_meta_dir(case_dir), "output.txt"))
 
 
 def _extract_constraint_target_files(case: Dict[str, Any]) -> List[str]:
@@ -146,9 +140,9 @@ def _extract_constraint_target_files(case: Dict[str, Any]) -> List[str]:
     return paths
 
 
-def load_side_scoring_text(case_dir: str, side: str, case: Dict[str, Any], fallback_output: str = "") -> str:
-    project_dir = os.path.join(case_dir, side)
-    changed_files_path = os.path.join(stage_meta_dir(case_dir, side), "changed_files.json")
+def load_agent_scoring_text(case_dir: str, case: Dict[str, Any], fallback_output: str = "") -> str:
+    project_dir = agent_workspace_dir(case_dir)
+    changed_files_path = os.path.join(agent_meta_dir(case_dir), "changed_files.json")
     changed_files = _load_json_if_exists(changed_files_path).get("changed_files", []) or []
 
     paths: List[str] = []
@@ -177,13 +171,13 @@ def load_side_scoring_text(case_dir: str, side: str, case: Dict[str, Any], fallb
 
 def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
     usage = metrics.get("usage") or {}
-    for candidate in (
+    for value in (
         usage.get("total_tokens"),
         ((metrics.get("raw") or {}).get("message_info") or {}).get("info", {}).get("tokens", {}).get("total"),
     ):
-        if candidate is not None:
+        if value is not None:
             try:
-                return int(candidate)
+                return int(value)
             except (TypeError, ValueError):
                 pass
     return 0
@@ -199,9 +193,6 @@ def _extract_iteration_count(metrics: Dict[str, Any], output_text: str = "") -> 
         message_info = raw.get("message_info") or {}
         if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
             parts = message_info.get("parts") or []
-        elif isinstance(raw.get("parts"), list):
-            parts = raw.get("parts") or []
-
     step_count = 0
     for part in parts:
         if not isinstance(part, dict):
@@ -247,12 +238,11 @@ def build_execution_result_payload(execution_id: int,
                                    output_code_url: str,
                                    code_quality_score: Optional[int] = None,
                                    expected_output_score: Optional[int] = None) -> Dict[str, Any]:
-    side = "side_a"
-    metrics = load_side_metrics(case_dir, side)
-    output_text = load_side_output(case_dir, side)
+    metrics = load_agent_metrics(case_dir)
+    output_text = load_agent_output(case_dir)
     compile_results = result.get("compile_results") or {}
 
-    is_build_success = bool(compile_results.get("side_a_compilable"))
+    is_build_success = bool(compile_results.get("compilable"))
     token_consumption = _extract_total_tokens(metrics)
     iteration_count = _extract_iteration_count(metrics, output_text)
 

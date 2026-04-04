@@ -365,7 +365,7 @@ def _attach_rule_scores(item: dict) -> None:
 
 def _normalize_target_file(target_file: str) -> str:
     path = (target_file or "").replace("\\", "/").strip()
-    prefixes = ("original_project/", "baseline/", "enhanced/")
+    prefixes = ("original_project/", "agent_workspace/")
     for prefix in prefixes:
         if path.startswith(prefix):
             path = path[len(prefix):]
