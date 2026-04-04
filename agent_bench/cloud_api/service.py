@@ -675,6 +675,9 @@ class CloudExecutionManager:
                 agent_temperature=default_temperature,
             )
 
+            if str(result.get("status") or "").lower() not in {"completed", "success"}:
+                raise RuntimeError(f"Agent 执行失败: {result.get('status') or 'unknown'}")
+
             uploaded_output_code_url = _upload_output_code_dir(
                 os.path.join(case_dir, "agent_workspace"),
                 execution_id,

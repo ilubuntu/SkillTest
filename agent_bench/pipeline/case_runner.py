@@ -362,6 +362,12 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent.get('name') or '执行Agent'} 准备完成，开始处理任务..."})
                 t0 = time.time()
                 output_text = adapter.execute(task_prompt, tag=f"[{agent.get('name') or 'Agent'}] ", workspace_dir=workspace_dir)
+                last_error_message = ""
+                getter = getattr(adapter, "get_last_error_message", None)
+                if callable(getter):
+                    last_error_message = str(getter() or "").strip()
+                if not output_text and last_error_message:
+                    raise RuntimeError(last_error_message)
             finally:
                 save_interaction_metrics(case_dir, "agent", adapter.get_last_interaction_metrics())
                 adapter.teardown()

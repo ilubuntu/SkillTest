@@ -5,6 +5,7 @@ import os
 
 from agent_bench.runner.codex_http_adapter import CodexHttpAdapter
 from agent_bench.runner.codex_local_adapter import CodexLocalAdapter
+from agent_bench.runner.discovery import check_api_available, ensure_opencode_server
 from agent_bench.runner.opencode_adapter import OpenCodeAdapter
 
 
@@ -31,10 +32,21 @@ def create_adapter(agent: dict, timeout: int, on_progress=None, temperature: flo
     if not agent:
         raise ValueError("Agent 配置不能为空")
 
+    def emit(level: str, message: str):
+        if on_progress:
+            on_progress("log", {"level": level, "message": message})
+
     adapter_type = _resolve_codex_adapter_type(agent, agent.get("adapter", "opencode"))
     if adapter_type == "opencode":
+        emit("WARNING", "检查 OpenCode 服务状态...")
+        api_base = ensure_opencode_server()
+        if check_api_available(api_base):
+            emit("INFO", f"OpenCode 服务已就绪: {api_base}")
+        else:
+            emit("ERROR", f"OpenCode 服务不可用: {api_base}")
+            raise RuntimeError(f"OpenCode 服务不可用: {api_base}")
         return OpenCodeAdapter(
-            api_base=agent.get("api_base", "http://localhost:4096"),
+            api_base=api_base or agent.get("api_base", "http://localhost:4096"),
             model=agent.get("model"),
             timeout=timeout,
             temperature=temperature,

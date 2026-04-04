@@ -13,6 +13,7 @@ __pycache__/
 .venv
 venv/
 ENV/
+.pack_venv/
 
 # Node
 node_modules/
@@ -30,6 +31,9 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
+.pyinstaller/
+build/
+agent-bench-executor.spec
 
 # Agent Bench 运行结果（每次评测自动生成，不纳入版本控制）
 agent_bench/results/

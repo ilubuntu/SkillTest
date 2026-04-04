@@ -62,6 +62,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._tools_config = None
         self._registered_mcps = []  # 记录注册的 MCP server 名称，用于 teardown
         self._last_interaction_metrics = None
+        self._last_error_message = ""
         self._prefer_async_sse = True
         self._seen_runtime_events = set()
 
@@ -101,6 +102,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._tools_config = None
         self._registered_mcps = []
         self._last_interaction_metrics = None
+        self._last_error_message = ""
         self._seen_runtime_events = set()
 
         if not enhancements:
@@ -160,6 +162,7 @@ class OpenCodeAdapter(AgentAdapter):
         """创建 session，发送消息（携带 system/tools 配置），返回响应"""
         try:
             self._last_interaction_metrics = None
+            self._last_error_message = ""
             effective_prompt = prompt
             if workspace_dir:
                 effective_prompt = (
@@ -224,6 +227,7 @@ class OpenCodeAdapter(AgentAdapter):
             )
 
         except urllib.error.HTTPError as e:
+            self._last_error_message = f"HTTP 错误: {e.code} {e.reason}"
             self._log("ERROR", f"HTTP 错误: {e.code} {e.reason}", tag=tag)
             try:
                 error_body = e.read().decode("utf-8")
@@ -232,11 +236,13 @@ class OpenCodeAdapter(AgentAdapter):
                 pass
             return ""
         except urllib.error.URLError as e:
+            self._last_error_message = f"无法连接 OpenCode API ({self.api_base}): {e.reason}"
             self._log("ERROR",
                 f"无法连接 OpenCode API ({self.api_base}): {e.reason}",
                 tag=tag)
             return ""
         except TimeoutError:
+            self._last_error_message = f"请求超时 ({self.timeout}s)"
             self._log("ERROR", f"请求超时 ({self.timeout}s)", tag=tag)
             raise TimeoutError(f"Agent 请求超时 ({self.timeout}s)")
 
@@ -866,6 +872,7 @@ class OpenCodeAdapter(AgentAdapter):
                 session = json.loads(response.read().decode("utf-8"))
                 return session.get("id")
         except Exception as e:
+            self._last_error_message = f"创建 Session 异常: {e}"
             self._log("ERROR", f"创建 Session 异常: {e}")
             return None
 
@@ -886,3 +893,6 @@ class OpenCodeAdapter(AgentAdapter):
 
     def get_last_interaction_metrics(self):
         return self._last_interaction_metrics
+
+    def get_last_error_message(self):
+        return self._last_error_message

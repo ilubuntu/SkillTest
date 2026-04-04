@@ -148,45 +148,42 @@ def find_opencode_port() -> Optional[str]:
 
 def ensure_opencode_server(timeout: int = 30) -> str:
     """确保 OpenCode API 服务可用，必要时自动启动。"""
-    import platform
-
-    print("[INFO] Searching for OpenCode server...")
     port = find_opencode_port()
     if port:
-        api_base = f"http://localhost:{port}"
-        print(f"[INFO] Found OpenCode API at {api_base}")
-        return api_base
+        return f"http://localhost:{port}"
 
-    print("[INFO] No valid OpenCode server found, starting new server on port 4096...")
-
-    system = platform.system()
+    target_base = "http://localhost:4096"
     try:
-        if system == "Windows":
-            cmd = 'start /b cmd /c "opencode serve --port 4096"'
-            os.system(cmd)
-        else:
-            subprocess.Popen(
-                ["nohup", "opencode", "serve", "--port", "4096", "&"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL
+        with open(CODEX_SERVICE_LOG_PATH, "a", encoding="utf-8") as log_file:
+            log_file.write(
+                f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] starting opencode server "
+                "cmd=opencode serve --port 4096\n"
             )
 
-        print(f"[INFO] Server starting, waiting {timeout}s...")
-        for i in range(timeout):
+        log_stream = open(CODEX_SERVICE_LOG_PATH, "a", encoding="utf-8")
+        proc = subprocess.Popen(
+            ["opencode", "serve", "--port", "4096"],
+            stdout=log_stream,
+            stderr=log_stream,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+        log_stream.close()
+
+        for _ in range(timeout):
             time.sleep(1)
-            if check_api_available("http://localhost:4096"):
-                print("[INFO] OpenCode server started at http://localhost:4096")
-                return "http://localhost:4096"
-            print(f"[INFO] Waiting... ({i+1}/{timeout})")
-
-        print("[WARN] Server may not have started, continuing anyway...")
-
+            if check_api_available(target_base):
+                return target_base
+            if proc.poll() is not None:
+                break
     except FileNotFoundError:
-        print("[ERROR] opencode command not found. Please install opencode first.")
-        print("[ERROR] Download from: https://opencode.ai")
-        sys.exit(1)
+        return target_base
     except Exception as e:
-        print(f"[WARN] Failed to start opencode server: {e}")
+        try:
+            with open(CODEX_SERVICE_LOG_PATH, "a", encoding="utf-8") as log_file:
+                log_file.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] start opencode server failed: {e}\n")
+        except Exception:
+            pass
 
-    return "http://localhost:8080"
+    return target_base
