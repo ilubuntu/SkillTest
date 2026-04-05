@@ -12,12 +12,28 @@
 
 import os
 import re
+import sys
 from typing import List, Optional, Dict
 
+from agent_bench.agent_runtime.spec import AgentSpec, build_agent_spec
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_PATH = os.path.join(BASE_DIR, "config.yaml")
+REPO_DIR = os.path.dirname(BASE_DIR)
+
+
+def _runtime_root_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return REPO_DIR
+
+
+def _external_config_dir() -> str:
+    return os.path.join(_runtime_root_dir(), "config")
+
+
+CONFIG_PATH = os.path.join(_external_config_dir(), "config.yaml")
 PROFILES_DIR = os.path.join(BASE_DIR, "profiles")
-AGENTS_DIR = os.path.join(BASE_DIR, "agents")
+AGENTS_DIR = _external_config_dir()
 INTERNAL_RULES_PATH = os.path.join(BASE_DIR, "config", "internal_rules.yaml")
 TEST_CASES_REGISTRY_PATH = os.path.join(BASE_DIR, "test_cases", "test_cases.yaml")
 ENHANCEMENTS_REGISTRY_PATH = os.path.join(BASE_DIR, "enhancements", "enhancements.yaml")
@@ -280,9 +296,9 @@ def resolve_case_original_project(case: dict) -> Optional[str]:
 
 def load_config() -> dict:
     """加载全局配置文件 config.yaml"""
-    if os.path.exists(CONFIG_PATH):
-        return load_yaml(CONFIG_PATH) or {}
-    return {}
+    if not os.path.exists(CONFIG_PATH):
+        raise FileNotFoundError(f"配置文件不存在: {CONFIG_PATH}")
+    return load_yaml(CONFIG_PATH) or {}
 
 
 # ── Registry 加载 ─────────────────────────────────────────────
@@ -310,27 +326,17 @@ def load_enhancements_registry() -> dict:
 def load_agents_registry() -> dict:
     """加载 agents/agents.yaml，总是返回带 agents 列表的 dict。"""
     if _registry_cache["agents"] is None:
-        if os.path.exists(AGENTS_REGISTRY_PATH):
-            data = load_yaml(AGENTS_REGISTRY_PATH) or {}
-            _registry_cache["agents"] = data if isinstance(data, dict) else {}
-        else:
-            _registry_cache["agents"] = {}
+        if not os.path.exists(AGENTS_REGISTRY_PATH):
+            raise FileNotFoundError(f"Agent 配置文件不存在: {AGENTS_REGISTRY_PATH}")
+        data = load_yaml(AGENTS_REGISTRY_PATH) or {}
+        _registry_cache["agents"] = data if isinstance(data, dict) else {}
 
     registry = _registry_cache["agents"] or {}
     agents = registry.get("agents")
     if isinstance(agents, list):
         registry.setdefault("defaults", {})
         return registry
-
-    fallback_agent = {
-        "id": "agent_default",
-        "name": "OpenCode Default",
-        "adapter": "opencode",
-        "api_base": "http://localhost:4096",
-        "model": None,
-        "enabled": True,
-    }
-    return {"defaults": {}, "agents": [fallback_agent]}
+    raise ValueError(f"Agent 配置格式无效: {AGENTS_REGISTRY_PATH}")
 
 
 def load_agent_defaults() -> dict:
@@ -360,6 +366,14 @@ def load_agent(agent_id: str) -> Optional[dict]:
     return None
 
 
+def load_agent_spec(agent_id: str) -> Optional[AgentSpec]:
+    """根据 agent_id 获取规格化后的 Agent 配置。"""
+    agent = load_agent(agent_id)
+    if not agent:
+        return None
+    return build_agent_spec(agent)
+
+
 def _resolve_skill_mount_path(path: str) -> str:
     if not path:
         raise ValueError("Skill 路径不能为空")
@@ -368,10 +382,9 @@ def _resolve_skill_mount_path(path: str) -> str:
     if os.path.isabs(path):
         candidate_paths.append(path)
     else:
-        repo_root = os.path.dirname(BASE_DIR)
         candidate_paths.extend([
             path,
-            os.path.join(repo_root, path),
+            os.path.join(_runtime_root_dir(), path),
             os.path.join(BASE_DIR, path),
         ])
 
@@ -390,6 +403,28 @@ def _resolve_skill_mount_path(path: str) -> str:
             return normalized_path
 
     raise FileNotFoundError(f"Skill 文件不存在: {path}")
+
+
+def validate_runtime_config() -> None:
+    """校验运行时外置 config 目录是否完整。"""
+    config_dir = _external_config_dir()
+    if not os.path.isdir(config_dir):
+        raise FileNotFoundError(f"配置目录不存在: {config_dir}")
+    if not os.path.isfile(CONFIG_PATH):
+        raise FileNotFoundError(f"配置文件不存在: {CONFIG_PATH}")
+    if not os.path.isfile(AGENTS_REGISTRY_PATH):
+        raise FileNotFoundError(f"Agent 配置文件不存在: {AGENTS_REGISTRY_PATH}")
+
+    registry = load_agents_registry()
+    for agent in registry.get("agents", []) or []:
+        if not agent.get("enabled", True):
+            continue
+        merged = dict(load_agent_defaults())
+        merged.update(agent)
+        for skill in merged.get("mounted_skills", []) or []:
+            if not isinstance(skill, dict):
+                continue
+            _resolve_skill_mount_path(skill.get("path", ""))
 
 
 def _cleanup_enhancement_dict(data: dict) -> dict:
@@ -429,7 +464,7 @@ def merge_enhancements(base: Optional[dict], extra: Optional[dict]) -> dict:
 def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
     """根据 Agent 配置构造运行时增强项。
 
-    当前仅保留 mounted_skills 元信息和额外的 system prompt。
+    当前仅保留 mounted_skills 元信息和 tools 配置。
     """
     if not agent:
         return {}
@@ -449,10 +484,6 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
             "name": skill_name,
             "path": skill_path,
         })
-
-    extra_prompt = str(agent.get("extra_prompt") or "").strip()
-    if extra_prompt:
-        result["system_prompt"] = extra_prompt
 
     return _cleanup_enhancement_dict(result)
 

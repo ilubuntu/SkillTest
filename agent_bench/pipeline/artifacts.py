@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-"""产物持久化。
-
-当前执行模型为单 agent：
-  agent_workspace/ — Agent 修改后的工程目录
-  agent_meta/      — prompt / output / metrics / changed_files 等元数据
-  result.json      — 汇总结果
-"""
+"""产物持久化。"""
 
 import json
 import os
@@ -25,11 +19,23 @@ def stage_meta_dir(case_dir: str, stage: str) -> str:
 
 
 def agent_workspace_dir(case_dir: str) -> str:
-    return stage_dir(case_dir, "agent_workspace")
+    return stage_dir(case_dir, "workspace")
 
 
 def agent_meta_dir(case_dir: str) -> str:
-    return stage_meta_dir(case_dir, "agent")
+    return stage_dir(case_dir, "logs")
+
+
+def original_project_dir(case_dir: str) -> str:
+    return stage_dir(case_dir, "original")
+
+
+def review_dir(case_dir: str) -> str:
+    return stage_dir(case_dir, "review")
+
+
+def checks_dir(case_dir: str) -> str:
+    return stage_dir(case_dir, "checks")
 
 
 # ── Runner 阶段 ──────────────────────────────────────────────
@@ -76,7 +82,8 @@ def save_constraint_review_artifacts(case_dir: str,
 
 def save_compile_artifacts(case_dir: str, stage: str, compile_result: dict):
     """保存编译阶段产物。"""
-    target_dir = stage_dir(case_dir, stage)
+    target_dir = os.path.join(checks_dir(case_dir), stage)
+    os.makedirs(target_dir, exist_ok=True)
     with open(os.path.join(target_dir, "compile_result.json"), "w", encoding="utf-8") as f:
         json.dump(compile_result, f, ensure_ascii=False, indent=2)
     with open(os.path.join(target_dir, "compile.log.txt"), "w", encoding="utf-8") as f:

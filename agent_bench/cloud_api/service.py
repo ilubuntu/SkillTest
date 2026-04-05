@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import shutil
+import hashlib
+import sys
 import tempfile
 import threading
 import time
@@ -26,13 +28,24 @@ from agent_bench.cloud_api.converter import (
 from agent_bench.cloud_api.models import CloudExecutionStartRequest, RemoteExecutionStatus
 from agent_bench.pipeline.case_runner import run_single_case
 from agent_bench.pipeline.loader import load_agent, load_agent_defaults, load_agents
+from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, original_project_dir
 try:
     from agent_bench.storage_uploader import AgcStorageUploader
     HAS_STORAGE_UPLOADER = True
 except ImportError:
     HAS_STORAGE_UPLOADER = False
 
-RESULTS_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results", "cloud_api")
+
+def _runtime_results_root() -> str:
+    if getattr(sys, "frozen", False):
+        base_dir = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base_dir, "results")
+
+
+RESULTS_ROOT = _runtime_results_root()
+CACHE_ROOT = os.path.join(os.path.dirname(RESULTS_ROOT), "cache", "case_packages")
 CLOUD_BASE_URL = "http://47.100.28.161:3000"
 AGC_BUCKET_NAME = "agent-bench-lpgvk"
 AGC_PROJECT_CLIENT_CONFIG = {
@@ -168,11 +181,27 @@ def _upload_output_code_dir(side_dir: str, execution_id: int, on_progress=None) 
         return ""
 
 
-def _download_file(file_url: str, target_path: str):
+def _emit_prepare_log(on_progress, message: str):
+    if on_progress:
+        on_progress("log", {"level": "INFO", "message": message})
+
+
+def _cache_archive_path(file_url: str) -> str:
+    parsed = urllib.parse.urlparse(file_url)
+    suffix = os.path.splitext(parsed.path or "")[1] or ".zip"
+    cache_key = hashlib.sha256(file_url.encode("utf-8")).hexdigest()
+    os.makedirs(CACHE_ROOT, exist_ok=True)
+    return os.path.join(CACHE_ROOT, f"{cache_key}{suffix}")
+
+
+def _download_file(file_url: str, target_path: str, on_progress=None):
     parsed = urllib.parse.urlparse(file_url)
     if parsed.scheme in ("http", "https", "file"):
+        _emit_prepare_log(on_progress, "缓存不存在，从网上下载工程包")
+        _emit_prepare_log(on_progress, f"正在下载工程包: {file_url}")
         with urllib.request.urlopen(file_url, timeout=60) as response, open(target_path, "wb") as f:
             shutil.copyfileobj(response, f)
+        _emit_prepare_log(on_progress, f"工程包下载完成: {target_path}")
         return
 
     if os.path.exists(file_url):
@@ -206,15 +235,23 @@ def _find_project_root(search_root: str) -> str:
     raise FileNotFoundError(f"未在下载内容中找到可执行工程目录: {search_root}")
 
 
-def _prepare_project_from_file_url(file_url: str, target_dir: str) -> str:
+def _prepare_project_from_file_url(file_url: str, target_dir: str, on_progress=None) -> str:
     os.makedirs(target_dir, exist_ok=True)
     parsed = urllib.parse.urlparse(file_url)
+    _emit_prepare_log(on_progress, f"测试用例工程地址: {file_url}")
 
     if not parsed.scheme and os.path.isdir(file_url):
+        _emit_prepare_log(on_progress, f"检测到本地工程目录，直接使用: {file_url}")
         return _find_project_root(file_url)
 
     archive_path = os.path.join(target_dir, "source.zip")
-    _download_file(file_url, archive_path)
+    cache_path = _cache_archive_path(file_url)
+    _emit_prepare_log(on_progress, f"先检查本地缓存: {cache_path}")
+    if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
+        _emit_prepare_log(on_progress, f"本地缓存已命中，使用缓存工程包: {cache_path}")
+    else:
+        _download_file(file_url, cache_path, on_progress=on_progress)
+    shutil.copyfile(cache_path, archive_path)
 
     if not zipfile.is_zipfile(archive_path):
         raise ValueError(f"当前仅支持 zip 类型工程包: {file_url}")
@@ -223,6 +260,7 @@ def _prepare_project_from_file_url(file_url: str, target_dir: str) -> str:
     os.makedirs(extract_dir, exist_ok=True)
     with zipfile.ZipFile(archive_path, "r") as zip_ref:
         zip_ref.extractall(extract_dir)
+    _emit_prepare_log(on_progress, f"工程包已解压到任务执行沙箱: {extract_dir}")
 
     return _find_project_root(extract_dir)
 
@@ -608,14 +646,14 @@ class CloudExecutionManager:
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             run_dir = os.path.join(RESULTS_ROOT, f"execution_{execution_id}_{timestamp}")
-            source_dir = os.path.join(run_dir, "source")
-            case_dir = os.path.join(run_dir, "case")
+            source_dir = os.path.join(run_dir, "_download")
+            case_dir = run_dir
             os.makedirs(run_dir, exist_ok=True)
             with self._lock:
                 state["run_dir"] = run_dir
                 state["case_dir"] = case_dir
-                state["sse_log_path"] = os.path.join(case_dir, "agent_meta", "opencode_sse_events.jsonl")
-                state["sse_progress_log_path"] = os.path.join(case_dir, "agent_meta", "opencode_progress_events.jsonl")
+                state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "opencode_sse_events.jsonl")
+                state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "opencode_progress_events.jsonl")
                 state["progress_queue_path"] = os.path.join(run_dir, "progress_events.jsonl")
                 state["progress_upload_state_path"] = os.path.join(run_dir, "progress_upload_state.json")
                 self._save_progress_upload_state(state["progress_upload_state_path"], self._default_progress_upload_state())
@@ -624,7 +662,12 @@ class CloudExecutionManager:
             with self._lock:
                 self._append_conversation(state, "status", "任务开始执行")
                 self._append_conversation(state, "prepare", f"本地产物目录: {run_dir}")
-            project_root = _prepare_project_from_file_url(payload.testCase.fileUrl, source_dir)
+            downloaded_project_root = _prepare_project_from_file_url(payload.testCase.fileUrl, source_dir, on_progress=on_progress)
+            original_dir = original_project_dir(case_dir)
+            if os.path.exists(original_dir):
+                shutil.rmtree(original_dir)
+            shutil.copytree(downloaded_project_root, original_dir)
+            _emit_prepare_log(on_progress, f"原始工程已准备完成: {original_dir}")
             raw_input = (payload.testCase.input or "").strip()
             raw_expected_output = (payload.testCase.expectedOutput or "").strip()
             input_text = raw_input
@@ -632,17 +675,17 @@ class CloudExecutionManager:
             if not input_text.strip() or not expected_output.strip():
                 raise ValueError("缺少真实的任务输入或期望结果，已终止执行")
             prompt = build_prompt(input_text, expected_output)
-            case = build_case(execution_id, project_root, prompt)
+            case = build_case(execution_id, original_dir, prompt)
 
             with self._lock:
                 state["run_dir"] = run_dir
                 state["case_dir"] = case_dir
-                state["sse_log_path"] = os.path.join(case_dir, "agent_meta", "opencode_sse_events.jsonl")
-                state["sse_progress_log_path"] = os.path.join(case_dir, "agent_meta", "opencode_progress_events.jsonl")
+                state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "opencode_sse_events.jsonl")
+                state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "opencode_progress_events.jsonl")
                 state["case_id"] = case.get("id") or f"cloud_execution_{execution_id}"
                 state["case_title"] = case.get("title") or f"Cloud Execution {execution_id}"
                 state["project_source_url"] = payload.testCase.fileUrl
-                self._append_conversation(state, "prepare", f"工程已就绪: {project_root}")
+                self._append_conversation(state, "prepare", f"工程已就绪: {original_dir}")
 
             defaults = load_agent_defaults()
             default_timeout = int(defaults.get("timeout") or 480)
@@ -678,12 +721,7 @@ class CloudExecutionManager:
             if str(result.get("status") or "").lower() not in {"completed", "success"}:
                 raise RuntimeError(f"Agent 执行失败: {result.get('status') or 'unknown'}")
 
-            uploaded_output_code_url = _upload_output_code_dir(
-                os.path.join(case_dir, "agent_workspace"),
-                execution_id,
-                on_progress=on_progress,
-            )
-            output_code_url = uploaded_output_code_url or ""
+            output_code_url = ""
             result_payload = build_execution_result_payload(
                 execution_id=execution_id,
                 case_dir=case_dir,

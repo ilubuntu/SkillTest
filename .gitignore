@@ -47,3 +47,7 @@ logs/
 #编译
 .hvigor/
 oh_modules/
+
+
+cache/
+results/

@@ -17,15 +17,16 @@ import os
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import urllib.error
-import urllib.parse
 from typing import Optional
 
 from agent_bench.runner.adapter import AgentAdapter
 
 DEFAULT_API_BASE = "http://localhost:4096"
 TIMEOUT = 480
+MAX_RAW_SSE_LINE_CHARS = 2000
 
 
 def parse_model(model_str: str) -> dict:
@@ -47,11 +48,13 @@ class OpenCodeAdapter(AgentAdapter):
     """OpenCode Server 适配器"""
 
     def __init__(self, api_base: str = DEFAULT_API_BASE,
+                 agent: str = None,
                  model: str = None,
                  timeout: int = TIMEOUT,
                  temperature: float = None,
                  on_progress=None):
         self.api_base = api_base
+        self.agent = agent
         self.model = model
         self.timeout = timeout
         self.temperature = temperature
@@ -86,6 +89,19 @@ class OpenCodeAdapter(AgentAdapter):
         if marker in normalized:
             return normalized.split(marker, 1)[1]
         return os.path.basename(normalized)
+
+    @staticmethod
+    def _session_prompt_url(api_base: str,
+                            session_id: str,
+                            endpoint: str,
+                            workspace_dir: Optional[str] = None) -> str:
+        base_url = f"{api_base}/session/{session_id}/{endpoint}"
+        if not workspace_dir:
+            return base_url
+        query = urllib.parse.urlencode({
+            "directory": workspace_dir,
+        })
+        return f"{base_url}?{query}"
 
     # ── setup ────────────────────────────────────────────────
 
@@ -156,6 +172,47 @@ class OpenCodeAdapter(AgentAdapter):
         except Exception as e:
             self._log("ERROR", f"注册 MCP Server [{name}] 失败: {e}")
 
+    def _detect_skill_tool_visibility(self) -> Optional[dict]:
+        if not self.model or "/" not in self.model:
+            return None
+        provider_id, model_id = self.model.split("/", 1)
+        query = urllib.parse.urlencode({
+            "provider": provider_id,
+            "model": model_id,
+        })
+        try:
+            req = urllib.request.Request(
+                f"{self.api_base}/experimental/tool?{query}",
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            return {
+                "ok": False,
+                "error": str(exc),
+                "has_skill_tool": False,
+                "has_target_skill": False,
+            }
+
+        entries = payload if isinstance(payload, list) else []
+        has_skill_tool = False
+        has_target_skill = False
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            serialized = json.dumps(entry, ensure_ascii=False).lower()
+            name = str(entry.get("name") or entry.get("tool") or "").strip().lower()
+            if name == "skill" or "\"name\": \"skill\"" in serialized:
+                has_skill_tool = True
+            if "build-harmony-project" in serialized:
+                has_target_skill = True
+        return {
+            "ok": True,
+            "has_skill_tool": has_skill_tool,
+            "has_target_skill": has_target_skill,
+        }
+
     # ── execute ──────────────────────────────────────────────
 
     def execute(self, prompt: str, tag: str = "", workspace_dir: Optional[str] = None) -> str:
@@ -164,15 +221,21 @@ class OpenCodeAdapter(AgentAdapter):
             self._last_interaction_metrics = None
             self._last_error_message = ""
             effective_prompt = prompt
-            if workspace_dir:
-                effective_prompt = (
-                    f"## 工作目录\n{workspace_dir}\n\n"
-                    "请直接在这个目录中修改工程文件完成任务，不要只返回单个代码片段。\n\n"
-                    f"{prompt}"
-                )
 
             # 1. 创建 session
             self._log("INFO", "准备创建 OpenCode 会话...", tag=tag)
+            visibility = self._detect_skill_tool_visibility()
+            if visibility:
+                if not visibility.get("ok"):
+                    self._log("WARNING", f"OpenCode tool 探测失败: {visibility.get('error')}", tag=tag)
+                else:
+                    self._log(
+                        "INFO",
+                        "OpenCode tool 探测结果: "
+                        f"skill_tool={'yes' if visibility.get('has_skill_tool') else 'no'}, "
+                        f"build_harmony_project={'yes' if visibility.get('has_target_skill') else 'no'}",
+                        tag=tag,
+                    )
             t0 = time.time()
             session_id = self._create_session()
             if not session_id:
@@ -186,6 +249,8 @@ class OpenCodeAdapter(AgentAdapter):
             message_payload = {
                 "parts": [{"type": "text", "text": effective_prompt}],
             }
+            if self.agent:
+                message_payload["agent"] = self.agent
             if self.model:
                 message_payload["model"] = parse_model(self.model)
             if self._system_message:
@@ -200,9 +265,12 @@ class OpenCodeAdapter(AgentAdapter):
             has_system = "system" if self._system_message else "无system"
             has_tools = f"tools={list(self._tools_config.keys()) if isinstance(self._tools_config, dict) else self._tools_config}" if self._tools_config else "无tools"
             has_model = f"model={self.model}" if self.model else "无model"
+            has_agent = f"agent={self.agent}" if self.agent else "无agent"
             self._log("INFO",
-                f"开始发送任务到 OpenCode: Prompt={prompt_kb:.1f}KB, {has_system}, {has_tools}, {has_model}, 超时={self.timeout}s",
+                f"开始发送任务到 OpenCode: Prompt={prompt_kb:.1f}KB, {has_system}, {has_tools}, {has_agent}, {has_model}, 超时={self.timeout}s",
                 tag=tag)
+            if workspace_dir:
+                self._log("INFO", f"OpenCode HTTP 上下文目录: {workspace_dir}", tag=tag)
 
             self._log("INFO",
                 f"发给 OpenCode 的完整请求体:\n{json.dumps(message_payload, ensure_ascii=False, indent=2)}",
@@ -223,6 +291,7 @@ class OpenCodeAdapter(AgentAdapter):
                 session_id=session_id,
                 message_payload=message_payload,
                 effective_prompt=effective_prompt,
+                workspace_dir=workspace_dir,
                 tag=tag,
             )
 
@@ -246,12 +315,17 @@ class OpenCodeAdapter(AgentAdapter):
             self._log("ERROR", f"请求超时 ({self.timeout}s)", tag=tag)
             raise TimeoutError(f"Agent 请求超时 ({self.timeout}s)")
 
-    def _execute_message_sync(self, session_id: str, message_payload: dict, effective_prompt: str, tag: str = "") -> str:
+    def _execute_message_sync(self,
+                              session_id: str,
+                              message_payload: dict,
+                              effective_prompt: str,
+                              workspace_dir: Optional[str] = None,
+                              tag: str = "") -> str:
         """保留原有同步 message 调用路径，作为回退方案。"""
         t0 = time.time()
         data = json.dumps(message_payload).encode("utf-8")
         req = urllib.request.Request(
-            f"{self.api_base}/session/{session_id}/message",
+            self._session_prompt_url(self.api_base, session_id, "message", workspace_dir),
             data=data,
             headers={"Content-Type": "application/json"},
             method="POST"
@@ -293,33 +367,47 @@ class OpenCodeAdapter(AgentAdapter):
                                        tag: str = "") -> Optional[str]:
         """用 prompt_async 触发任务，并将 SSE 事件原样写入本地文件。"""
         sse_log_path = self._resolve_sse_log_path(workspace_dir)
+        progress_log_path = self._resolve_sse_progress_log_path(sse_log_path) if sse_log_path else None
         stop_event = threading.Event()
+        connected_event = threading.Event()
         sse_thread = None
         if sse_log_path:
+            os.makedirs(os.path.dirname(sse_log_path), exist_ok=True)
+            open(sse_log_path, "a", encoding="utf-8").close()
+            if progress_log_path:
+                open(progress_log_path, "a", encoding="utf-8").close()
             sse_thread = threading.Thread(
                 target=self._capture_sse_events,
-                args=(session_id, sse_log_path, stop_event, tag),
+                args=(session_id, sse_log_path, stop_event, connected_event, tag),
                 daemon=True,
             )
             sse_thread.start()
+            connected_event.wait(timeout=5)
 
         t0 = time.time()
         try:
             data = json.dumps(message_payload).encode("utf-8")
             req = urllib.request.Request(
-                f"{self.api_base}/session/{session_id}/prompt_async",
+                self._session_prompt_url(self.api_base, session_id, "prompt_async", workspace_dir),
                 data=data,
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
             with urllib.request.urlopen(req, timeout=30) as response:
                 response.read()
-            self._log("WARNING", f"任务已发送，开始等待 OpenCode 执行结果；SSE 事件写入: {sse_log_path or '未启用'}", tag=tag)
+            self._log("WARNING", f"任务已发送，等待 Agent 与大模型返回结果；SSE 事件写入: {sse_log_path or '未启用'}", tag=tag)
 
             payload = self._wait_for_completed_message(session_id, effective_prompt, tag=tag)
             if not payload:
                 raise TimeoutError("OpenCode prompt_async 未在超时内返回完整消息")
 
+            assistant_messages = self._fetch_assistant_messages(session_id, effective_prompt)
+            if sse_log_path:
+                self._backfill_sse_logs_from_messages(
+                    all_messages=assistant_messages,
+                    output_path=sse_log_path,
+                    mapped_path=progress_log_path,
+                )
             message_id = self._extract_message_id(payload)
             message_info = self._fetch_message_info(session_id, message_id) if message_id else None
             final_payload = message_info or payload
@@ -332,6 +420,7 @@ class OpenCodeAdapter(AgentAdapter):
                 prompt_text=effective_prompt,
                 response=payload,
                 message_info=message_info,
+                all_messages=assistant_messages,
                 api_elapsed_ms=round(elapsed * 1000),
             )
             text = self._extract_best_text(parts, effective_prompt)
@@ -361,12 +450,15 @@ class OpenCodeAdapter(AgentAdapter):
             if payload:
                 last_seen = payload
                 parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
+                self._emit_runtime_progress_from_parts(parts, tag=tag)
                 has_text = bool(self._extract_best_text(parts, prompt_text))
                 has_step_finish = any(
                     isinstance(part, dict) and str(part.get("type", "")).lower() == "step-finish"
                     for part in parts
                 )
-                if has_text and has_step_finish:
+                info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+                finish_reason = str(info.get("finish") or "").strip().lower()
+                if has_text and has_step_finish and finish_reason not in {"", "tool-calls"}:
                     return payload
             time.sleep(1)
         if last_seen:
@@ -378,8 +470,8 @@ class OpenCodeAdapter(AgentAdapter):
             return None
         stage = os.path.basename(workspace_dir.rstrip(os.sep))
         case_dir = os.path.dirname(workspace_dir.rstrip(os.sep))
-        if stage == "agent_workspace":
-            target_dir = os.path.join(case_dir, "agent_meta")
+        if stage == "workspace":
+            target_dir = os.path.join(case_dir, "logs")
         else:
             target_dir = workspace_dir
         os.makedirs(target_dir, exist_ok=True)
@@ -389,7 +481,7 @@ class OpenCodeAdapter(AgentAdapter):
         base_dir = os.path.dirname(output_path)
         return os.path.join(base_dir, "opencode_progress_events.jsonl")
 
-    def _capture_sse_events(self, session_id: str, output_path: str, stop_event: threading.Event, tag: str = ""):
+    def _capture_sse_events(self, session_id: str, output_path: str, stop_event: threading.Event, connected_event: threading.Event, tag: str = ""):
         self._log("WARNING", f"开始监听 OpenCode SSE 事件流: {output_path}", tag=tag)
         progress_output_path = self._resolve_sse_progress_log_path(output_path)
         while not stop_event.is_set():
@@ -401,6 +493,7 @@ class OpenCodeAdapter(AgentAdapter):
                         req = urllib.request.Request(f"{self.api_base}{endpoint}", method="GET")
                         with urllib.request.urlopen(req, timeout=10) as response:
                             connected = True
+                            connected_event.set()
                             event_name = None
                             data_lines = []
                             while not stop_event.is_set():
@@ -453,8 +546,154 @@ class OpenCodeAdapter(AgentAdapter):
             "data": parsed_data,
         }
 
-    def _filter_sse_payload(self, payload: dict) -> Optional[dict]:
+    @staticmethod
+    def _clip_large_text(value: str, limit: int = 240) -> str:
+        text = str(value or "")
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "..."
+
+    def _shrink_raw_sse_payload(self, payload: dict) -> dict:
+        try:
+            compact = json.loads(json.dumps(payload, ensure_ascii=False))
+        except Exception:
+            return payload
+
+        data = compact.get("data")
+        if isinstance(data, dict):
+            data.pop("directory", None)
+            nested = data.get("payload")
+            if isinstance(nested, dict):
+                props = nested.get("properties")
+                if isinstance(props, dict):
+                    info = props.get("info")
+                    if isinstance(info, dict):
+                        path_info = info.get("path")
+                        if isinstance(path_info, dict):
+                            path_info.pop("cwd", None)
+                            path_info.pop("root", None)
+                        info.pop("directory", None)
+
+                    part = props.get("part")
+                    if isinstance(part, dict):
+                        state = part.get("state")
+                        if isinstance(state, dict):
+                            state_input = state.get("input")
+                            if isinstance(state_input, dict):
+                                for key in ("prompt", "oldString", "newString", "command", "cmd"):
+                                    if key in state_input:
+                                        state_input[key] = self._clip_large_text(state_input.get(key), 240)
+                                for key in ("filePath", "path"):
+                                    if key in state_input and state_input.get(key):
+                                        state_input[key] = self._short_workspace_path(state_input.get(key))
+
+                            if "output" in state:
+                                state["output"] = self._clip_large_text(state.get("output"), 320)
+
+                            metadata = state.get("metadata")
+                            if isinstance(metadata, dict):
+                                if "diff" in metadata:
+                                    metadata["diff"] = self._clip_large_text(metadata.get("diff"), 240)
+                                filediff = metadata.get("filediff")
+                                if isinstance(filediff, dict):
+                                    for key in ("before", "after"):
+                                        if key in filediff:
+                                            filediff[key] = self._clip_large_text(filediff.get(key), 180)
+                                    if "file" in filediff and filediff.get("file"):
+                                        filediff["file"] = self._short_workspace_path(filediff.get("file"))
+
+                        if "text" in part:
+                            part["text"] = self._clip_large_text(part.get("text"), 320)
+                        if "files" in part and isinstance(part.get("files"), list):
+                            part["files"] = [self._short_workspace_path(x) for x in part.get("files", [])[:5]]
+
+        serialized = json.dumps(compact, ensure_ascii=False)
+        if len(serialized) <= MAX_RAW_SSE_LINE_CHARS:
+            return compact
+
+        data = compact.get("data")
+        if isinstance(data, dict):
+            nested = data.get("payload")
+            if isinstance(nested, dict):
+                props = nested.get("properties")
+                if isinstance(props, dict):
+                    part = props.get("part")
+                    if isinstance(part, dict):
+                        state = part.get("state")
+                        if isinstance(state, dict):
+                            if "output" in state:
+                                state["output"] = self._clip_large_text(state.get("output"), 120)
+                            state_input = state.get("input")
+                            if isinstance(state_input, dict):
+                                for key in ("prompt", "oldString", "newString", "command", "cmd"):
+                                    if key in state_input:
+                                        state_input[key] = self._clip_large_text(state_input.get(key), 120)
+                            metadata = state.get("metadata")
+                            if isinstance(metadata, dict):
+                                metadata.pop("filediff", None)
+                                if "diff" in metadata:
+                                    metadata["diff"] = self._clip_large_text(metadata.get("diff"), 120)
+                        if "text" in part:
+                            part["text"] = self._clip_large_text(part.get("text"), 160)
+
+        serialized = json.dumps(compact, ensure_ascii=False)
+        if len(serialized) <= MAX_RAW_SSE_LINE_CHARS:
+            return compact
+
+        event_data = self._extract_sse_event_data(compact)
+        if isinstance(event_data, dict):
+            event_type = str(event_data.get("type") or "").strip()
+            props = event_data.get("properties") if isinstance(event_data.get("properties"), dict) else {}
+            part = props.get("part") if isinstance(props.get("part"), dict) else {}
+            simplified = {
+                "timestamp": compact.get("timestamp"),
+                "event": compact.get("event"),
+                "data": {
+                    "payload": {
+                        "type": event_type,
+                        "properties": {
+                            "sessionID": props.get("sessionID"),
+                        },
+                    },
+                },
+            }
+            simple_props = simplified["data"]["payload"]["properties"]
+            if part:
+                simple_part = {
+                    "type": part.get("type"),
+                }
+                if part.get("tool"):
+                    simple_part["tool"] = part.get("tool")
+                state = part.get("state") if isinstance(part.get("state"), dict) else {}
+                if state.get("status"):
+                    simple_part["status"] = state.get("status")
+                if part.get("text"):
+                    simple_part["text"] = self._clip_large_text(part.get("text"), 120)
+                simple_props["part"] = simple_part
+            return simplified
+        return compact
+
+    @staticmethod
+    def _extract_sse_event_data(payload: dict):
         data = payload.get("data")
+        if not isinstance(data, dict):
+            return data
+        nested_payload = data.get("payload")
+        if isinstance(nested_payload, dict):
+            return nested_payload
+        return data
+
+    def _should_store_raw_sse_payload(self, payload: dict) -> bool:
+        data = self._extract_sse_event_data(payload)
+        if not isinstance(data, dict):
+            return True
+        event_type = str(data.get("type") or "").strip()
+        if event_type == "message.part.delta":
+            return False
+        return True
+
+    def _filter_sse_payload(self, payload: dict) -> Optional[dict]:
+        data = self._extract_sse_event_data(payload)
         if not isinstance(data, dict):
             return None
         event_type = str(data.get("type") or "").strip()
@@ -471,7 +710,7 @@ class OpenCodeAdapter(AgentAdapter):
         filtered = self._filter_sse_payload(payload)
         if not filtered:
             return None
-        data = filtered.get("data") or {}
+        data = self._extract_sse_event_data(filtered) or {}
         props = data.get("properties") if isinstance(data.get("properties"), dict) else {}
         part = props.get("part") if isinstance(props.get("part"), dict) else {}
         part_type = str(part.get("type") or "").strip()
@@ -499,8 +738,23 @@ class OpenCodeAdapter(AgentAdapter):
             tool_name = str(part.get("tool") or "").strip()
             state_input = state.get("input") if isinstance(state.get("input"), dict) else {}
             file_path = self._short_workspace_path(state_input.get("filePath") or state_input.get("path") or "")
-            if tool_name == "read" and file_path:
+            if tool_name == "task":
+                description = str(state_input.get("description") or "").strip()
+                subagent_type = str(state_input.get("subagent_type") or "").strip()
+                if description and subagent_type:
+                    mapped["message"] = f"{description} (@{subagent_type}) ({status or 'pending'})"
+                elif description:
+                    mapped["message"] = f"{description} ({status or 'pending'})"
+                else:
+                    mapped["message"] = f"{tool_name} ({status or 'pending'})"
+            elif tool_name == "read" and file_path:
                 mapped["message"] = f"read {file_path} ({status or 'pending'})"
+            elif tool_name == "glob":
+                pattern = str(state_input.get("pattern") or "").strip()
+                if pattern:
+                    mapped["message"] = f"glob {pattern} ({status or 'pending'})"
+                else:
+                    mapped["message"] = f"{tool_name} ({status or 'pending'})"
             elif tool_name == "edit" and file_path:
                 mapped["message"] = f"edit {file_path} ({status or 'pending'})"
             elif tool_name == "bash":
@@ -533,7 +787,7 @@ class OpenCodeAdapter(AgentAdapter):
         return mapped
 
     def _event_matches_session(self, payload: dict, session_id: str) -> bool:
-        data = payload.get("data")
+        data = self._extract_sse_event_data(payload)
         if not session_id:
             return True
         if isinstance(data, (dict, list)):
@@ -542,17 +796,62 @@ class OpenCodeAdapter(AgentAdapter):
         return session_id in str(data)
 
     def _append_jsonl(self, path: str, payload: dict, mapped_path: Optional[str] = None):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        filtered = self._filter_sse_payload(payload)
-        if not filtered:
-            return
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(filtered, ensure_ascii=False) + "\n")
-        mapped = self._map_sse_payload(filtered)
+        if self._should_store_raw_sse_payload(payload):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            raw_payload = self._shrink_raw_sse_payload(payload)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(raw_payload, ensure_ascii=False) + "\n")
+        mapped = self._map_sse_payload(payload)
         if mapped and mapped_path:
             os.makedirs(os.path.dirname(mapped_path), exist_ok=True)
             with open(mapped_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(mapped, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _make_synthetic_sse_payload(part: dict) -> Optional[dict]:
+        if not isinstance(part, dict):
+            return None
+        return {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "event": "message",
+            "data": {
+                "payload": {
+                    "type": "message.part.updated",
+                    "properties": {
+                        "part": part,
+                    },
+                },
+            },
+        }
+
+    def _emit_runtime_progress_from_parts(self, parts: list, tag: str = ""):
+        for part in parts or []:
+            payload = self._make_synthetic_sse_payload(part)
+            if payload:
+                self._emit_runtime_progress_log(payload, tag=tag)
+
+    def _backfill_sse_logs_from_messages(self, all_messages: list, output_path: str, mapped_path: Optional[str] = None):
+        try:
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return
+        except Exception:
+            return
+
+        wrote_any = False
+        for message in all_messages or []:
+            if not isinstance(message, dict):
+                continue
+            parts = message.get("parts")
+            if not isinstance(parts, list):
+                continue
+            for part in parts:
+                payload = self._make_synthetic_sse_payload(part)
+                if not payload:
+                    continue
+                self._append_jsonl(output_path, payload, mapped_path)
+                wrote_any = True
+        if wrote_any:
+            self._log("INFO", f"[OpenCode] 原始 SSE 缺失，已根据消息历史回填: {output_path}")
 
     def _emit_runtime_progress_log(self, payload: dict, tag: str = ""):
         mapped = self._map_sse_payload(payload)
@@ -565,7 +864,7 @@ class OpenCodeAdapter(AgentAdapter):
         level = "INFO"
 
         if event_type == "step_start":
-            signature = ("step_start",)
+            signature = ("step_start", len(self._seen_runtime_events))
             log_message = "OpenCode 已收到任务，开始执行"
         elif event_type == "reasoning":
             signature = ("reasoning",)
@@ -573,24 +872,41 @@ class OpenCodeAdapter(AgentAdapter):
         elif event_type == "tool_call":
             lowered = message.lower()
             tool_name = lowered.split(" ", 1)[0]
-            if tool_name.startswith("glob") or tool_name.startswith("read") or tool_name.startswith("bash"):
-                signature = ("tool_call", "inspect")
+            if tool_name.startswith("task"):
+                signature = ("tool_call", message)
+                log_message = f"OpenCode 启动子任务: {message}" if message else "OpenCode 启动子任务"
+            elif tool_name.startswith("glob") or tool_name.startswith("read") or tool_name.startswith("bash"):
+                signature = ("tool_call", message)
                 log_message = f"OpenCode 开始检查工程和读取文件: {message}" if message else "OpenCode 开始检查工程和读取文件"
             elif tool_name.startswith("edit") or tool_name.startswith("write"):
-                signature = ("tool_call", "edit")
+                signature = ("tool_call", message)
                 log_message = f"OpenCode 开始修改代码: {message}" if message else "OpenCode 开始修改代码"
             else:
-                signature = ("tool_call", tool_name)
+                signature = ("tool_call", message or tool_name)
                 log_message = f"OpenCode 开始调用工具: {message}"
+        elif event_type == "tool_result":
+            lowered = message.lower()
+            tool_name = lowered.split(" ", 1)[0]
+            signature = ("tool_result", message or tool_name)
+            if tool_name.startswith("task"):
+                log_message = f"OpenCode 子任务完成: {message}" if message else "OpenCode 子任务完成"
+            elif tool_name.startswith("bash") and any(token in lowered for token in ("hvigor", "assemblehap", "stop-daemon")):
+                log_message = f"OpenCode 编译命令执行完成: {message}"
+            elif tool_name.startswith("edit"):
+                log_message = f"OpenCode 代码修改完成: {message}"
+            elif tool_name.startswith("read") or tool_name.startswith("glob"):
+                log_message = f"OpenCode 文件检查完成: {message}"
+            else:
+                log_message = f"OpenCode 工具执行完成: {message}" if message else "OpenCode 工具执行完成"
         elif event_type == "patch":
-            signature = ("patch",)
+            signature = ("patch", message)
             log_message = f"OpenCode 已生成代码补丁: {message}" if message else "OpenCode 已生成代码补丁"
         elif event_type == "text":
-            signature = ("text",)
+            signature = ("text", message)
             log_message = f"OpenCode 开始输出结果: {message}" if message else "OpenCode 开始输出结果"
         elif event_type == "step_finish":
             signature = ("step_finish", message or "stop")
-            log_message = "OpenCode 本轮执行结束"
+            log_message = f"OpenCode 本轮执行结束: {message}" if message else "OpenCode 本轮执行结束"
 
         if not signature or not log_message:
             return
@@ -667,6 +983,29 @@ class OpenCodeAdapter(AgentAdapter):
         except Exception as e:
             self._log("DEBUG", f"回查 session 最新消息失败: {e}")
             return None
+
+    def _fetch_assistant_messages(self, session_id: str, prompt_text: str) -> list[dict]:
+        try:
+            req = urllib.request.Request(
+                f"{self.api_base}/session/{session_id}/message",
+                method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            messages = []
+            if isinstance(data, list):
+                messages = data
+            elif isinstance(data, dict):
+                messages = self._extract_message_list(data)
+            result = []
+            for message in messages:
+                candidate = self._coerce_message_payload(message, prompt_text)
+                if candidate:
+                    result.append(candidate)
+            return result
+        except Exception as e:
+            self._log("DEBUG", f"读取 session 全量消息失败: {e}")
+            return []
 
     def _coerce_message_payload(self, data, prompt_text: str) -> Optional[dict]:
         for candidate in self._iter_message_candidates(data):
@@ -775,8 +1114,21 @@ class OpenCodeAdapter(AgentAdapter):
                                    prompt_text: str,
                                    response: dict,
                                    message_info: Optional[dict],
-                                   api_elapsed_ms: int) -> dict:
+                                   api_elapsed_ms: int,
+                                   all_messages: Optional[list] = None) -> dict:
         payload = message_info or response or {}
+        history = [item for item in (all_messages or []) if isinstance(item, dict)]
+        if history:
+            latest_payload = history[-1]
+            latest_info = latest_payload.get("info") if isinstance(latest_payload.get("info"), dict) else {}
+            aggregated_parts = []
+            for item in history:
+                parts_obj = item.get("parts")
+                if isinstance(parts_obj, list):
+                    aggregated_parts.extend(parts_obj)
+            payload = dict(latest_payload)
+            payload["parts"] = aggregated_parts
+            payload["info"] = dict(latest_info)
         info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
         model = payload.get("model") if isinstance(payload.get("model"), dict) else {}
         provider = payload.get("provider") if isinstance(payload.get("provider"), dict) else {}
@@ -825,7 +1177,9 @@ class OpenCodeAdapter(AgentAdapter):
                 "observed_calls": self._extract_observed_tool_calls(parts),
             },
             "raw": {
+                "response": response,
                 "message_info": payload,
+                "message_history": history,
             },
         }
 

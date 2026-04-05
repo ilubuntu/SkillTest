@@ -183,9 +183,66 @@ def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
     return 0
 
 
+def _extract_build_skill_execution_count(metrics: Dict[str, Any]) -> int:
+    if not isinstance(metrics, dict):
+        return 0
+
+    raw = metrics.get("raw") or {}
+    parts = []
+    if isinstance(raw, dict):
+        message_info = raw.get("message_info") or {}
+        if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
+            parts = message_info.get("parts") or []
+
+    seen = set()
+    count = 0
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        part_type = str(part.get("type") or "").strip().lower()
+        if part_type not in {"tool", "skill"}:
+            continue
+
+        serialized = json.dumps(part, ensure_ascii=False).lower()
+        state = part.get("state") if isinstance(part.get("state"), dict) else {}
+        status = str(state.get("status") or "").strip().lower()
+        output = str(state.get("output") or "")
+        metadata = state.get("metadata") if isinstance(state.get("metadata"), dict) else {}
+        metadata_output = str(metadata.get("output") or "")
+        command_input = state.get("input") if isinstance(state.get("input"), dict) else {}
+        command = str(command_input.get("command") or command_input.get("cmd") or "")
+
+        is_build_skill = "build-harmony-project" in serialized
+        is_build_command = any(
+            token in (serialized + "\n" + command.lower() + "\n" + output.lower() + "\n" + metadata_output.lower())
+            for token in ("hvigor", "assemblehap", "--stop-daemon")
+        )
+        if not is_build_skill and not is_build_command:
+            continue
+
+        if status not in {"completed", "running"} and not metadata_output and not output:
+            continue
+
+        identity = (
+            str(part.get("callID") or "").strip()
+            or str(part.get("id") or "").strip()
+            or json.dumps(command_input, ensure_ascii=False, sort_keys=True)
+        )
+        if not identity or identity in seen:
+            continue
+        seen.add(identity)
+        count += 1
+
+    return count
+
+
 def _extract_iteration_count(metrics: Dict[str, Any], output_text: str = "") -> int:
     if not isinstance(metrics, dict):
         return 1 if (output_text or "").strip() else 0
+
+    build_execution_count = _extract_build_skill_execution_count(metrics)
+    if build_execution_count > 0:
+        return build_execution_count
 
     raw = metrics.get("raw") or {}
     parts = []

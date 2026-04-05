@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 
 from agent_bench.cloud_api.models import CloudExecutionStartRequest
 from agent_bench.cloud_api.service import cloud_execution_manager
+from agent_bench.pipeline.artifacts import agent_workspace_dir
 
 router = APIRouter(prefix="/api/cloud-api", tags=["cloud_api"])
 
@@ -58,7 +59,7 @@ async def download_output_code(execution_id: int):
     if not case_dir:
         raise HTTPException(status_code=404, detail="执行目录不存在")
 
-    source_dir = os.path.join(case_dir, "agent_workspace")
+    source_dir = agent_workspace_dir(case_dir)
     if not os.path.isdir(source_dir):
         raise HTTPException(status_code=404, detail="输出代码目录不存在")
 

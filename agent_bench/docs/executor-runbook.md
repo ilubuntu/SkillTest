@@ -190,7 +190,7 @@ OpenCode 服务日志：
 每次任务会生成一个运行目录：
 
 ```text
-agent_bench/results/cloud_api/execution_<executionId>_<timestamp>/
+results/execution_<executionId>_<timestamp>/
 ```
 
 重点文件：

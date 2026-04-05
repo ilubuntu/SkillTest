@@ -23,12 +23,12 @@ rm -rf "$ROOT_DIR/build/executor_macos" "$ROOT_DIR/dist/agent-bench-executor" "$
   --workpath "$ROOT_DIR/build/executor_macos" \
   --paths "$ROOT_DIR" \
   --console \
-  --add-data "$ROOT_DIR/agent_bench/agents:agent_bench/agents" \
-  --add-data "$ROOT_DIR/agent_bench/config:agent_bench/config" \
   --add-data "$ROOT_DIR/agent_bench/enhancements:agent_bench/enhancements" \
   --add-data "$ROOT_DIR/agent_bench/profiles:agent_bench/profiles" \
   --add-data "$ROOT_DIR/agent_bench/evaluator:agent_bench/evaluator" \
   "$ROOT_DIR/agent_bench/executor/main.py"
+
+cp -R "$ROOT_DIR/config" "$ROOT_DIR/dist/agent-bench-executor/config"
 
 echo
 echo "打包完成:"

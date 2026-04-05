@@ -47,6 +47,7 @@ def create_adapter(agent: dict, timeout: int, on_progress=None, temperature: flo
             raise RuntimeError(f"OpenCode 服务不可用: {api_base}")
         return OpenCodeAdapter(
             api_base=api_base or agent.get("api_base", "http://localhost:4096"),
+            agent=agent.get("opencode_agent"),
             model=agent.get("model"),
             timeout=timeout,
             temperature=temperature,

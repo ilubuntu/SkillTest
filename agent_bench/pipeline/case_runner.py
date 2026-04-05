@@ -4,28 +4,30 @@
 import concurrent.futures
 import json
 import os
+import shutil
 import subprocess
 import time
 from typing import Callable
 
+from agent_bench.agent_runtime import AgentRuntime, build_agent_spec, build_agent_task_prompt
 from agent_bench.pipeline.artifacts import (
     agent_meta_dir,
     agent_workspace_dir,
+    original_project_dir,
+    review_dir,
     load_runner_artifacts,
+    save_compile_artifacts,
     save_case_result,
     save_interaction_metrics,
     save_runner_artifacts,
 )
-from agent_bench.pipeline.compile_checker import prepare_project_workspace
+from agent_bench.pipeline.compile_checker import check_project_compilable, prepare_project_workspace
 from agent_bench.pipeline.loader import (
-    build_agent_runtime_enhancements,
     load_agent_defaults,
     load_enhancements,
     load_test_cases,
-    merge_enhancements,
     resolve_case_original_project,
 )
-from agent_bench.runner.factory import create_adapter
 
 try:
     from agent_bench.storage_uploader import AgcStorageUploader
@@ -45,16 +47,15 @@ AGC_PROJECT_CLIENT_CONFIG = {
     "region": "CN",
 }
 
-TASK_PROMPT = """{prompt}"""
-TASK_PROMPT_MULTI_PAGE = """{prompt}
-
-## 参考补充文件
-{additional_pages}
-"""
-
 MAX_LOGGED_PROMPT_CHARS = 4000
 MAX_LOGGED_OUTPUT_CHARS = 1000
-_SKILL_DISCOVERY_CACHE: dict[str, bool] = {}
+WORKSPACE_GITIGNORE = """build/
+.hvigor/
+oh_modules/
+node_modules/
+oh-package-lock.json5
+*.log
+"""
 
 
 def _notify(on_progress, event: str, data: dict):
@@ -65,15 +66,6 @@ def _notify(on_progress, event: str, data: dict):
 def _clip_text(text: str, limit: int) -> str:
     text = text or ""
     return text if len(text) <= limit else text[:limit] + "\n...<truncated>"
-
-
-def _resolve_agent_timeout(agent: dict, fallback_timeout: int) -> int:
-    raw_timeout = (agent or {}).get("timeout")
-    try:
-        timeout = int(raw_timeout)
-        return timeout if timeout > 0 else fallback_timeout
-    except (TypeError, ValueError):
-        return fallback_timeout
 
 
 def _get_case_upload_root(case: dict) -> str:
@@ -130,82 +122,6 @@ def _upload_original_project(case: dict, on_progress: Callable = None) -> str:
         return ""
 
 
-def _log_skill_mount_status(case_id: str, agent_label: str, enhancements: dict, on_progress):
-    return
-
-
-def _opencode_has_skill(skill_name: str) -> bool:
-    cached = _SKILL_DISCOVERY_CACHE.get(skill_name)
-    if cached is not None:
-        return cached
-    try:
-        result = subprocess.run(
-            ["opencode", "debug", "skill"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode != 0:
-            _SKILL_DISCOVERY_CACHE[skill_name] = False
-            return False
-        payload = json.loads(result.stdout or "[]")
-        found = any(
-            isinstance(item, dict) and str(item.get("name") or "").strip() == skill_name
-            for item in (payload if isinstance(payload, list) else [])
-        )
-        _SKILL_DISCOVERY_CACHE[skill_name] = found
-        return found
-    except Exception:
-        _SKILL_DISCOVERY_CACHE[skill_name] = False
-        return False
-
-
-def _try_mount_opencode_skill(skill_name: str, enhancements: dict, on_progress) -> bool:
-    _notify(on_progress, "log", {
-        "level": "WARNING",
-        "message": f"{skill_name} 当前未实现自动挂载，跳过挂载尝试",
-    })
-    return False
-
-
-def _log_skill_runtime_discovery(agent_label: str, enhancements: dict, on_progress):
-    skill_names = [
-        str(item.get("name") or "").strip()
-        for item in (enhancements.get("skills") or [])
-        if isinstance(item, dict) and str(item.get("name") or "").strip()
-    ]
-    if "build-harmony-project" not in skill_names:
-        return
-    skill_name = "build-harmony-project"
-    _notify(on_progress, "log", {
-        "level": "WARNING",
-        "message": f"{agent_label} skill 检测开始: 正在检查 OpenCode 是否正确配置 {skill_name}",
-    })
-    if _opencode_has_skill(skill_name):
-        _notify(on_progress, "log", {
-            "level": "INFO",
-            "message": f"{agent_label} skill 检测完成: OpenCode 已正确配置 {skill_name}",
-        })
-        return
-    _notify(on_progress, "log", {
-        "level": "ERROR",
-        "message": f"{agent_label} skill 初次检测结果: OpenCode 未正确配置 {skill_name}",
-    })
-    if _try_mount_opencode_skill(skill_name, enhancements, on_progress):
-        _SKILL_DISCOVERY_CACHE.pop(skill_name, None)
-        if _opencode_has_skill(skill_name):
-            _notify(on_progress, "log", {
-                "level": "INFO",
-                "message": f"{agent_label} skill 检测完成: 尝试挂载后 OpenCode 已正确配置 {skill_name}",
-            })
-            return
-    _notify(on_progress, "log", {
-        "level": "ERROR",
-        "message": f"{agent_label} skill 检测完成: 尝试挂载后 OpenCode 仍未正确配置 {skill_name}",
-    })
-
-
 def _load_stage_interaction_metrics(case_dir: str, stage: str) -> dict:
     metrics_path = os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json") if stage == "agent" else ""
     if not metrics_path or not os.path.exists(metrics_path):
@@ -222,13 +138,25 @@ def _log_compile_self_check_signal(case_id: str, agent_label: str, output_text: 
     if marker in (output_text or ""):
         _notify(on_progress, "log", {
             "level": "WARNING",
-            "message": f"{agent_label} 输出中观察到 build-harmony-project 调用标记",
+            "message": f"{agent_label} 模型输出中自报已调用 build-harmony-project",
         })
         return
     _notify(on_progress, "log", {
         "level": "WARNING",
-        "message": f"{agent_label} 输出中未观察到 build-harmony-project 调用标记",
+        "message": f"{agent_label} 未观察到显式 skill 事件，且模型输出中未包含 build-harmony-project 调用标记",
     })
+
+
+def _find_generated_hap_files(case_dir: str, stage: str) -> list[str]:
+    workspace_dir = agent_workspace_dir(case_dir) if stage == "agent" else ""
+    if not workspace_dir or not os.path.isdir(workspace_dir):
+        return []
+    hap_files = []
+    for root, _, files in os.walk(workspace_dir):
+        for name in files:
+            if name.lower().endswith(".hap"):
+                hap_files.append(os.path.join(root, name))
+    return hap_files
 
 
 def _log_skill_call_detection(case_id: str, agent_label: str, case_dir: str, stage: str, output_text: str, on_progress):
@@ -236,66 +164,44 @@ def _log_skill_call_detection(case_id: str, agent_label: str, case_dir: str, sta
     raw = metrics.get("raw") or {}
     message_info = raw.get("message_info") or {}
     raw_parts = message_info.get("parts") if isinstance(message_info.get("parts"), list) else []
-    matched_entries = []
+    explicit_skill_matches = []
+    compile_command_matches = []
     for part in raw_parts:
         if not isinstance(part, dict):
             continue
         serialized = json.dumps(part, ensure_ascii=False).lower()
-        if "build-harmony-project" in serialized or '"type": "skill"' in serialized or '"tool"' in serialized:
-            matched_entries.append(part.get("type") or "unknown")
-    if matched_entries:
-        summary = ",".join(str(item) for item in matched_entries[:3])
+        part_type = str(part.get("type") or "unknown")
+        if part_type in {"tool", "skill"} and "build-harmony-project" in serialized:
+            explicit_skill_matches.append(part_type)
+            continue
+        if any(token in serialized for token in ("hvigor", "assemblehap", "--stop-daemon")):
+            compile_command_matches.append(part_type)
+    if explicit_skill_matches:
+        summary = ",".join(str(item) for item in explicit_skill_matches[:3])
+        _notify(on_progress, "log", {
+        "level": "WARNING",
+            "message": f"{agent_label} 在 interaction_metrics 中观察到 build-harmony-project 明确调用痕迹，事件={summary}",
+        })
+        return
+    if compile_command_matches:
+        summary = ",".join(str(item) for item in compile_command_matches[:3])
         _notify(on_progress, "log", {
             "level": "WARNING",
-            "message": f"{agent_label} 在 interaction_metrics 中观察到 build-harmony-project 调用痕迹，事件={summary}",
+            "message": f"{agent_label} 在 interaction_metrics 中观察到 HarmonyOS 编译命令痕迹，事件={summary}",
+        })
+        return
+    hap_files = _find_generated_hap_files(case_dir, stage)
+    if hap_files:
+        rel_files = [os.path.relpath(path, agent_workspace_dir(case_dir)) for path in hap_files[:2]]
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"{agent_label} 未观察到显式 skill 事件，但检测到真实编译产物: {', '.join(rel_files)}",
         })
         return
     _log_compile_self_check_signal(case_id, agent_label, output_text, on_progress)
-
-
-def _build_task_prompt(case: dict, prompt: str, on_progress, case_id: str) -> str:
-    additional_files = case.get("additional_files", {}) or {}
-    sibling_files = additional_files.get("sibling_files", {}) or {}
-    pages_files = additional_files.get("pages", {}) or {}
-    if sibling_files or pages_files:
-        all_additional = {**sibling_files, **pages_files}
-        additional_pages_text = "\n\n".join(
-            f"=== {filename} ===\n{content}" for filename, content in all_additional.items()
-        )
-        _notify(on_progress, "log", {
-            "level": "INFO",
-            "message": f"多页面场景：检测到 {len(all_additional)} 个额外页面文件",
-        })
-        return TASK_PROMPT_MULTI_PAGE.format(prompt=prompt, additional_pages=additional_pages_text)
-    return TASK_PROMPT.format(prompt=prompt)
-
-
-def _log_agent_configuration(agent: dict, enhancements: dict, on_progress):
-    mounted_skills = [
-        str(item.get("name") or "").strip()
-        for item in (agent.get("mounted_skills") or [])
-        if isinstance(item, dict) and str(item.get("name") or "").strip()
-    ]
-    _notify(on_progress, "log", {
-        "level": "INFO",
-        "message": "，".join(
-            part for part in [
-                f"读取 Agent 配置: 名称={agent.get('name') or ''}",
-                f"适配器={agent.get('adapter') or ''}",
-                f"模型={agent.get('model') or ''}",
-                f"skills={', '.join(mounted_skills)}" if mounted_skills else "",
-            ] if part
-        ),
-    })
-
-    if mounted_skills:
-        _notify(on_progress, "log", {
-            "level": "WARNING",
-            "message": f"检测 Agent 是否正确挂载 skill: {', '.join(mounted_skills)}",
-        })
-
-
 def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
+    post_compile_result = case.get("_post_compile_result") or {}
+    pre_compile_result = case.get("_pre_compile_result") or {}
     return {
         "case_id": case["id"],
         "title": case["title"],
@@ -310,11 +216,111 @@ def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
         },
         "workspace_dir": agent_workspace_dir(case_dir),
         "meta_dir": agent_meta_dir(case_dir),
+        "original_dir": original_project_dir(case_dir),
+        "review_dir": review_dir(case_dir),
         "compile_results": {
-            "compilable": None,
-            "error": "",
+            "compilable": post_compile_result.get("compilable"),
+            "error": post_compile_result.get("error", "") or "",
+            "before": pre_compile_result or {},
+            "after": post_compile_result or {},
+            "regressed": (
+                bool(pre_compile_result.get("compilable"))
+                and post_compile_result.get("compilable") is False
+            ),
         },
     }
+
+
+def _initialize_workspace_git(case_dir: str, workspace_dir: str, on_progress):
+    review_root = review_dir(case_dir)
+    os.makedirs(review_root, exist_ok=True)
+    gitignore_path = os.path.join(workspace_dir, ".gitignore")
+    with open(gitignore_path, "w", encoding="utf-8") as f:
+        f.write(WORKSPACE_GITIGNORE)
+    _notify(on_progress, "log", {"level": "INFO", "message": f"已写入工作区 Git 忽略规则: {gitignore_path}"})
+
+    subprocess.run(["git", "init"], cwd=workspace_dir, capture_output=True, text=True, check=False)
+    subprocess.run(["git", "config", "user.name", "agent-bench"], cwd=workspace_dir, capture_output=True, text=True, check=False)
+    subprocess.run(["git", "config", "user.email", "agent-bench@example.local"], cwd=workspace_dir, capture_output=True, text=True, check=False)
+    subprocess.run(["git", "add", "."], cwd=workspace_dir, capture_output=True, text=True, check=False)
+    commit_result = subprocess.run(
+        ["git", "commit", "-m", "baseline"],
+        cwd=workspace_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if commit_result.returncode != 0:
+        raise RuntimeError(f"初始化工作区 Git 基线失败: {commit_result.stderr or commit_result.stdout}")
+    rev_result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=workspace_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    baseline_commit = str(rev_result.stdout or "").strip()
+    if not baseline_commit:
+        raise RuntimeError("未能读取 workspace 基线 commit")
+    baseline_commit_path = os.path.join(review_root, "baseline_commit.txt")
+    with open(baseline_commit_path, "w", encoding="utf-8") as f:
+        f.write(baseline_commit + "\n")
+    _notify(on_progress, "log", {"level": "INFO", "message": f"工作区 Git 基线已建立: {baseline_commit}"})
+    return baseline_commit
+
+
+def _generate_review_patch(case_dir: str, workspace_dir: str, baseline_commit: str, on_progress):
+    review_root = review_dir(case_dir)
+    os.makedirs(review_root, exist_ok=True)
+    patch_path = os.path.join(review_root, "changes.patch")
+    diff_result = subprocess.run(
+        ["git", "diff", "--binary", baseline_commit],
+        cwd=workspace_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if diff_result.returncode not in (0, 1):
+        raise RuntimeError(f"生成 patch 失败: {diff_result.stderr or diff_result.stdout}")
+    with open(patch_path, "w", encoding="utf-8") as f:
+        f.write(diff_result.stdout or "")
+    _notify(on_progress, "log", {"level": "INFO", "message": f"已生成评审 patch: {patch_path}"})
+    return patch_path
+
+
+def _run_compile_check(case: dict,
+                       case_dir: str,
+                       project_path: str,
+                       stage_name: str,
+                       stage_label: str,
+                       on_progress):
+    template_project_path = resolve_case_original_project(case)
+    _notify(on_progress, "log", {"level": "WARNING", "message": f"[开始] {stage_label}"})
+    t0 = time.time()
+    compile_result = check_project_compilable(
+        project_path,
+        timeout=300,
+        template_project_path=template_project_path,
+    )
+    elapsed = time.time() - t0
+    save_compile_artifacts(case_dir, stage_name, compile_result)
+    if compile_result.get("compilable"):
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"[结束] {stage_label}: 编译通过 ({elapsed:.1f}s)",
+        })
+    else:
+        _notify(on_progress, "log", {
+            "level": "ERROR",
+            "message": f"[结束] {stage_label}: 编译失败 ({elapsed:.1f}s)",
+        })
+        error_preview = _clip_text(str(compile_result.get("error") or "").strip(), 1200)
+        if error_preview:
+            _notify(on_progress, "log", {
+                "level": "ERROR",
+                "message": f"{stage_label} 错误摘要:\n{error_preview}",
+            })
+    return compile_result
 
 
 def run_single_case(case: dict, scenario: str, enhancements: dict,
@@ -329,15 +335,17 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                     agent_temperature: float = None) -> dict:
     _ = (llm_judge, phase_weights, scenario)
     stages = stages or ["runner"]
+    case["_agent_config"] = agent_config or {}
     case_id = case["id"]
     prompt = case["prompt"]
-    task_prompt = _build_task_prompt(case, prompt, on_progress, case_id)
     os.makedirs(case_dir, exist_ok=True)
     _notify(on_progress, "log", {"level": "INFO", "message": f"开始处理用例: {case['title']}"})
 
     agent = agent_config
     if not agent:
         raise ValueError("缺少 agent 配置")
+    agent_spec = build_agent_spec(agent)
+    task_prompt = build_agent_task_prompt(case, prompt, on_progress, agent_spec)
 
     if "runner" in stages:
         output_path = os.path.join(agent_meta_dir(case_dir), "output.txt")
@@ -350,33 +358,52 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 raise FileNotFoundError(f"[{case_id}] 未找到 original_project 模板")
             workspace_dir = agent_workspace_dir(case_dir)
             prepare_project_workspace(template_project_path, workspace_dir)
-            runtime_enhancements = merge_enhancements(build_agent_runtime_enhancements(agent), enhancements or {})
-            timeout = _resolve_agent_timeout(agent, agent_timeout)
-            adapter = create_adapter(agent, timeout=timeout, on_progress=on_progress, temperature=agent_temperature)
+            baseline_commit = _initialize_workspace_git(case_dir, workspace_dir, on_progress)
+            pre_compile_result = _run_compile_check(
+                case,
+                case_dir,
+                workspace_dir,
+                "pre_compile_check",
+                "预编译验证",
+                on_progress,
+            )
+            case["_pre_compile_result"] = pre_compile_result
+            runtime = AgentRuntime(
+                agent_spec=agent_spec,
+                enhancements=enhancements,
+                on_progress=on_progress,
+                fallback_timeout=agent_timeout,
+                temperature=agent_temperature,
+            )
             try:
-                _notify(on_progress, "log", {"level": "WARNING", "message": f"开始准备 {agent.get('name') or '执行Agent'} 运行配置..."})
-                _log_agent_configuration(agent, runtime_enhancements, on_progress)
-                _log_skill_runtime_discovery(agent.get("name") or "执行Agent", runtime_enhancements, on_progress)
                 _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "Agent运行"})
-                adapter.setup(runtime_enhancements, on_progress=on_progress)
-                _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent.get('name') or '执行Agent'} 准备完成，开始处理任务..."})
-                t0 = time.time()
-                output_text = adapter.execute(task_prompt, tag=f"[{agent.get('name') or 'Agent'}] ", workspace_dir=workspace_dir)
-                last_error_message = ""
-                getter = getattr(adapter, "get_last_error_message", None)
-                if callable(getter):
-                    last_error_message = str(getter() or "").strip()
+                runtime.prepare()
+                output_text, elapsed = runtime.execute(
+                    task_prompt,
+                    workspace_dir=workspace_dir,
+                    tag=f"[{agent_spec.display_name}] ",
+                )
+                last_error_message = runtime.get_last_error_message()
                 if not output_text and last_error_message:
                     raise RuntimeError(last_error_message)
             finally:
-                save_interaction_metrics(case_dir, "agent", adapter.get_last_interaction_metrics())
-                adapter.teardown()
-            elapsed = time.time() - t0
+                save_interaction_metrics(case_dir, "agent", runtime.get_last_interaction_metrics())
+                runtime.teardown()
             save_runner_artifacts(case_dir, output_text, task_prompt=task_prompt)
-            _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent.get('name') or '执行Agent'} 运行完成, 输出={len(output_text)}字符, 耗时={elapsed:.1f}s"})
+            _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 运行完成, 输出={len(output_text)}字符, 耗时={elapsed:.1f}s"})
             if output_text:
-                _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent.get('name') or '执行Agent'} 输出预览:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}"})
-            _log_skill_call_detection(case_id, agent.get("name") or "执行Agent", case_dir, "agent", output_text, on_progress)
+                _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 输出预览:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}"})
+            post_compile_result = _run_compile_check(
+                case,
+                case_dir,
+                workspace_dir,
+                "post_compile_check",
+                "Agent 修改后编译验证",
+                on_progress,
+            )
+            case["_post_compile_result"] = post_compile_result
+            _generate_review_patch(case_dir, workspace_dir, baseline_commit, on_progress)
+            _log_skill_call_detection(case_id, agent_spec.display_name, case_dir, "agent", output_text, on_progress)
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "Agent运行", "elapsed": elapsed})
 
     result = _build_runner_only_result(case, case_dir, agent)

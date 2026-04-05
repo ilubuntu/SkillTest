@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent_bench.executor.cloud_api import router as cloud_api_router
+from agent_bench.pipeline.loader import validate_runtime_config
 from agent_bench.runner.discovery import check_api_available, ensure_opencode_server
 
 
@@ -57,6 +58,9 @@ def _check_runtime_dependencies():
     logger.info("依赖检查通过")
     logger.info("检查 Python 依赖...")
     logger.info("Python 依赖检查通过")
+    logger.info("检查执行器配置...")
+    validate_runtime_config()
+    logger.info("执行器配置检查通过")
 
 app = FastAPI(
     title="云测桥接执行器",
