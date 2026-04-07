@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Agent Prompt 组装。"""
 
+import json
+
 from agent_bench.agent_runtime.spec import AgentSpec
 
 TASK_PROMPT = """{prompt}"""
@@ -34,3 +36,35 @@ def build_agent_task_prompt(case: dict, prompt: str, on_progress, agent_spec: Ag
             additional_pages=additional_pages_text,
         )
     return TASK_PROMPT.format(prompt=full_prompt)
+
+
+def build_constraint_review_prompt(case: dict,
+                                   original_project_root: str,
+                                   repaired_project_root: str,
+                                   repair_patch_file: str,
+                                   agent_spec: AgentSpec) -> str:
+    case_spec = case.get("case_spec") or {}
+    case_prompt = str(case.get("prompt") or "").strip()
+    constraints = case_spec.get("constraints") or []
+    sections = [
+        "请对当前修复结果执行约束规则评分，并严格按约束检查修复后的工程。",
+        "",
+        "## 输入 1：原始工程目录",
+        original_project_root,
+        "",
+        "## 输入 2：修复后的 patch 文件",
+        repair_patch_file,
+        "",
+        "## 输入 3：修复后工程目录",
+        repaired_project_root,
+        "",
+        "## 输入 4：用例输入内容",
+        case_prompt,
+        "",
+        "## 输入 5：用例约束规则",
+        json.dumps(constraints, ensure_ascii=False, indent=2),
+    ]
+    prompt = "\n".join(sections).strip()
+    if agent_spec.extra_prompt:
+        prompt = f"{prompt}\n\n## 额外执行要求\n{agent_spec.extra_prompt}"
+    return prompt

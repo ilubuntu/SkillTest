@@ -15,6 +15,7 @@ import urllib.request
 import zipfile
 from datetime import datetime
 from typing import Any, Dict, Optional
+import yaml
 
 from agent_bench.cloud_api.client import report_status, upload_execution_result
 from agent_bench.cloud_api.converter import (
@@ -184,6 +185,39 @@ def _upload_output_code_dir(side_dir: str, execution_id: int, on_progress=None) 
 def _emit_prepare_log(on_progress, message: str):
     if on_progress:
         on_progress("log", {"level": "INFO", "message": message})
+
+
+def _parse_constraints_from_expected_output(expected_output: str) -> list[dict]:
+    text = str(expected_output or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = yaml.safe_load(text)
+    except Exception:
+        return []
+
+    if isinstance(parsed, dict):
+        constraints = parsed.get("constraints")
+        return constraints if isinstance(constraints, list) else []
+    if isinstance(parsed, list):
+        return parsed
+    return []
+
+
+def _log_constraints_summary(on_progress, constraints: list[dict]):
+    if not constraints:
+        return
+    _emit_prepare_log(on_progress, f"已解析约束规则，共 {len(constraints)} 条:")
+    for item in constraints:
+        if not isinstance(item, dict):
+            continue
+        rule_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        description = str(item.get("description") or "").strip()
+        summary = f"- {rule_id} | {name}"
+        if description:
+            summary += f" | {description}"
+        _emit_prepare_log(on_progress, summary)
 
 
 def _cache_archive_path(file_url: str) -> str:
@@ -675,7 +709,14 @@ class CloudExecutionManager:
             if not input_text.strip() or not expected_output.strip():
                 raise ValueError("缺少真实的任务输入或期望结果，已终止执行")
             prompt = build_prompt(input_text, expected_output)
-            case = build_case(execution_id, original_dir, prompt)
+            constraints = _parse_constraints_from_expected_output(expected_output)
+            _log_constraints_summary(on_progress, constraints)
+            case = build_case(
+                execution_id,
+                original_dir,
+                prompt,
+                case_spec={"constraints": constraints} if constraints else {},
+            )
 
             with self._lock:
                 state["run_dir"] = run_dir

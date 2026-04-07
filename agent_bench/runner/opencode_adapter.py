@@ -22,6 +22,7 @@ import urllib.request
 import urllib.error
 from typing import Optional
 
+from agent_bench.pipeline.artifacts import agent_meta_dir, review_dir
 from agent_bench.runner.adapter import AgentAdapter
 
 DEFAULT_API_BASE = "http://localhost:4096"
@@ -50,15 +51,21 @@ class OpenCodeAdapter(AgentAdapter):
     def __init__(self, api_base: str = DEFAULT_API_BASE,
                  agent: str = None,
                  model: str = None,
+                 target_skills: Optional[list[str]] = None,
                  timeout: int = TIMEOUT,
                  temperature: float = None,
-                 on_progress=None):
+                 on_progress=None,
+                 artifact_prefix: str = "agent",
+                 artifact_base_dir: str = "logs"):
         self.api_base = api_base
         self.agent = agent
         self.model = model
+        self.target_skills = [str(item).strip() for item in (target_skills or []) if str(item).strip()]
         self.timeout = timeout
         self.temperature = temperature
         self.on_progress = on_progress
+        self.artifact_prefix = artifact_prefix or "agent"
+        self.artifact_base_dir = artifact_base_dir or "logs"
 
         # setup 阶段准备的配置
         self._system_message = ""
@@ -192,12 +199,13 @@ class OpenCodeAdapter(AgentAdapter):
                 "ok": False,
                 "error": str(exc),
                 "has_skill_tool": False,
-                "has_target_skill": False,
+                "target_skills": self.target_skills,
+                "detected_skills": {},
             }
 
         entries = payload if isinstance(payload, list) else []
         has_skill_tool = False
-        has_target_skill = False
+        detected_skills = {skill: False for skill in self.target_skills}
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
@@ -205,12 +213,14 @@ class OpenCodeAdapter(AgentAdapter):
             name = str(entry.get("name") or entry.get("tool") or "").strip().lower()
             if name == "skill" or "\"name\": \"skill\"" in serialized:
                 has_skill_tool = True
-            if "build-harmony-project" in serialized:
-                has_target_skill = True
+            for skill_name in detected_skills:
+                if skill_name.lower() in serialized:
+                    detected_skills[skill_name] = True
         return {
             "ok": True,
             "has_skill_tool": has_skill_tool,
-            "has_target_skill": has_target_skill,
+            "target_skills": self.target_skills,
+            "detected_skills": detected_skills,
         }
 
     # ── execute ──────────────────────────────────────────────
@@ -232,8 +242,15 @@ class OpenCodeAdapter(AgentAdapter):
                     self._log(
                         "INFO",
                         "OpenCode tool 探测结果: "
-                        f"skill_tool={'yes' if visibility.get('has_skill_tool') else 'no'}, "
-                        f"build_harmony_project={'yes' if visibility.get('has_target_skill') else 'no'}",
+                        f"skill_tool={'yes' if visibility.get('has_skill_tool') else 'no'}"
+                        + (
+                            ", " + ", ".join(
+                                f"{skill_name.replace('-', '_')}={'yes' if matched else 'no'}"
+                                for skill_name, matched in (visibility.get('detected_skills') or {}).items()
+                            )
+                            if visibility.get("detected_skills")
+                            else ""
+                        ),
                         tag=tag,
                     )
             t0 = time.time()
@@ -468,18 +485,17 @@ class OpenCodeAdapter(AgentAdapter):
     def _resolve_sse_log_path(self, workspace_dir: Optional[str]) -> Optional[str]:
         if not workspace_dir:
             return None
-        stage = os.path.basename(workspace_dir.rstrip(os.sep))
         case_dir = os.path.dirname(workspace_dir.rstrip(os.sep))
-        if stage == "workspace":
-            target_dir = os.path.join(case_dir, "logs")
+        if self.artifact_base_dir == "review":
+            target_dir = review_dir(case_dir)
         else:
-            target_dir = workspace_dir
+            target_dir = agent_meta_dir(case_dir)
         os.makedirs(target_dir, exist_ok=True)
-        return os.path.join(target_dir, "opencode_sse_events.jsonl")
+        return os.path.join(target_dir, f"{self.artifact_prefix}_opencode_sse_events.jsonl")
 
     def _resolve_sse_progress_log_path(self, output_path: str) -> str:
         base_dir = os.path.dirname(output_path)
-        return os.path.join(base_dir, "opencode_progress_events.jsonl")
+        return os.path.join(base_dir, f"{self.artifact_prefix}_opencode_progress_events.jsonl")
 
     def _capture_sse_events(self, session_id: str, output_path: str, stop_event: threading.Event, connected_event: threading.Event, tag: str = ""):
         self._log("WARNING", f"开始监听 OpenCode SSE 事件流: {output_path}", tag=tag)
@@ -859,35 +875,52 @@ class OpenCodeAdapter(AgentAdapter):
             return
         event_type = str(mapped.get("eventType") or "")
         message = str(mapped.get("message") or "").strip()
+        event_data = self._extract_sse_event_data(payload)
+        props = event_data.get("properties") if isinstance(event_data, dict) and isinstance(event_data.get("properties"), dict) else {}
+        part = props.get("part") if isinstance(props.get("part"), dict) else {}
+        part_type = str(part.get("type") or "").strip()
+        part_tool = str(part.get("tool") or "").strip()
+        part_status = ""
+        state = part.get("state") if isinstance(part.get("state"), dict) else {}
+        if isinstance(state, dict):
+            part_status = str(state.get("status") or "").strip()
+        event_identity = (
+            str(props.get("messageID") or props.get("messageId") or ""),
+            str(props.get("partID") or props.get("partId") or ""),
+            part_type,
+            part_tool,
+            part_status,
+            message,
+        )
         signature = None
         log_message = None
         level = "INFO"
 
         if event_type == "step_start":
-            signature = ("step_start", len(self._seen_runtime_events))
+            signature = ("step_start",) + event_identity
             log_message = "OpenCode 已收到任务，开始执行"
         elif event_type == "reasoning":
-            signature = ("reasoning",)
+            signature = ("reasoning",) + event_identity
             log_message = "OpenCode 模型开始思考"
         elif event_type == "tool_call":
             lowered = message.lower()
             tool_name = lowered.split(" ", 1)[0]
             if tool_name.startswith("task"):
-                signature = ("tool_call", message)
+                signature = ("tool_call",) + event_identity
                 log_message = f"OpenCode 启动子任务: {message}" if message else "OpenCode 启动子任务"
             elif tool_name.startswith("glob") or tool_name.startswith("read") or tool_name.startswith("bash"):
-                signature = ("tool_call", message)
+                signature = ("tool_call",) + event_identity
                 log_message = f"OpenCode 开始检查工程和读取文件: {message}" if message else "OpenCode 开始检查工程和读取文件"
             elif tool_name.startswith("edit") or tool_name.startswith("write"):
-                signature = ("tool_call", message)
+                signature = ("tool_call",) + event_identity
                 log_message = f"OpenCode 开始修改代码: {message}" if message else "OpenCode 开始修改代码"
             else:
-                signature = ("tool_call", message or tool_name)
+                signature = ("tool_call",) + event_identity
                 log_message = f"OpenCode 开始调用工具: {message}"
         elif event_type == "tool_result":
             lowered = message.lower()
             tool_name = lowered.split(" ", 1)[0]
-            signature = ("tool_result", message or tool_name)
+            signature = ("tool_result",) + event_identity
             if tool_name.startswith("task"):
                 log_message = f"OpenCode 子任务完成: {message}" if message else "OpenCode 子任务完成"
             elif tool_name.startswith("bash") and any(token in lowered for token in ("hvigor", "assemblehap", "stop-daemon")):
@@ -899,13 +932,13 @@ class OpenCodeAdapter(AgentAdapter):
             else:
                 log_message = f"OpenCode 工具执行完成: {message}" if message else "OpenCode 工具执行完成"
         elif event_type == "patch":
-            signature = ("patch", message)
+            signature = ("patch",) + event_identity
             log_message = f"OpenCode 已生成代码补丁: {message}" if message else "OpenCode 已生成代码补丁"
         elif event_type == "text":
-            signature = ("text", message)
+            signature = ("text",) + event_identity
             log_message = f"OpenCode 开始输出结果: {message}" if message else "OpenCode 开始输出结果"
         elif event_type == "step_finish":
-            signature = ("step_finish", message or "stop")
+            signature = ("step_finish",) + event_identity
             log_message = f"OpenCode 本轮执行结束: {message}" if message else "OpenCode 本轮执行结束"
 
         if not signature or not log_message:
@@ -1069,24 +1102,28 @@ class OpenCodeAdapter(AgentAdapter):
         parts = payload.get("parts")
         if not isinstance(parts, list) or not parts:
             return False
-
+        meaningful_parts = []
         texts = []
         for part in parts:
-            if isinstance(part, dict) and part.get("type") == "text":
+            if not isinstance(part, dict):
+                continue
+            part_type = str(part.get("type") or "").strip().lower()
+            if not part_type:
+                continue
+            meaningful_parts.append(part_type)
+            if part_type == "text":
                 text = str(part.get("text", "")).strip()
                 if text:
                     texts.append(text)
-        if not texts:
+
+        if not meaningful_parts:
             return False
 
-        merged = "\n".join(texts).strip()
-        if not merged:
-            return False
-        prompt_norm = (prompt_text or "").strip()
-        if prompt_norm and merged == prompt_norm:
-            return False
-        if prompt_norm and merged in prompt_norm:
-            return False
+        if texts:
+            merged = "\n".join(texts).strip()
+            prompt_norm = (prompt_text or "").strip()
+            if merged and prompt_norm and (merged == prompt_norm or merged in prompt_norm):
+                return False
         return True
 
     def _extract_best_text(self, parts: list, prompt_text: str) -> str:

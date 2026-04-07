@@ -52,12 +52,32 @@ def save_runner_artifacts(case_dir: str,
             f.write(task_prompt)
 
 
+def save_review_agent_artifacts(case_dir: str,
+                                stage: str,
+                                output: str,
+                                task_prompt: str = "",
+                                metrics: dict | None = None):
+    """保存评审/打分 agent 产物到 review 目录。"""
+    target_dir = review_dir(case_dir)
+    os.makedirs(target_dir, exist_ok=True)
+    prefix = (stage or "review").strip()
+    with open(os.path.join(target_dir, f"{prefix}_output.txt"), "w", encoding="utf-8") as f:
+        f.write(output or "")
+    if task_prompt:
+        with open(os.path.join(target_dir, f"{prefix}_input.txt"), "w", encoding="utf-8") as f:
+            f.write(task_prompt)
+    if metrics:
+        with open(os.path.join(target_dir, f"{prefix}_interaction_metrics.json"), "w", encoding="utf-8") as f:
+            json.dump(metrics, f, ensure_ascii=False, indent=2)
+
+
 def save_interaction_metrics(case_dir: str, stage: str, metrics: dict):
     """保存统一交互指标文件。"""
     if not metrics:
         return
     target_dir = agent_meta_dir(case_dir) if stage == "agent" else stage_dir(case_dir, stage)
-    with open(os.path.join(target_dir, "interaction_metrics.json"), "w", encoding="utf-8") as f:
+    filename = f"{stage}_interaction_metrics.json" if stage else "interaction_metrics.json"
+    with open(os.path.join(target_dir, filename), "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
 
 

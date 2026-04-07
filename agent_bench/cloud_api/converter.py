@@ -51,13 +51,16 @@ def is_placeholder_text(value: str) -> bool:
     return normalized in placeholders or lowered in placeholders
 
 
-def build_case(execution_id: int, project_dir: str, prompt: str) -> Dict[str, Any]:
+def build_case(execution_id: int,
+               project_dir: str,
+               prompt: str,
+               case_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return {
         "id": f"cloud_execution_{execution_id}",
         "title": f"Cloud Execution {execution_id}",
         "scenario": "cloud_api",
         "prompt": prompt,
-        "case_spec": {},
+        "case_spec": case_spec or {},
         "original_project_dir": project_dir,
     }
 
@@ -112,6 +115,9 @@ def _load_text_if_exists(path: str) -> str:
 
 
 def load_agent_metrics(case_dir: str) -> Dict[str, Any]:
+    metrics = _load_json_if_exists(os.path.join(agent_meta_dir(case_dir), "agent_interaction_metrics.json"))
+    if metrics:
+        return metrics
     return _load_json_if_exists(os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json"))
 
 

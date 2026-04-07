@@ -27,7 +27,12 @@ def _resolve_codex_adapter_type(agent: dict, adapter_type: str) -> str:
     return adapter_type
 
 
-def create_adapter(agent: dict, timeout: int, on_progress=None, temperature: float = None):
+def create_adapter(agent: dict,
+                   timeout: int,
+                   on_progress=None,
+                   temperature: float = None,
+                   artifact_prefix: str = "agent",
+                   artifact_base_dir: str = "logs"):
     """根据 Agent 定义创建适配器实例。"""
     if not agent:
         raise ValueError("Agent 配置不能为空")
@@ -49,9 +54,16 @@ def create_adapter(agent: dict, timeout: int, on_progress=None, temperature: flo
             api_base=api_base or agent.get("api_base", "http://localhost:4096"),
             agent=agent.get("opencode_agent"),
             model=agent.get("model"),
+            target_skills=[
+                str(item.get("name") or "").strip()
+                for item in (agent.get("mounted_skills") or [])
+                if isinstance(item, dict) and str(item.get("name") or "").strip()
+            ],
             timeout=timeout,
             temperature=temperature,
             on_progress=on_progress,
+            artifact_prefix=artifact_prefix,
+            artifact_base_dir=artifact_base_dir,
         )
     if adapter_type == "codex_local":
         return CodexLocalAdapter(

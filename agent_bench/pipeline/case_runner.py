@@ -4,12 +4,14 @@
 import concurrent.futures
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
 from typing import Callable
 
 from agent_bench.agent_runtime import AgentRuntime, build_agent_spec, build_agent_task_prompt
+from agent_bench.agent_runtime.prompts import build_constraint_review_prompt
 from agent_bench.pipeline.artifacts import (
     agent_meta_dir,
     agent_workspace_dir,
@@ -19,10 +21,12 @@ from agent_bench.pipeline.artifacts import (
     save_compile_artifacts,
     save_case_result,
     save_interaction_metrics,
+    save_review_agent_artifacts,
     save_runner_artifacts,
 )
 from agent_bench.pipeline.compile_checker import check_project_compilable, prepare_project_workspace
 from agent_bench.pipeline.loader import (
+    load_agent_spec,
     load_agent_defaults,
     load_enhancements,
     load_test_cases,
@@ -123,7 +127,10 @@ def _upload_original_project(case: dict, on_progress: Callable = None) -> str:
 
 
 def _load_stage_interaction_metrics(case_dir: str, stage: str) -> dict:
-    metrics_path = os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json") if stage == "agent" else ""
+    metrics_path = os.path.join(agent_meta_dir(case_dir), "agent_interaction_metrics.json") if stage == "agent" else ""
+    legacy_metrics_path = os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json") if stage == "agent" else ""
+    if not metrics_path or not os.path.exists(metrics_path):
+        metrics_path = legacy_metrics_path
     if not metrics_path or not os.path.exists(metrics_path):
         return {}
     try:
@@ -228,6 +235,7 @@ def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
                 and post_compile_result.get("compilable") is False
             ),
         },
+        "constraint_review": case.get("_constraint_review_result") or None,
     }
 
 
@@ -286,6 +294,111 @@ def _generate_review_patch(case_dir: str, workspace_dir: str, baseline_commit: s
         f.write(diff_result.stdout or "")
     _notify(on_progress, "log", {"level": "INFO", "message": f"已生成评审 patch: {patch_path}"})
     return patch_path
+
+
+def _extract_constraint_review_summary(output_text: str) -> dict:
+    text = output_text or ""
+    summary = {}
+    patterns = {
+        "overall_score": r"overall_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+        "effectiveness_score": r"effectiveness_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+        "quality_score": r"quality_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+        "constraints_passed": r"constraints_passed\s*[:：]\s*([0-9]+/[0-9]+)",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            summary[key] = match.group(1)
+    return summary
+
+
+def _run_constraint_review_agent(case: dict,
+                                 case_dir: str,
+                                 original_dir: str,
+                                 workspace_dir: str,
+                                 patch_path: str,
+                                 on_progress,
+                                 agent_timeout: int,
+                                 agent_temperature):
+    case_spec = case.get("case_spec") or {}
+    constraints = case_spec.get("constraints") or []
+    if not constraints:
+        _notify(on_progress, "log", {"level": "INFO", "message": "当前用例无 constraints，跳过约束规则打分"})
+        return {
+            "status": "skipped",
+            "reason": "no_constraints",
+        }
+
+    agent_spec = load_agent_spec("constraint_score_agent")
+    if not agent_spec:
+        _notify(on_progress, "log", {"level": "ERROR", "message": "未找到约束规则打分 Agent 配置: constraint_score_agent"})
+        return {
+            "status": "error",
+            "reason": "missing_agent_config",
+        }
+
+    review_prompt = build_constraint_review_prompt(
+        case=case,
+        original_project_root=original_dir,
+        repaired_project_root=workspace_dir,
+        repair_patch_file=patch_path,
+        agent_spec=agent_spec,
+    )
+
+    runtime = AgentRuntime(
+        agent_spec=agent_spec,
+        enhancements={},
+        on_progress=on_progress,
+        fallback_timeout=agent_timeout,
+        temperature=agent_temperature,
+        artifact_prefix="constraint_review",
+        artifact_base_dir="review",
+    )
+    output_text = ""
+    elapsed = 0.0
+    try:
+        _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "约束规则打分"})
+        runtime.prepare()
+        output_text, elapsed = runtime.execute(
+            review_prompt,
+            workspace_dir=workspace_dir,
+            tag=f"[{agent_spec.display_name}] ",
+        )
+        last_error_message = runtime.get_last_error_message()
+        if not output_text and last_error_message:
+            raise RuntimeError(last_error_message)
+        metrics = runtime.get_last_interaction_metrics()
+        save_review_agent_artifacts(
+            case_dir,
+            "constraint_review",
+            output_text,
+            task_prompt=review_prompt,
+            metrics=metrics,
+        )
+        _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 运行完成, 输出={len(output_text)}字符, 耗时={elapsed:.1f}s"})
+        if output_text:
+            _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 输出预览:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}"})
+        _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "约束规则打分", "elapsed": elapsed})
+        return {
+            "status": "completed",
+            "agent": {
+                "id": agent_spec.id,
+                "name": agent_spec.display_name,
+                "adapter": agent_spec.adapter,
+                "model": agent_spec.model,
+            },
+            "output_path": os.path.join(review_dir(case_dir), "constraint_review_output.txt"),
+            "metrics_path": os.path.join(review_dir(case_dir), "constraint_review_interaction_metrics.json"),
+            "summary": _extract_constraint_review_summary(output_text),
+        }
+    except Exception as exc:
+        _notify(on_progress, "log", {"level": "ERROR", "message": f"约束规则打分失败: {exc}"})
+        return {
+            "status": "error",
+            "reason": str(exc),
+        }
+    finally:
+        runtime.teardown()
 
 
 def _run_compile_check(case: dict,
@@ -374,6 +487,8 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 on_progress=on_progress,
                 fallback_timeout=agent_timeout,
                 temperature=agent_temperature,
+                artifact_prefix="agent",
+                artifact_base_dir="logs",
             )
             try:
                 _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "Agent运行"})
@@ -402,7 +517,17 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 on_progress,
             )
             case["_post_compile_result"] = post_compile_result
-            _generate_review_patch(case_dir, workspace_dir, baseline_commit, on_progress)
+            patch_path = _generate_review_patch(case_dir, workspace_dir, baseline_commit, on_progress)
+            case["_constraint_review_result"] = _run_constraint_review_agent(
+                case=case,
+                case_dir=case_dir,
+                original_dir=original_project_dir(case_dir),
+                workspace_dir=workspace_dir,
+                patch_path=patch_path,
+                on_progress=on_progress,
+                agent_timeout=agent_timeout,
+                agent_temperature=agent_temperature,
+            )
             _log_skill_call_detection(case_id, agent_spec.display_name, case_dir, "agent", output_text, on_progress)
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "Agent运行", "elapsed": elapsed})
 

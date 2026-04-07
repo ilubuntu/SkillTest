@@ -86,8 +86,9 @@ async def startup():
     logger.info("等待 OpenCode Server 启动...")
     api_base = ensure_opencode_server()
     if not check_api_available(api_base):
-        raise RuntimeError(f"OpenCode Server 启动失败: {api_base}")
-    logger.info("OpenCode Server 启动成功")
+        logger.warning(f"OpenCode Server 当前不可用，执行器先启动成功，后续任务执行前会再次检查: {api_base}")
+    else:
+        logger.info("OpenCode Server 启动成功")
     logger.info("启动执行器服务 (端口 8000)...")
     logger.info("执行器服务启动成功")
     logger.info("执行器已就绪，等待任务下发...")
