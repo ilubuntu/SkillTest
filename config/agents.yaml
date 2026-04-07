@@ -10,7 +10,11 @@ defaults:
   mounted_skills:
     - name: "build-harmony-project"
       path: "config/skills/build-harmony-project"
-  extra_prompt: "你已挂载 build-harmony-project skill，完成一轮代码修改并准备结束时，必须先调用这个 skill对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试5轮。最终输出中必须明确说明是否调用了build-harmony-project、是否执行成功；如果失败，必须说明失败阶段和错误原因"
+    - name: "static-code-score-review"
+      path: "config/skills/static-code-score-review"
+    - name: "constraint-score-review"
+      path: "config/skills/constraint-score-review"
+  extra_prompt: "你已挂载以下 skills：build-harmony-project、static-code-score-review、constraint-score-review。执行任务时，先分析原始工程，理解问题基线，再进行代码修改。完成一轮代码修改后，必须先调用 build-harmony-project 对修复后的当前工程执行编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。随后，必须分别对原始工程和修复后的工程各调用一次 static-code-score-review，给出静态代码质量评分、主要问题和前后对比；还必须分别对原始工程和修复后的工程各调用一次 constraint-score-review，给出约束规则评分、未满足约束、评分依据和前后对比。除非工具调用失败，否则不要跳过这些评分步骤。最终输出中必须明确说明这三个 skill 的调用情况、执行结果，以及原始工程与修复后工程在编译、静态代码质量、约束满足情况上的差异。"
 
 agents:
   - id: agent_default
@@ -29,7 +33,7 @@ agents:
     cli_path: "codex"
     model: "gpt-5.1-codex-mini"
     timeout: 900
-    extra_prompt: "你已挂载 build-harmony-project skill，完成一轮代码修改并准备结束时，必须先调用这个 skill对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试5轮。最终输出中必须明确说明是否调用了build-harmony-project、是否执行成功；如果失败，必须说明失败阶段和错误原因"
+    extra_prompt: "你有一个 HarmonyOS 工程编译验证 skill：build-harmony-project。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了 build-harmony-project、是否执行成功；如果失败，必须说明失败阶段和错误原因。"
     env:
       http_proxy: "http://127.0.0.1:7890"
       https_proxy: "http://127.0.0.1:7890"
@@ -49,7 +53,7 @@ agents:
     mounted_skills:
       - name: "static-code-score-review"
         path: "config/skills/static-code-score-review"
-    extra_prompt: "你已挂载 static-code-score-review skill。完成代码分析后，必须调用该 skill 输出静态代码质量评分。"
+    extra_prompt: "你有一个静态代码打分 skill：static-code-score-review。完成代码分析后，必须调用这个 skill 对当前工程进行静态代码质量打分，并输出最终分数、主要问题和评分依据。"
     enabled: true
 
   - id: "constraint_score_agent"
@@ -64,5 +68,5 @@ agents:
     mounted_skills:
       - name: "constraint-score-review"
         path: "config/skills/constraint-score-review"
-    extra_prompt: "你已挂载 constraint-score-review skill。完成代码分析后，必须调用该 skill 输出约束规则评分。最终输出中必须明确说明是否调用了constraint-score-review，并严格按照输出要求输出结果"
+    extra_prompt: "你有一个约束规则打分skill：constraint-score-review。完成代码分析后，必须调用这个skil根据skill中的核心规则对当前修复后的工程进行评分，并输出最终的评分结果"
     enabled: true

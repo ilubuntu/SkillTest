@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 from typing import Optional
 
+from agent_bench.opencode_cli import resolve_opencode_command
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_DIR = os.path.dirname(BASE_DIR)
 CODEX_SERVICE_LOG_PATH = os.path.join(tempfile.gettempdir(), "agent_bench_codex_service.log")
@@ -153,16 +155,17 @@ def ensure_opencode_server(timeout: int = 30) -> str:
         return f"http://localhost:{port}"
 
     target_base = "http://localhost:4096"
+    command = resolve_opencode_command() + ["serve", "--port", "4096"]
     try:
         with open(CODEX_SERVICE_LOG_PATH, "a", encoding="utf-8") as log_file:
             log_file.write(
                 f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] starting opencode server "
-                "cmd=opencode serve --port 4096\n"
+                f"cmd={' '.join(command)}\n"
             )
 
         log_stream = open(CODEX_SERVICE_LOG_PATH, "a", encoding="utf-8")
         proc = subprocess.Popen(
-            ["opencode", "serve", "--port", "4096"],
+            command,
             stdout=log_stream,
             stderr=log_stream,
             stdin=subprocess.DEVNULL,

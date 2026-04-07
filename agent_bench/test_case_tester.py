@@ -86,8 +86,12 @@ def _resolve_case(case_ref: str) -> Tuple[str, dict]:
     raise FileNotFoundError(f"未找到测试用例: {case_ref}")
 
 
-def _build_task_prompt(case: dict) -> str:
+def _build_task_prompt(case: dict, agent: Optional[dict] = None) -> str:
     prompt = case.get("prompt", "") or ""
+    extra_prompt = str((agent or {}).get("extra_prompt") or "").strip()
+    if extra_prompt:
+        prompt = f"{prompt}\n\n## 额外执行要求\n{extra_prompt}" if prompt else extra_prompt
+
     additional_files = case.get("additional_files", {}) or {}
     sibling_files = additional_files.get("sibling_files", {}) or {}
     pages_files = additional_files.get("pages", {}) or {}
@@ -297,7 +301,7 @@ def _run_repair(case: dict,
     workspace_dir = os.path.join(case_result_dir, "repaired_workspace")
     prepare_project_workspace(original_template, workspace_dir)
 
-    task_prompt = _build_task_prompt(case)
+    task_prompt = _build_task_prompt(case, agent=agent)
     agent_runtime = build_agent_runtime_enhancements(agent)
     scenario_enhancements = load_enhancements(scenario, profile_name=profile_name)
     merged_enhancements = merge_enhancements(agent_runtime, scenario_enhancements or {})

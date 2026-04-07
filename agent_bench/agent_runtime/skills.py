@@ -3,12 +3,20 @@
 
 import json
 import os
-import platform
 import shutil
-import subprocess
 import sys
 
 from agent_bench.agent_runtime.spec import AgentSpec
+from agent_bench.opencode_cli import resolve_opencode_config_root, run_opencode_command
+
+
+def _run_opencode_debug_command(*args: str) -> tuple[bool, str, str]:
+    return run_opencode_command("debug", *args, timeout=10)
+
+
+def _resolve_opencode_config_root() -> str:
+    return resolve_opencode_config_root()
+
 
 def _notify(on_progress, level: str, message: str):
     if on_progress:
@@ -31,17 +39,10 @@ def log_agent_configuration(agent_spec: AgentSpec, on_progress):
 
 def _run_opencode_debug_skill() -> tuple[bool, list[dict], str]:
     try:
-        result = subprocess.run(
-            ["opencode", "debug", "skill"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode != 0:
-            message = (result.stderr or result.stdout or "").strip()
-            return False, [], message
-        payload = json.loads(result.stdout or "[]")
+        ok, stdout, error_message = _run_opencode_debug_command("skill")
+        if not ok:
+            return False, [], error_message
+        payload = json.loads(stdout or "[]")
         items = payload if isinstance(payload, list) else []
         normalized = [item for item in items if isinstance(item, dict)]
         return True, normalized, ""
@@ -75,14 +76,7 @@ def _resolve_declared_skill_source(skill_path: str) -> str:
 
 
 def _resolve_opencode_skill_root() -> str:
-    system = platform.system()
-    if system == "Windows":
-        appdata = os.environ.get("APPDATA") or os.path.expanduser("~\\AppData\\Roaming")
-        return os.path.join(appdata, "opencode", "skills")
-    xdg_config = os.environ.get("XDG_CONFIG_HOME")
-    if xdg_config:
-        return os.path.join(xdg_config, "opencode", "skills")
-    return os.path.join(os.path.expanduser("~"), ".config", "opencode", "skills")
+    return os.path.join(_resolve_opencode_config_root(), "skills")
 
 
 def _remove_existing_path(path: str):

@@ -353,6 +353,30 @@ def load_agents() -> List[dict]:
     return [agent for agent in agents if agent.get("enabled", True)]
 
 
+def _merge_mounted_skills(defaults: dict, agent: dict) -> List[dict]:
+    """合并默认与 Agent 自身声明的 mounted_skills，并按顺序去重。"""
+    merged = []
+    seen = set()
+
+    for source in list(defaults.get("mounted_skills") or []) + list(agent.get("mounted_skills") or []):
+        if not isinstance(source, dict):
+            continue
+        name = str(source.get("name") or "").strip()
+        path = str(source.get("path") or "").strip()
+        if not name or not path:
+            continue
+        key = (name, path)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append({
+            "name": name,
+            "path": path,
+        })
+
+    return merged
+
+
 def load_agent(agent_id: str) -> Optional[dict]:
     """根据 agent_id 获取 Agent 定义。"""
     if not agent_id:
@@ -362,6 +386,7 @@ def load_agent(agent_id: str) -> Optional[dict]:
         if agent.get("id") == agent_id:
             merged = dict(defaults)
             merged.update(agent)
+            merged["mounted_skills"] = _merge_mounted_skills(defaults, agent)
             return merged
     return None
 
@@ -464,7 +489,7 @@ def merge_enhancements(base: Optional[dict], extra: Optional[dict]) -> dict:
 def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
     """根据 Agent 配置构造运行时增强项。
 
-    当前仅保留 mounted_skills 元信息和 tools 配置。
+    将 mounted_skills 解析为可直接注入给模型的 skill 内容，并保留 tools 配置。
     """
     if not agent:
         return {}
@@ -480,9 +505,11 @@ def build_agent_runtime_enhancements(agent: Optional[dict]) -> dict:
             continue
         skill_name = skill.get("name") or "external-skill"
         skill_path = _resolve_skill_mount_path(skill.get("path", ""))
+        skill_content = load_text_file(skill_path).strip()
         result["skills"].append({
             "name": skill_name,
             "path": skill_path,
+            "content": skill_content,
         })
 
     return _cleanup_enhancement_dict(result)

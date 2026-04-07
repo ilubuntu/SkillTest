@@ -3,7 +3,6 @@
 
 import logging
 import os
-import shutil
 import sys
 from datetime import datetime
 
@@ -11,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent_bench.executor.cloud_api import router as cloud_api_router
+from agent_bench.opencode_cli import find_opencode_executable
 from agent_bench.pipeline.loader import validate_runtime_config
 from agent_bench.runner.discovery import check_api_available, ensure_opencode_server
 
@@ -35,8 +35,8 @@ def _prepare_runtime_log_file() -> str:
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"agent_bench_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
     current_path = os.path.join(log_dir, "current_executor_log")
-    with open(current_path, "w", encoding="utf-8") as f:
-        f.write(log_path)
+    with open(current_path, "w", encoding="utf-8") as file_obj:
+        file_obj.write(log_path)
     return log_path
 
 
@@ -53,14 +53,17 @@ def _attach_file_logger(log_path: str):
 
 def _check_runtime_dependencies():
     logger.info("检查依赖...")
-    if not shutil.which("opencode"):
+    opencode_path = find_opencode_executable()
+    if not opencode_path:
         raise RuntimeError("缺少依赖: opencode")
+    logger.info(f"检测到 opencode: {opencode_path}")
     logger.info("依赖检查通过")
     logger.info("检查 Python 依赖...")
     logger.info("Python 依赖检查通过")
     logger.info("检查执行器配置...")
     validate_runtime_config()
     logger.info("执行器配置检查通过")
+
 
 app = FastAPI(
     title="云测桥接执行器",

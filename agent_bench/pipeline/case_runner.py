@@ -298,7 +298,7 @@ def _generate_review_patch(case_dir: str, workspace_dir: str, baseline_commit: s
     return patch_path
 
 
-def _extract_constraint_review_summary(output_text: str) -> dict:
+def _legacy_extract_constraint_review_summary_old(output_text: str) -> dict:
     text = output_text or ""
     summary = {}
     patterns = {
@@ -314,7 +314,90 @@ def _extract_constraint_review_summary(output_text: str) -> dict:
     return summary
 
 
-def _run_constraint_review_agent(case: dict,
+def _extract_constraint_review_summary(output_text: str) -> dict:
+    text = output_text or ""
+    summary = {}
+    scalar_patterns = {
+        "overall_score": [
+            r"overall_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"internal\s+rule\s+total\s+score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"\|\s*\*{0,2}overall_score\*{0,2}\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*100",
+        ],
+        "effectiveness_score": [
+            r"effectiveness_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"effectiveness\s+score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"\|\s*\*{0,2}effectiveness_score\*{0,2}\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*100",
+        ],
+        "quality_score": [
+            r"quality_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"quality\s+score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            r"\|\s*\*{0,2}quality_score\*{0,2}\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*100",
+        ],
+    }
+    for key, pattern_list in scalar_patterns.items():
+        for pattern in pattern_list:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                summary[key] = float(match.group(1))
+                break
+    passed_match = re.search(
+        r"(?:constraints_passed|constraints\s+passed)\s*[:：]\s*([0-9]+)\s*/\s*([0-9]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not passed_match:
+        passed_match = re.search(
+            r"\|\s*\*{0,2}constraints_passed\*{0,2}\s*\|\s*([0-9]+)\s*/\s*([0-9]+)\s*\|",
+            text,
+            flags=re.IGNORECASE,
+        )
+    if passed_match:
+        summary["constraints_passed"] = int(passed_match.group(1))
+        summary["constraints_total"] = int(passed_match.group(2))
+    return summary
+
+
+def _build_deterministic_constraint_review_summary(case: dict,
+                                                   workspace_dir: str) -> dict:
+    case_spec = case.get("case_spec") or {}
+    if not case_spec:
+        return {}
+    try:
+        from agent_bench.evaluator.constraint_scorer import evaluate_constraints
+        score_result = evaluate_constraints(case_spec, workspace_dir)
+        return (score_result.get("summary") or {}) if isinstance(score_result, dict) else {}
+    except Exception:
+        return {}
+
+
+def _build_constraint_review_failure_reason(output_text: str,
+                                            metrics: dict | None,
+                                            last_error_message: str) -> str:
+    if last_error_message:
+        return str(last_error_message).strip()
+    if (output_text or "").strip():
+        return ""
+
+    reason = "constraint review agent returned empty output"
+    raw = (metrics or {}).get("raw") if isinstance(metrics, dict) else {}
+    message_info = raw.get("message_info") if isinstance(raw, dict) else {}
+    parts = message_info.get("parts") if isinstance(message_info, dict) else []
+    if isinstance(parts, list) and parts:
+        last_part = parts[-1] if isinstance(parts[-1], dict) else {}
+        part_type = str(last_part.get("type") or "").strip()
+        if part_type:
+            reason += f"; last_part={part_type}"
+        tool_name = str(last_part.get("tool") or "").strip()
+        state = last_part.get("state") if isinstance(last_part.get("state"), dict) else {}
+        status = str(state.get("status") or "").strip()
+        if tool_name:
+            reason += f":{tool_name}"
+        if status:
+            reason += f"({status})"
+    return reason
+
+
+def _legacy_run_constraint_review_agent(case: dict,
                                  case_dir: str,
                                  original_dir: str,
                                  workspace_dir: str,
@@ -371,8 +454,6 @@ def _run_constraint_review_agent(case: dict,
             tag=f"[{agent_spec.display_name}] ",
         )
         last_error_message = runtime.get_last_error_message()
-        if not output_text and last_error_message:
-            raise RuntimeError(last_error_message)
         metrics = runtime.get_last_interaction_metrics()
         save_review_agent_artifacts(
             case_dir,
@@ -405,6 +486,315 @@ def _run_constraint_review_agent(case: dict,
         }
     finally:
         runtime.teardown()
+
+
+def _legacy_run_constraint_review_agent_v2(case: dict,
+                                 case_dir: str,
+                                 original_dir: str,
+                                 workspace_dir: str,
+                                 patch_path: str,
+                                 on_progress,
+                                 agent_timeout: int,
+                                 agent_temperature):
+    case_spec = case.get("case_spec") or {}
+    constraints = case_spec.get("constraints") or []
+    if not constraints:
+        _notify(on_progress, "log", {"level": "INFO", "message": "current case has no constraints, skip constraint review"})
+        return {
+            "status": "skipped",
+            "reason": "no_constraints",
+        }
+
+    agent_spec = load_agent_spec("constraint_score_agent")
+    if not agent_spec:
+        _notify(on_progress, "log", {"level": "ERROR", "message": "missing agent config: constraint_score_agent"})
+        return {
+            "status": "error",
+            "reason": "missing_agent_config",
+        }
+
+    review_prompt = build_constraint_review_prompt(
+        case=case,
+        original_project_root=original_dir,
+        repaired_project_root=workspace_dir,
+        repair_patch_file=patch_path,
+        agent_spec=agent_spec,
+    )
+
+    runtime = AgentRuntime(
+        agent_spec=agent_spec,
+        enhancements={},
+        on_progress=on_progress,
+        fallback_timeout=agent_timeout,
+        temperature=agent_temperature,
+        artifact_prefix="constraint_review",
+        artifact_base_dir="review",
+    )
+    output_text = ""
+    elapsed = 0.0
+    try:
+        _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "constraint_review"})
+        runtime.prepare()
+        output_text, elapsed = runtime.execute(
+            review_prompt,
+            workspace_dir=workspace_dir,
+            tag=f"[{agent_spec.display_name}] ",
+        )
+        last_error_message = runtime.get_last_error_message()
+        metrics = runtime.get_last_interaction_metrics()
+        save_review_agent_artifacts(
+            case_dir,
+            "constraint_review",
+            output_text,
+            task_prompt=review_prompt,
+            metrics=metrics,
+        )
+        failure_reason = _build_constraint_review_failure_reason(
+            output_text=output_text,
+            metrics=metrics,
+            last_error_message=last_error_message,
+        )
+        if failure_reason:
+            raise RuntimeError(failure_reason)
+        summary = _extract_constraint_review_summary(output_text)
+        if not summary:
+            summary = _build_deterministic_constraint_review_summary(
+                case=case,
+                workspace_dir=workspace_dir,
+            )
+        if not summary:
+            raise RuntimeError("constraint review summary extraction failed")
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"{agent_spec.display_name} constraint review completed, output={len(output_text)} chars, elapsed={elapsed:.1f}s",
+        })
+        if output_text:
+            _notify(on_progress, "log", {
+                "level": "WARNING",
+                "message": f"{agent_spec.display_name} output preview:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}",
+            })
+        _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "constraint_review", "elapsed": elapsed})
+        return {
+            "status": "completed",
+            "agent": {
+                "id": agent_spec.id,
+                "name": agent_spec.display_name,
+                "adapter": agent_spec.adapter,
+                "model": agent_spec.model,
+            },
+            "output_path": os.path.join(review_dir(case_dir), "constraint_review_output.txt"),
+            "metrics_path": os.path.join(review_dir(case_dir), "constraint_review_interaction_metrics.json"),
+            "summary": summary,
+        }
+    except Exception as exc:
+        _notify(on_progress, "log", {"level": "ERROR", "message": f"constraint review failed: {exc}"})
+        return {
+            "status": "error",
+            "reason": str(exc),
+            "output_path": os.path.join(review_dir(case_dir), "constraint_review_output.txt"),
+            "metrics_path": os.path.join(review_dir(case_dir), "constraint_review_interaction_metrics.json"),
+        }
+    finally:
+        runtime.teardown()
+
+
+def _prepare_constraint_review_patch_for_workspace(patch_path: str,
+                                                   workspace_dir: str,
+                                                   on_progress) -> str:
+    patch_source = str(patch_path or "").strip()
+    if not patch_source or not os.path.isfile(patch_source):
+        return ""
+    try:
+        review_support_dir = os.path.join(workspace_dir, ".agent_bench")
+        os.makedirs(review_support_dir, exist_ok=True)
+        workspace_patch_path = os.path.join(review_support_dir, "constraint_review_changes.patch")
+        shutil.copyfile(patch_source, workspace_patch_path)
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"constraint review patch copied into workspace: {workspace_patch_path}",
+        })
+        return workspace_patch_path
+    except Exception as exc:
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"failed to copy constraint review patch into workspace, fallback to original patch path: {exc}",
+        })
+        return patch_source
+
+
+def _run_constraint_review_attempt(case: dict,
+                                   case_dir: str,
+                                   original_dir: str,
+                                   workspace_dir: str,
+                                   repair_patch_file: str,
+                                   on_progress,
+                                   agent_timeout: int,
+                                   agent_temperature,
+                                   stage_label: str) -> tuple[dict, str]:
+    agent_spec = load_agent_spec("constraint_score_agent")
+    review_prompt = build_constraint_review_prompt(
+        case=case,
+        original_project_root=original_dir,
+        repaired_project_root=workspace_dir,
+        repair_patch_file=repair_patch_file,
+        agent_spec=agent_spec,
+    )
+    runtime = AgentRuntime(
+        agent_spec=agent_spec,
+        enhancements={},
+        on_progress=on_progress,
+        fallback_timeout=agent_timeout,
+        temperature=agent_temperature,
+        artifact_prefix="constraint_review",
+        artifact_base_dir="review",
+    )
+    output_text = ""
+    elapsed = 0.0
+    try:
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"constraint review attempt: {stage_label}",
+        })
+        runtime.prepare()
+        output_text, elapsed = runtime.execute(
+            review_prompt,
+            workspace_dir=workspace_dir,
+            tag=f"[{agent_spec.display_name}] ",
+        )
+        last_error_message = runtime.get_last_error_message()
+        metrics = runtime.get_last_interaction_metrics()
+        save_review_agent_artifacts(
+            case_dir,
+            "constraint_review",
+            output_text,
+            task_prompt=review_prompt,
+            metrics=metrics,
+        )
+        failure_reason = _build_constraint_review_failure_reason(
+            output_text=output_text,
+            metrics=metrics,
+            last_error_message=last_error_message,
+        )
+        if failure_reason:
+            raise RuntimeError(failure_reason)
+        summary = _extract_constraint_review_summary(output_text)
+        if not summary:
+            summary = _build_deterministic_constraint_review_summary(
+                case=case,
+                workspace_dir=workspace_dir,
+            )
+        if not summary:
+            raise RuntimeError("constraint review summary extraction failed")
+        result = {
+            "status": "completed",
+            "agent": {
+                "id": agent_spec.id,
+                "name": agent_spec.display_name,
+                "adapter": agent_spec.adapter,
+                "model": agent_spec.model,
+            },
+            "output_path": os.path.join(review_dir(case_dir), "constraint_review_output.txt"),
+            "metrics_path": os.path.join(review_dir(case_dir), "constraint_review_interaction_metrics.json"),
+            "summary": summary,
+            "_task_prompt": review_prompt,
+            "_metrics": metrics,
+            "_elapsed": elapsed,
+            "_stage_label": stage_label,
+        }
+        return result, output_text
+    finally:
+        runtime.teardown()
+
+
+def _run_constraint_review_agent(case: dict,
+                                 case_dir: str,
+                                 original_dir: str,
+                                 workspace_dir: str,
+                                 patch_path: str,
+                                 on_progress,
+                                 agent_timeout: int,
+                                 agent_temperature):
+    case_spec = case.get("case_spec") or {}
+    constraints = case_spec.get("constraints") or []
+    if not constraints:
+        _notify(on_progress, "log", {"level": "INFO", "message": "current case has no constraints, skip constraint review"})
+        return {
+            "status": "skipped",
+            "reason": "no_constraints",
+        }
+
+    agent_spec = load_agent_spec("constraint_score_agent")
+    if not agent_spec:
+        _notify(on_progress, "log", {"level": "ERROR", "message": "missing agent config: constraint_score_agent"})
+        return {
+            "status": "error",
+            "reason": "missing_agent_config",
+        }
+
+    workspace_patch_path = _prepare_constraint_review_patch_for_workspace(
+        patch_path=patch_path,
+        workspace_dir=workspace_dir,
+        on_progress=on_progress,
+    )
+    last_exc = None
+    attempt_specs = [
+        ("workspace_patch", workspace_patch_path or patch_path or ""),
+    ]
+    if workspace_patch_path or patch_path:
+        attempt_specs.append(("workspace_only_fallback", ""))
+
+    _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "constraint_review"})
+    try:
+        for stage_label, repair_patch_file in attempt_specs:
+            try:
+                result, output_text = _run_constraint_review_attempt(
+                    case=case,
+                    case_dir=case_dir,
+                    original_dir=original_dir,
+                    workspace_dir=workspace_dir,
+                    repair_patch_file=repair_patch_file,
+                    on_progress=on_progress,
+                    agent_timeout=agent_timeout,
+                    agent_temperature=agent_temperature,
+                    stage_label=stage_label,
+                )
+                save_review_agent_artifacts(
+                    case_dir,
+                    "constraint_review",
+                    output_text,
+                    task_prompt=result.pop("_task_prompt"),
+                    metrics=result.pop("_metrics"),
+                )
+                elapsed = result.pop("_elapsed")
+                result.pop("_stage_label", None)
+                _notify(on_progress, "log", {
+                    "level": "WARNING",
+                    "message": f"{agent_spec.display_name} constraint review completed, output={len(output_text)} chars, elapsed={elapsed:.1f}s",
+                })
+                if output_text:
+                    _notify(on_progress, "log", {
+                        "level": "WARNING",
+                        "message": f"{agent_spec.display_name} output preview:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}",
+                    })
+                _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "constraint_review", "elapsed": elapsed})
+                return result
+            except Exception as exc:
+                last_exc = exc
+                _notify(on_progress, "log", {
+                    "level": "WARNING",
+                    "message": f"constraint review attempt failed ({stage_label}): {exc}",
+                })
+                continue
+
+        raise RuntimeError(str(last_exc) if last_exc else "constraint review failed")
+    except Exception as exc:
+        _notify(on_progress, "log", {"level": "ERROR", "message": f"constraint review failed: {exc}"})
+        return {
+            "status": "error",
+            "reason": str(exc),
+            "output_path": os.path.join(review_dir(case_dir), "constraint_review_output.txt"),
+            "metrics_path": os.path.join(review_dir(case_dir), "constraint_review_interaction_metrics.json"),
+        }
 
 
 def _run_compile_check(case: dict,

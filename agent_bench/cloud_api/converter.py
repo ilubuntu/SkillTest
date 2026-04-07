@@ -127,23 +127,7 @@ def load_agent_output(case_dir: str) -> str:
 
 def _extract_constraint_target_files(case: Dict[str, Any]) -> List[str]:
     case_spec = case.get("case_spec") or {}
-    constraints = case_spec.get("constraints") or []
-    paths: List[str] = []
-    seen = set()
-    for item in constraints:
-        if not isinstance(item, dict):
-            continue
-        check_method = item.get("check_method") or {}
-        rules = check_method.get("rules") or []
-        for rule in rules:
-            if not isinstance(rule, dict):
-                continue
-            path = (rule.get("target_file") or "").strip()
-            if not path or path in seen:
-                continue
-            seen.add(path)
-            paths.append(path)
-    return paths
+    return iter_constraint_target_files(case_spec)
 
 
 def load_agent_scoring_text(case_dir: str, case: Dict[str, Any], fallback_output: str = "") -> str:

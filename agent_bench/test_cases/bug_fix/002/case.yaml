@@ -1,84 +1,38 @@
 case:
   id: bug_fix_002
   scenario: bug_fix
-  title: "滑动字体调节Slider，预览字体大小和设置页入口标题字体大小不更新"
-  prompt: 这是一个适老化设置工程。首页展示设置列表，点击字体大小进入字体设置页，通过Slider调节字体大小，保存后返回首页，预览文本和入口“设置”文字大小应同步更新。
-  output_requirements: 请修复，直接在当前工程中修改代码，并说明修改了哪些文件、每个文件的主要修改内容，以及修复后达到的效果
+  title: 滑动字体调节 Slider，预览字体大小和设置页入口标题字号不同步
+  prompt: 这是一个适老化设置工程。首页展示设置列表，点击字体大小进入字体设置页，通过 Slider 调节字体大小，保存后返回首页，预览文本和入口“设置”文字大小应同步更新。
+  output_requirements: 请修复问题，直接在当前工程中修改代码，并说明修改了哪些文件、每个文件的主要修改内容，以及修复后达到的效果。
 
 constraints:
   - id: HM-BUGFIX-002-01
-    name: "拖动字体大小Slider，预览字体大小实时更新"
-    description: 拖动字体大小Slider，预览字体大小要能实现立即更新。
-    category: 可靠性
+    name: 字体配置使用可追踪的 V2 状态
+    description: Slider 调节后，预览字体大小要能立即更新。
     priority: P0
-    check_method:
-      type: custom_rule
-      match_mode: all
-      rules:
-        - rule_id: HM-BUGFIX-002-01-R1
-          target_file: entry/src/main/ets/model/FontSettings.ets
-          match_type: contains
-          snippet: "@ObservedV2"
-        - rule_id: HM-BUGFIX-002-01-R2
-          target_file: entry/src/main/ets/model/FontSettings.ets
-          match_type: regex_contains
-          pattern: "@Trace\\s+fontSize\\s*:\\s*number(?:\\s*=\\s*\\d+)?"
+    rules:
+      - id: HM-BUGFIX-002-01-R1
+        file: entry/src/main/ets/model/FontSettings.ets
+        contains: "@ObservedV2"
+      - id: HM-BUGFIX-002-01-R2
+        file: entry/src/main/ets/model/FontSettings.ets
+        regex: "@Trace\\s+fontSize\\s*:\\s*number(?:\\s*=\\s*\\d+)?"
+
   - id: HM-BUGFIX-002-02
-    name: 首页与设置页必须共享同一字体配置源
+    name: 首页与设置页共享同一份字体配置
     description: 预览文本、设置入口文字和滑块数值必须绑定同一份持久化字体配置，修改后页面间状态应立即保持一致。
-    category: 可靠性
     priority: P0
-    check_method:
-      type: custom_rule
-      match_mode: all
-      rules:
-        - rule_id: HM-BUGFIX-002-02-R1
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "settings\\s*:\\s*FontSettings\\s*=\\s*getFontSettings\\(\\)"
-        - rule_id: HM-BUGFIX-002-02-R2
-          target_file: entry/src/main/ets/pages/FontSettingPage.ets
-          match_type: regex_contains
-          pattern: "settings\\s*:\\s*FontSettings\\s*=\\s*getFontSettings\\(\\)"
-        - rule_id: HM-BUGFIX-002-02-R3
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_count_at_least
-          pattern: "settings\\.fontSize"
-          count: 3
-        - rule_id: HM-BUGFIX-002-02-R4
-          target_file: entry/src/main/ets/pages/FontSettingPage.ets
-          match_type: regex_contains
-          pattern: "settings\\.fontSize\\s*=\\s*\\w+"
-  - id: HM-BUGFIX-002-03
-    name: 页面跳转必须使用Navigation声明式导航
-    description: 从首页进入字体设置页时应使用Navigation、NavDestination或NavPathStack等声明式导航，避免继续使用router造成导航模式不一致。
-    category: 生态规则
-    priority: P2
-    check_method:
-      type: custom_rule
-      match_mode: all
-      rules:
-        - rule_id: HM-BUGFIX-002-03-R1
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "Navigation\\s*\\("
-        - rule_id: HM-BUGFIX-002-03-R2
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\("
-        - rule_id: HM-BUGFIX-002-03-R3
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "pushPathByName\\(\\s*['\"]FontSettingPage['\"]\\s*,\\s*null\\s*\\)"
-        - rule_id: HM-BUGFIX-002-03-R4
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_not_contains
-          pattern: "router\\.pushUrl"
-        - rule_id: HM-BUGFIX-002-03-R5
-          target_file: entry/src/main/ets/pages/FontSettingPage.ets
-          match_type: regex_contains
-          pattern: "NavDestination\\s*\\("
-        - rule_id: HM-BUGFIX-002-03-R6
-          target_file: entry/src/main/ets/pages/FontSettingPage.ets
-          match_type: regex_contains
-          pattern: "pathStack\\.pop\\(\\)"
+    rules:
+      - id: HM-BUGFIX-002-02-R1
+        file: entry/src/main/ets/pages/Index.ets
+        regex: "settings\\s*:\\s*FontSettings\\s*=\\s*getFontSettings\\(\\)"
+      - id: HM-BUGFIX-002-02-R2
+        file: entry/src/main/ets/pages/FontSettingPage.ets
+        regex: "settings\\s*:\\s*FontSettings\\s*=\\s*getFontSettings\\(\\)"
+      - id: HM-BUGFIX-002-02-R3
+        file: entry/src/main/ets/pages/Index.ets
+        regex_count_at_least: "settings\\.fontSize"
+        count: 3
+      - id: HM-BUGFIX-002-02-R4
+        file: entry/src/main/ets/pages/FontSettingPage.ets
+        regex: "settings\\.fontSize\\s*=\\s*\\w+"

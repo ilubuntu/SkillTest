@@ -5,6 +5,8 @@ import os
 import re
 from typing import Dict, Tuple
 
+from agent_bench.constraint_schema import normalize_constraint_item, normalize_constraints
+
 
 SKILL_NAME = "constraint-score-review"
 REPORT_MARKER = "## Constraint Review Report"
@@ -31,7 +33,7 @@ def build_constraint_review_skill(case_spec: dict,
                                   case_prompt: str = "") -> dict:
     """Build runtime skill content from the static skill file plus case context."""
     case_meta = case_spec.get("case", {}) if isinstance(case_spec, dict) else {}
-    constraints = case_spec.get("constraints", []) or []
+    constraints = normalize_constraints(case_spec)
     skill_content = _read_text(SKILL_FILE_PATH).strip()
     if not skill_content:
         skill_content = (
@@ -68,7 +70,7 @@ def build_constraint_review_skill(case_spec: dict,
 
 def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
     """Evaluate repaired code against constraints."""
-    constraints = case_spec.get("constraints", []) or []
+    constraints = normalize_constraints(case_spec)
     item_results = []
     weighted_total = 0.0
     weighted_score_total = 0.0
@@ -184,6 +186,7 @@ def strip_constraint_review_report(output_text: str) -> str:
 
 
 def _evaluate_constraint_item(item: dict, project_root: str) -> dict:
+    item = normalize_constraint_item(item)
     check_method = item.get("check_method") if isinstance(item, dict) else {}
     method_type = _fmt(check_method.get("type")) or "custom_rule"
     match_mode = (_fmt(check_method.get("match_mode")) or "all").lower()

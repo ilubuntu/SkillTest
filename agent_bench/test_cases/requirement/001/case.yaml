@@ -7,84 +7,45 @@ case:
 
 constraints:
   - id: HM-REQ-001-01
-    name: 页面必须使用 V2 组件和 @Local 管理表单状态
+    name: 页面使用 V2 组件与本地状态
     description: 登录页应使用 @ComponentV2，并通过多个 @Local 字段管理输入值与密码显隐状态，不得保留 @State。
-    category: 组件规范
     priority: P0
-    check_method:
-      type: custom_rule
-      match_mode: all
-      rules:
-        - rule_id: HM-REQ-001-01-R1
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: contains
-          snippet: "@ComponentV2"
-        - rule_id: HM-REQ-001-01-R2
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_count_at_least
-          pattern: "@Local\\s+"
-          count: 3
-        - rule_id: HM-REQ-001-01-R3
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_not_contains
-          pattern: "@State\\s+"
+    rules:
+      - id: HM-REQ-001-01-R1
+        file: entry/src/main/ets/pages/Index.ets
+        contains: "@ComponentV2"
+      - id: HM-REQ-001-01-R2
+        file: entry/src/main/ets/pages/Index.ets
+        regex_count_at_least: "@Local\\s+"
+        count: 3
+      - id: HM-REQ-001-01-R3
+        file: entry/src/main/ets/pages/Index.ets
+        regex_not: "@State\\s+"
+
   - id: HM-REQ-001-02
-    name: 登录表单必须包含两个输入框和密码显隐切换
+    name: 登录表单包含双输入与密码显隐切换
     description: 页面需要包含手机号与密码输入框，并通过显隐状态在普通文本和密码输入类型之间切换。
-    category: 可用性
     priority: P0
-    check_method:
-      type: custom_rule
-      match_mode: all
-      rules:
-        - rule_id: HM-REQ-001-02-R1
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_count_at_least
-          pattern: "TextInput\\("
-          count: 2
-        - rule_id: HM-REQ-001-02-R2
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "type\\s*:\\s*this\\.showPassword\\s*\\?\\s*InputType\\.Normal\\s*:\\s*InputType\\.Password"
-        - rule_id: HM-REQ-001-02-R3
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "this\\.showPassword\\s*=\\s*!\\s*this\\.showPassword"
+    rules:
+      - id: HM-REQ-001-02-R1
+        file: entry/src/main/ets/pages/Index.ets
+        regex_count_at_least: "TextInput\\("
+        count: 2
+      - id: HM-REQ-001-02-R2
+        file: entry/src/main/ets/pages/Index.ets
+        regex: "type\\s*:\\s*this\\.showPassword\\s*\\?\\s*InputType\\.Normal\\s*:\\s*InputType\\.Password"
+      - id: HM-REQ-001-02-R3
+        file: entry/src/main/ets/pages/Index.ets
+        regex: "this\\.showPassword\\s*=\\s*!\\s*this\\.showPassword"
+
   - id: HM-REQ-001-03
-    name: 登录按钮必须与输入状态联动
+    name: 登录按钮与输入状态联动
     description: 当手机号或密码不满足要求时，登录按钮应处于不可点击状态。
-    category: 交互
     priority: P1
-    check_method:
-      type: custom_rule
-      match_mode: all
-      rules:
-        - rule_id: HM-REQ-001-03-R1
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "Button\\("
-        - rule_id: HM-REQ-001-03-R2
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "\\.enabled\\("
-  - id: HM-REQ-001-04
-    name: 页面路由管理必须统一使用 Navigation
-    description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
-    category: 生态规范
-    priority: P0
-    check_method:
-      type: custom_rule
-      match_mode: all
-      rules:
-        - rule_id: HM-REQ-001-04-R1
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "Navigation\\s*\\("
-        - rule_id: HM-REQ-001-04-R2
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\("
-        - rule_id: HM-REQ-001-04-R3
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_not_contains
-          pattern: "\\brouter\\."
+    rules:
+      - id: HM-REQ-001-03-R1
+        file: entry/src/main/ets/pages/Index.ets
+        regex: "Button\\("
+      - id: HM-REQ-001-03-R2
+        file: entry/src/main/ets/pages/Index.ets
+        regex: "\\.enabled\\("

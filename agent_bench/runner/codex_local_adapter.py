@@ -309,10 +309,23 @@ class CodexLocalAdapter(AgentAdapter):
             self._log("DEBUG", "基线模式: 无增强配置")
             return
 
+        sections = []
+
         system_prompt = (enhancements.get("system_prompt") or "").strip()
         if system_prompt:
-            self._system_message = system_prompt
+            sections.append(f"## System Prompt\n{system_prompt}")
             self._log("INFO", f"已配置 System Prompt ({len(system_prompt)} 字符)")
+
+        for skill in enhancements.get("skills", []) or []:
+            name = skill.get("name", "unknown")
+            content = (skill.get("content") or "").strip()
+            if not content:
+                self._log("WARN", f"CodexLocal Skill [{name}] 内容为空，已跳过")
+                continue
+            sections.append(f"## Skill: {name}\n{content}")
+            self._log("INFO", f"已配置 CodexLocal Skill: {name} ({len(content)} 字符)")
+
+        self._system_message = "\n\n".join(sections).strip()
 
         if enhancements.get("mcp_servers"):
             self._log("WARN", "CodexLocalAdapter 当前不支持动态 MCP 注册，已忽略 mcp_servers")

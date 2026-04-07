@@ -31,6 +31,7 @@ LOG_DIR="$SCRIPT_DIR/logs"
 OPENCODE_LOG="$LOG_DIR/opencode.log"
 CURRENT_EXECUTOR_LOG_FILE="$LOG_DIR/current_executor_log"
 BACKEND_LOG=""
+PYTHON_BIN=""
 
 
 # ── 颜色 ──────────────────────────────────────────────────
@@ -52,15 +53,19 @@ check_deps() {
         error "opencode 未安装，请先安装: https://opencode.ai"
         missing=1
     fi
-    if ! command -v python3 &>/dev/null; then
-        error "python3 未安装"
+    if command -v python &>/dev/null; then
+        PYTHON_BIN="$(command -v python)"
+    elif command -v python3 &>/dev/null; then
+        PYTHON_BIN="$(command -v python3)"
+    else
+        error "python / python3 未安装"
         missing=1
     fi
     if [ $missing -eq 1 ]; then
         error "缺少必要依赖，请先安装后重试"
         exit 1
     fi
-    info "依赖检查通过"
+    info "依赖检查通过 (Python: $PYTHON_BIN)"
 }
 
 ensure_log_dir() {
@@ -89,10 +94,21 @@ resolve_executor_log_file() {
 # ── 清理已有进程 ──────────────────────────────────────────
 kill_port() {
     local port=$1
-    local pids=$(lsof -ti :$port 2>/dev/null)
+    local pids=""
+    if command -v lsof >/dev/null 2>&1; then
+        pids="$(lsof -ti :$port 2>/dev/null)"
+    elif command -v powershell.exe >/dev/null 2>&1; then
+        pids="$(powershell.exe -NoProfile -Command "[int]\$port=$port; \$connections = Get-NetTCPConnection -LocalPort \$port -State Listen -ErrorAction SilentlyContinue; if (\$connections) { \$connections | Select-Object -ExpandProperty OwningProcess -Unique }" | tr -d '\r')"
+    fi
     if [ -n "$pids" ]; then
         warn "端口 $port 已被占用，正在清理..."
-        echo "$pids" | xargs kill -9 2>/dev/null || true
+        if command -v powershell.exe >/dev/null 2>&1; then
+            for pid in $pids; do
+                powershell.exe -NoProfile -Command "Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1 || true
+            done
+        else
+            echo "$pids" | xargs kill -9 2>/dev/null || true
+        fi
         sleep 1
     fi
 }
@@ -128,9 +144,9 @@ install_python_deps() {
     info "检查 Python 依赖..."
     local req="$EXECUTOR_DIR/requirements.txt"
     if [ -f "$req" ]; then
-        pip3 install --break-system-packages -q -r "$req" 2>/dev/null || \
-        pip3 install -q -r "$req" 2>/dev/null || \
-        warn "Python 依赖安装失败，请手动安装: pip3 install -r $req"
+        "$PYTHON_BIN" -m pip install --break-system-packages -q -r "$req" 2>/dev/null || \
+        "$PYTHON_BIN" -m pip install -q -r "$req" 2>/dev/null || \
+        warn "Python 依赖安装失败，请手动安装: $PYTHON_BIN -m pip install -r $req"
     fi
 }
 
@@ -139,6 +155,9 @@ start_backend() {
     info "启动执行器服务 (端口 $BACKEND_PORT)..."
 
     if curl -s "http://localhost:$BACKEND_PORT/api/health" &>/dev/null; then
+        if [ -z "${BACKEND_LOG:-}" ]; then
+            BACKEND_LOG="$(resolve_executor_log_file)"
+        fi
         info "执行器服务已在运行，跳过启动"
         return
     fi
@@ -149,7 +168,7 @@ start_backend() {
         set_executor_log_file
     fi
     cd "$SCRIPT_DIR"
-    nohup python3 -m uvicorn agent_bench.executor.main:app --host 0.0.0.0 --port $BACKEND_PORT --no-access-log --log-level warning >>"$BACKEND_LOG" 2>&1 &
+    nohup "$PYTHON_BIN" -m agent_bench.executor.main >>"$BACKEND_LOG" 2>&1 &
 
     # 等待启动
     for i in $(seq 1 10); do
@@ -250,6 +269,7 @@ case "${1:-start}" in
         ;;
     restart-executor)
         info "重启执行器服务..."
+        check_deps
         ensure_log_dir
         BACKEND_LOG="$(resolve_executor_log_file)"
         kill_port $BACKEND_PORT
