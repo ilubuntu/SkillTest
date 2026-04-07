@@ -32,7 +32,7 @@ def create_adapter(agent: dict,
                    on_progress=None,
                    temperature: float = None,
                    artifact_prefix: str = "agent",
-                   artifact_base_dir: str = "logs"):
+                   artifact_base_dir: str = "generate"):
     """根据 Agent 定义创建适配器实例。"""
     if not agent:
         raise ValueError("Agent 配置不能为空")

@@ -56,7 +56,7 @@ class OpenCodeAdapter(AgentAdapter):
                  temperature: float = None,
                  on_progress=None,
                  artifact_prefix: str = "agent",
-                 artifact_base_dir: str = "logs"):
+                 artifact_base_dir: str = "generate"):
         self.api_base = api_base
         self.agent = agent
         self.model = model
@@ -65,7 +65,7 @@ class OpenCodeAdapter(AgentAdapter):
         self.temperature = temperature
         self.on_progress = on_progress
         self.artifact_prefix = artifact_prefix or "agent"
-        self.artifact_base_dir = artifact_base_dir or "logs"
+        self.artifact_base_dir = artifact_base_dir or "generate"
 
         # setup 阶段准备的配置
         self._system_message = ""
@@ -486,7 +486,7 @@ class OpenCodeAdapter(AgentAdapter):
         if not workspace_dir:
             return None
         case_dir = os.path.dirname(workspace_dir.rstrip(os.sep))
-        if self.artifact_base_dir == "review":
+        if self.artifact_base_dir == "constraint":
             target_dir = review_dir(case_dir)
         else:
             target_dir = agent_meta_dir(case_dir)
@@ -938,6 +938,8 @@ class OpenCodeAdapter(AgentAdapter):
             signature = ("text",) + event_identity
             log_message = f"OpenCode 开始输出结果: {message}" if message else "OpenCode 开始输出结果"
         elif event_type == "step_finish":
+            if (message or "").strip().lower() == "other":
+                return
             signature = ("step_finish",) + event_identity
             log_message = f"OpenCode 本轮执行结束: {message}" if message else "OpenCode 本轮执行结束"
 
@@ -998,7 +1000,7 @@ class OpenCodeAdapter(AgentAdapter):
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode("utf-8"))
             direct = self._coerce_message_payload(data, prompt_text)
-            if direct:
+            if direct and self._has_effective_assistant_progress(direct):
                 return direct
             messages = []
             if isinstance(data, list):
@@ -1010,7 +1012,7 @@ class OpenCodeAdapter(AgentAdapter):
 
             for message in reversed(messages):
                 candidate = self._coerce_message_payload(message, prompt_text)
-                if candidate:
+                if candidate and self._has_effective_assistant_progress(candidate):
                     return candidate
             return None
         except Exception as e:
@@ -1033,7 +1035,7 @@ class OpenCodeAdapter(AgentAdapter):
             result = []
             for message in messages:
                 candidate = self._coerce_message_payload(message, prompt_text)
-                if candidate:
+                if candidate and self._has_effective_assistant_progress(candidate):
                     result.append(candidate)
             return result
         except Exception as e:
@@ -1143,6 +1145,30 @@ class OpenCodeAdapter(AgentAdapter):
         if not text_parts:
             return ""
         return text_parts[-1]
+
+    def _has_effective_assistant_progress(self, payload: dict) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        parts = payload.get("parts")
+        if not isinstance(parts, list) or not parts:
+            return False
+
+        has_non_placeholder_part = False
+        has_meaningful_finish = False
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            part_type = str(part.get("type") or "").strip().lower()
+            if not part_type:
+                continue
+            if part_type not in {"step-start", "step-finish"}:
+                has_non_placeholder_part = True
+                break
+            if part_type == "step-finish":
+                reason = str(part.get("reason") or "").strip().lower()
+                if reason not in {"", "other"}:
+                    has_meaningful_finish = True
+        return has_non_placeholder_part or has_meaningful_finish
 
     def _build_interaction_metrics(self,
                                    source: str,

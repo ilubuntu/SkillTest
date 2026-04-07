@@ -293,6 +293,21 @@ def _score_code_quality(is_build_success: bool) -> int:
     return 100 if is_build_success else 0
 
 
+def _normalize_score_value(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if "/" in text:
+        text = text.split("/", 1)[0].strip()
+    try:
+        score = float(text)
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(100, int(round(score))))
+
+
 def build_execution_result_payload(execution_id: int,
                                    case_dir: str,
                                    result: Dict[str, Any],
@@ -304,10 +319,15 @@ def build_execution_result_payload(execution_id: int,
     metrics = load_agent_metrics(case_dir)
     output_text = load_agent_output(case_dir)
     compile_results = result.get("compile_results") or {}
+    constraint_review = result.get("constraint_review") or {}
+    constraint_summary = constraint_review.get("summary") or {}
 
     is_build_success = bool(compile_results.get("compilable"))
     token_consumption = _extract_total_tokens(metrics)
     iteration_count = _extract_iteration_count(metrics, output_text)
+    resolved_expected_output_score = expected_output_score
+    if resolved_expected_output_score is None:
+        resolved_expected_output_score = _normalize_score_value(constraint_summary.get("overall_score"))
 
     payload = CloudExecutionResultPayload(
         testExecutionId=execution_id,
@@ -317,7 +337,7 @@ def build_execution_result_payload(execution_id: int,
             tokenConsumption=max(0, int(token_consumption)),
             iterationCount=max(0, int(iteration_count)),
             codeQualityScore=_score_code_quality(is_build_success) if code_quality_score is None else max(0, min(100, int(code_quality_score))),
-            expectedOutputScore=_score_expected_output(expected_output, output_text) if expected_output_score is None else max(0, min(100, int(expected_output_score))),
+            expectedOutputScore=_score_expected_output(expected_output, output_text) if resolved_expected_output_score is None else max(0, min(100, int(resolved_expected_output_score))),
             outputCodeUrl=output_code_url,
         ),
     )

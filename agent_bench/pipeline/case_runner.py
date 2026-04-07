@@ -17,6 +17,7 @@ from agent_bench.pipeline.artifacts import (
     agent_workspace_dir,
     original_project_dir,
     review_dir,
+    static_dir,
     load_runner_artifacts,
     save_compile_artifacts,
     save_case_result,
@@ -224,7 +225,8 @@ def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
         "workspace_dir": agent_workspace_dir(case_dir),
         "meta_dir": agent_meta_dir(case_dir),
         "original_dir": original_project_dir(case_dir),
-        "review_dir": review_dir(case_dir),
+        "constraint_dir": review_dir(case_dir),
+        "static_dir": static_dir(case_dir),
         "compile_results": {
             "compilable": post_compile_result.get("compilable"),
             "error": post_compile_result.get("error", "") or "",
@@ -352,16 +354,20 @@ def _run_constraint_review_agent(case: dict,
         fallback_timeout=agent_timeout,
         temperature=agent_temperature,
         artifact_prefix="constraint_review",
-        artifact_base_dir="review",
+        artifact_base_dir="constraint",
     )
     output_text = ""
     elapsed = 0.0
     try:
         _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "约束规则打分"})
         runtime.prepare()
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"{agent_spec.display_name} 已放大 OpenCode 会话目录到任务根目录: {case_dir}",
+        })
         output_text, elapsed = runtime.execute(
             review_prompt,
-            workspace_dir=workspace_dir,
+            workspace_dir=case_dir,
             tag=f"[{agent_spec.display_name}] ",
         )
         last_error_message = runtime.get_last_error_message()
@@ -488,7 +494,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 fallback_timeout=agent_timeout,
                 temperature=agent_temperature,
                 artifact_prefix="agent",
-                artifact_base_dir="logs",
+                artifact_base_dir="generate",
             )
             try:
                 _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "Agent运行"})

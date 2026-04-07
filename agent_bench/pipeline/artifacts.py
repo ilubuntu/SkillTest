@@ -23,7 +23,7 @@ def agent_workspace_dir(case_dir: str) -> str:
 
 
 def agent_meta_dir(case_dir: str) -> str:
-    return stage_dir(case_dir, "logs")
+    return stage_dir(case_dir, "generate")
 
 
 def original_project_dir(case_dir: str) -> str:
@@ -31,7 +31,11 @@ def original_project_dir(case_dir: str) -> str:
 
 
 def review_dir(case_dir: str) -> str:
-    return stage_dir(case_dir, "review")
+    return stage_dir(case_dir, "constraint")
+
+
+def static_dir(case_dir: str) -> str:
+    return stage_dir(case_dir, "static")
 
 
 def checks_dir(case_dir: str) -> str:

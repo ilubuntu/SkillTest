@@ -17,13 +17,13 @@ class AgentRuntime:
                  fallback_timeout: int = 180,
                  temperature=None,
                  artifact_prefix: str = "agent",
-                 artifact_base_dir: str = "logs"):
+                 artifact_base_dir: str = "generate"):
         self.agent_spec = agent_spec
         self.on_progress = on_progress
         self.fallback_timeout = fallback_timeout
         self.temperature = temperature
         self.artifact_prefix = artifact_prefix or "agent"
-        self.artifact_base_dir = artifact_base_dir or "logs"
+        self.artifact_base_dir = artifact_base_dir or "generate"
         self.runtime_enhancements = merge_enhancements(
             build_agent_runtime_enhancements(agent_spec.raw),
             enhancements or {},

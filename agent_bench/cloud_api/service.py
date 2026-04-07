@@ -686,8 +686,8 @@ class CloudExecutionManager:
             with self._lock:
                 state["run_dir"] = run_dir
                 state["case_dir"] = case_dir
-                state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "opencode_sse_events.jsonl")
-                state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "opencode_progress_events.jsonl")
+                state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_sse_events.jsonl")
+                state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_progress_events.jsonl")
                 state["progress_queue_path"] = os.path.join(run_dir, "progress_events.jsonl")
                 state["progress_upload_state_path"] = os.path.join(run_dir, "progress_upload_state.json")
                 self._save_progress_upload_state(state["progress_upload_state_path"], self._default_progress_upload_state())
@@ -721,8 +721,8 @@ class CloudExecutionManager:
             with self._lock:
                 state["run_dir"] = run_dir
                 state["case_dir"] = case_dir
-                state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "opencode_sse_events.jsonl")
-                state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "opencode_progress_events.jsonl")
+                state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_sse_events.jsonl")
+                state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_progress_events.jsonl")
                 state["case_id"] = case.get("id") or f"cloud_execution_{execution_id}"
                 state["case_title"] = case.get("title") or f"Cloud Execution {execution_id}"
                 state["project_source_url"] = payload.testCase.fileUrl
@@ -779,11 +779,16 @@ class CloudExecutionManager:
                 state["result"] = result
                 state["last_result_payload"] = result_payload
 
+            result_response = upload_execution_result(
+                cloud_base_url=state.get("cloud_base_url") or CLOUD_BASE_URL,
+                payload=result_payload,
+                token=(state.get("token") or "").strip() or None,
+            )
             with self._lock:
-                state["last_result_response"] = None
+                state["last_result_response"] = result_response
                 self._append_local_event(state, "result_report", {
                     "payload": result_payload,
-                    "response": None,
+                    "response": result_response,
                 })
 
             update_local_status("completed", "completed")
