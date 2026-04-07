@@ -1,0 +1,96 @@
+case:
+  id: requirement_002
+  scenario: requirement
+  title: 商品详情卡片与 @Param 只读传参
+  prompt: 这是一个基础组件类需求。请基于当前 HarmonyOS 工程实现一个商品详情展示页，页面中需要有一个商品卡片子组件，用于展示商品标题、价格和标签列表。价格、标题和标签数据必须通过父组件使用 @Param 传入子组件，子组件只负责展示，不允许在子组件内部修改这些参数值。
+  output_requirements: 请直接在当前工程中修改代码并完成需求实现，页面需可编译，主入口保持在 entry/src/main/ets/pages/Index.ets，并在回复中说明父组件如何传参、子组件如何展示。
+
+constraints:
+  - id: HM-REQ-002-01
+    name: 子组件必须通过 @Param 接收商品核心数据
+    description: 商品卡片子组件需要使用 @Param 接收标题、价格和标签列表。
+    category: 组件规范
+    priority: P0
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-REQ-002-01-R1
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: contains
+          snippet: "@ComponentV2"
+        - rule_id: HM-REQ-002-01-R2
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "@Param\\s+title\\s*:\\s*string"
+        - rule_id: HM-REQ-002-01-R3
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "@Param\\s+price\\s*:\\s*number"
+        - rule_id: HM-REQ-002-01-R4
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "@Param\\s+tags\\s*:\\s*(?:string\\[\\]|Array<string>|ReadonlyArray<string>)"
+  - id: HM-REQ-002-02
+    name: 父组件必须实例化商品卡片并传入数据
+    description: 页面主体应由父组件创建商品卡片子组件，并显式传递标题、价格和标签。
+    category: 交互
+    priority: P0
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-REQ-002-02-R1
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "ProductCard\\s*\\("
+        - rule_id: HM-REQ-002-02-R2
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "title\\s*:"
+        - rule_id: HM-REQ-002-02-R3
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "price\\s*:"
+        - rule_id: HM-REQ-002-02-R4
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "tags\\s*:"
+  - id: HM-REQ-002-03
+    name: 标签列表展示和 @Param 只读约束必须成立
+    description: 子组件应展示标签列表，并且不能在内部修改 title、price、tags 这些 @Param 数据。
+    category: 可维护性
+    priority: P1
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-REQ-002-03-R1
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "ForEach\\("
+        - rule_id: HM-REQ-002-03-R2
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_not_contains
+          pattern: "this\\.(?:title|price|tags)\\s*="
+  - id: HM-REQ-002-04
+    name: 页面路由管理必须统一使用 Navigation
+    description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
+    category: 生态规范
+    priority: P0
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-REQ-002-04-R1
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "Navigation\\s*\\("
+        - rule_id: HM-REQ-002-04-R2
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\("
+        - rule_id: HM-REQ-002-04-R3
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_not_contains
+          pattern: "\\brouter\\."

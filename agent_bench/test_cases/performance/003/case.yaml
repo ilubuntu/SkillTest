@@ -1,0 +1,77 @@
+case:
+  id: performance_003
+  scenario: performance
+  title: 可展开订单列表局部刷新优化
+  prompt: 这是一个列表与性能类需求。请基于当前 HarmonyOS 工程实现一个订单列表页面，每个订单项默认折叠，只展示订单号、状态和金额；点击订单头部后展开子商品列表，再次点击可折叠。订单数据模型需要使用 @ObservedV2 定义，展开状态使用 @Trace 标注，确保展开和折叠只刷新当前项。
+  output_requirements: 请直接在当前工程中修改代码并完成需求实现，页面需可编译，主入口保持在 entry/src/main/ets/pages/Index.ets，并在回复中说明订单模型、局部刷新和折叠逻辑实现。
+
+constraints:
+  - id: HM-PERF-003-01
+    name: 订单模型必须使用 @ObservedV2 和 @Trace
+    description: 订单数据模型需要使用 @ObservedV2 定义，并用 @Trace 标注展开状态字段。
+    category: 性能
+    priority: P0
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-PERF-003-01-R1
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: contains
+          snippet: "@ObservedV2"
+        - rule_id: HM-PERF-003-01-R2
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "@Trace\\s+(?:expanded|isExpanded)\\s*:\\s*boolean"
+  - id: HM-PERF-003-02
+    name: 订单列表必须支持展开与折叠
+    description: 页面应通过列表渲染订单，并在点击订单头部后切换当前订单项的展开状态。
+    category: 交互
+    priority: P0
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-PERF-003-02-R1
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "ForEach\\(\\s*this\\.(?:orders|orderList)"
+        - rule_id: HM-PERF-003-02-R2
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "(?:order|item)\\.(?:expanded|isExpanded)\\s*=\\s*!\\s*(?:order|item)\\.(?:expanded|isExpanded)"
+  - id: HM-PERF-003-03
+    name: 展开后必须显示子商品列表
+    description: 订单展开后应渲染子商品列表，而不是仅切换一个布尔值。
+    category: 组件规范
+    priority: P1
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-PERF-003-03-R1
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_count_at_least
+          pattern: "ForEach\\("
+          count: 2
+  - id: HM-PERF-003-04
+    name: 页面路由管理必须统一使用 Navigation
+    description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
+    category: 生态规范
+    priority: P0
+    check_method:
+      type: custom_rule
+      match_mode: all
+      rules:
+        - rule_id: HM-PERF-003-04-R1
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "Navigation\\s*\\("
+        - rule_id: HM-PERF-003-04-R2
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_contains
+          pattern: "NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\("
+        - rule_id: HM-PERF-003-04-R3
+          target_file: entry/src/main/ets/pages/Index.ets
+          match_type: regex_not_contains
+          pattern: "\\brouter\\."

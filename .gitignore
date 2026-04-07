@@ -38,6 +38,7 @@ agent-bench-executor.spec
 # Agent Bench 运行结果（每次评测自动生成，不纳入版本控制）
 agent_bench/results/
 agent_bench/baselines/
+agent_bench/test_runs/
 agent_bench/sandbox/
 agent_bench/build-logs/
 

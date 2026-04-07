@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""基于 case constraints 的确定性约束评分器。"""
+"""Deterministic constraint scorer for case.yaml constraints."""
 
 import os
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 
 SKILL_NAME = "constraint-score-review"
 REPORT_MARKER = "## Constraint Review Report"
+SKILL_FILE_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "config", "skills", SKILL_NAME, "SKILL.md")
+)
 
 PRIORITY_WEIGHTS = {
     "P0": 5.0,
@@ -21,75 +24,50 @@ TYPE_WEIGHTS = {
 TOTAL_CONSTRAINT_POINTS = 100.0
 
 
-def build_constraint_review_skill(case_spec: dict) -> dict:
-    """根据当前 case constraints 渲染一份 skill 内容。"""
+def build_constraint_review_skill(case_spec: dict,
+                                  original_project_root: str = "",
+                                  repair_patch_file: str = "",
+                                  repaired_project_root: str = "",
+                                  case_prompt: str = "") -> dict:
+    """Build runtime skill content from the static skill file plus case context."""
     case_meta = case_spec.get("case", {}) if isinstance(case_spec, dict) else {}
     constraints = case_spec.get("constraints", []) or []
-    compact_lines = [
-        "---",
-        f"name: {SKILL_NAME}",
-        "description: Keep current case constraints satisfied.",
-        "---",
+    skill_content = _read_text(SKILL_FILE_PATH).strip()
+    if not skill_content:
+        skill_content = (
+            f"---\nname: {SKILL_NAME}\ndescription: Constraint scoring skill.\n---\n\n"
+            "# Constraint Score Review"
+        )
+
+    context_lines = [
+        "## Current Runtime Context",
         "",
-        f"- Case: {_fmt(case_meta.get('id')) or 'unknown'} | {_fmt(case_meta.get('title')) or 'unknown'}",
-        "- 优先满足 P0，再处理 P1/P2。",
-        "- 只关注当前 case 相关文件和行为。",
+        f"- case_id: {_fmt(case_meta.get('id')) or 'unknown'}",
+        f"- case_title: {_fmt(case_meta.get('title')) or 'unknown'}",
+        f"- original_project_root: {_fmt(original_project_root) or '(not provided)'}",
+        f"- repair_patch_file: {_fmt(repair_patch_file) or '(not provided)'}",
+        f"- repaired_project_root: {_fmt(repaired_project_root) or '(not provided)'}",
+        f"- case_prompt: {_fmt(case_prompt) or '(not provided)'}",
         "",
-        "## Constraints",
+        "## Constraint Summary",
     ]
     if not constraints:
-        compact_lines.append("- No constraints defined.")
+        context_lines.append("- No constraints defined.")
     else:
         for item in constraints:
             priority = (_fmt(item.get("priority")) or "P1").upper()
             name = _fmt(item.get("name")) or "unnamed constraint"
-            compact_lines.append(f"- [{priority}] {name}")
-    return {
-        "name": SKILL_NAME,
-        "path": None,
-        "content": "\n".join(compact_lines).strip(),
-    }
-    lines = [
-        "---",
-        f"name: {SKILL_NAME}",
-        "description: Evaluate repaired code against current case constraints and produce weighted validity and quality scores.",
-        "---",
-        "",
-        "# Constraint Review Skill",
-        "",
-        "## Scope",
-        f"- Case ID: {_fmt(case_meta.get('id')) or 'unknown'}",
-        f"- Case Title: {_fmt(case_meta.get('title')) or 'unknown'}",
-        "",
-        "## Scoring Model",
-        f"- Constraint total points: {TOTAL_CONSTRAINT_POINTS:.0f}",
-        "- Priority weights: P0=5, P1=3, P2=1",
-        "- Type weights: custom_rule=1.0, scenario_assert=1.2",
-        "- Constraint weight = priority weight × type weight",
-        "- Constraint max points = constraint weight / all weights × 100",
-        "- Constraint earned points = max points × rule match rate",
-        "- Overall score: sum of all constraint earned points",
-        "- Effectiveness score: normalized score over P0 constraints only",
-        "- Quality score: normalized score over P1/P2 constraints only",
-        "",
-        "## Constraints",
-    ]
-
-    if not constraints:
-        lines.append("- No constraints defined.")
-    for item in constraints:
-        lines.extend(_render_constraint_skill_lines(item))
+            context_lines.append(f"- [{priority}] {name}")
 
     return {
         "name": SKILL_NAME,
-        "path": None,
-        "content": "\n".join(lines).strip(),
+        "path": SKILL_FILE_PATH if os.path.isfile(SKILL_FILE_PATH) else None,
+        "content": f"{skill_content}\n\n---\n\n" + "\n".join(context_lines).strip(),
     }
 
 
 def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
-    """对修复后的工程按 constraints 执行确定性规则评分。"""
-
+    """Evaluate repaired code against constraints."""
     constraints = case_spec.get("constraints", []) or []
     item_results = []
     weighted_total = 0.0
@@ -118,7 +96,7 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
             quality_weighted_total += weight
             quality_weighted_score_total += weight * score
 
-        category = item_result["category"] or "未分类"
+        category = item_result["category"] or "uncategorized"
         bucket = category_buckets.setdefault(category, {"weight": 0.0, "score": 0.0})
         bucket["weight"] += weight
         bucket["score"] += weight * score
@@ -132,8 +110,16 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
         _attach_rule_scores(item)
 
     overall_score = _safe_weighted_avg(weighted_score_total, weighted_total)
-    effectiveness_score = _safe_weighted_avg(p0_weighted_score_total, p0_weighted_total, default=overall_score)
-    quality_score = _safe_weighted_avg(quality_weighted_score_total, quality_weighted_total, default=overall_score)
+    effectiveness_score = _safe_weighted_avg(
+        p0_weighted_score_total,
+        p0_weighted_total,
+        default=overall_score,
+    )
+    quality_score = _safe_weighted_avg(
+        quality_weighted_score_total,
+        quality_weighted_total,
+        default=overall_score,
+    )
     passed_constraints = sum(1 for item in item_results if item["passed"])
 
     category_scores = {}
@@ -158,16 +144,20 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
 
 
 def build_constraint_review_report(score_result: dict) -> str:
-    """构造可追加到 output.txt 的约束评分报告。"""
+    """Build a short report appended to output.txt."""
     summary = score_result.get("summary", {})
-
     lines = [
         REPORT_MARKER,
         "",
         f"- Skill: {score_result.get('skill_name') or SKILL_NAME}",
         f"- Internal Rule Total Score: {summary.get('overall_score', 0):.1f}/100",
+        f"- Effectiveness Score: {summary.get('effectiveness_score', 0):.1f}/100",
+        f"- Quality Score: {summary.get('quality_score', 0):.1f}/100",
+        (
+            f"- Constraints Passed: {summary.get('constraints_passed', 0)}/"
+            f"{summary.get('constraints_total', 0)}"
+        ),
     ]
-
     return "\n".join(lines).strip()
 
 
@@ -187,8 +177,7 @@ def strip_constraint_review_report(output_text: str) -> str:
     if marker_pos < 0:
         return text
 
-    prefix = text[:marker_pos]
-    prefix = prefix.rstrip()
+    prefix = text[:marker_pos].rstrip()
     if prefix.endswith("---"):
         prefix = prefix[:-3].rstrip()
     return prefix
@@ -208,6 +197,7 @@ def _evaluate_constraint_item(item: dict, project_root: str) -> dict:
     rule_results = [_evaluate_rule(rule, project_root) for rule in (rules or [])]
     matched_rules = sum(1 for rule in rule_results if rule["passed"])
     total_rules = len(rule_results)
+
     if total_rules == 0:
         score = 100.0
         passed = True
@@ -248,7 +238,13 @@ def _evaluate_rule(rule: dict, project_root: str) -> dict:
     file_exists = bool(abs_path) and os.path.isfile(abs_path)
     content = _read_text(abs_path) if file_exists else ""
 
-    passed, detail = _match_rule(match_type, content, snippet=snippet, pattern=pattern, expected_count=expected_count)
+    passed, detail = _match_rule(
+        match_type,
+        content,
+        snippet=snippet,
+        pattern=pattern,
+        expected_count=expected_count,
+    )
     if not file_exists:
         passed = False
         detail = f"target file not found: {target_file}"
@@ -267,7 +263,11 @@ def _evaluate_rule(rule: dict, project_root: str) -> dict:
     }
 
 
-def _match_rule(match_type: str, content: str, snippet: str = "", pattern: str = "", expected_count: int = 1) -> Tuple[bool, str]:
+def _match_rule(match_type: str,
+                content: str,
+                snippet: str = "",
+                pattern: str = "",
+                expected_count: int = 1) -> Tuple[bool, str]:
     if match_type == "contains":
         found = bool(snippet) and snippet in content
         return found, "snippet found" if found else "snippet not found"
@@ -295,46 +295,6 @@ def _match_rule(match_type: str, content: str, snippet: str = "", pattern: str =
     return False, f"unsupported match_type: {match_type}"
 
 
-def _render_constraint_skill_lines(item: dict) -> List[str]:
-    item_id = _fmt(item.get("id"))
-    name = _fmt(item.get("name"))
-    category = _fmt(item.get("category"))
-    priority = (_fmt(item.get("priority")) or "P1").upper()
-    description = _fmt(item.get("description"))
-    check_method = item.get("check_method") if isinstance(item, dict) else {}
-    method_type = _fmt(check_method.get("type")) or "custom_rule"
-    match_mode = _fmt(check_method.get("match_mode")) or "all"
-
-    lines = [
-        f"### [{item_id}][{priority}][{category or '未分类'}] {name or item_id or 'Unnamed Constraint'}",
-    ]
-    if description:
-        lines.append(f"- Description: {description}")
-    lines.append(
-        f"- Weight: priority={PRIORITY_WEIGHTS.get(priority, PRIORITY_WEIGHTS['P1'])}, "
-        f"type={TYPE_WEIGHTS.get(method_type, TYPE_WEIGHTS['custom_rule'])}"
-    )
-    lines.append("- Points: allocated from the fixed 100 total points in proportion to weight")
-    lines.append(f"- Check Method: {method_type} (match_mode={match_mode})")
-
-    for rule in (check_method.get("rules") or []):
-        if not isinstance(rule, dict):
-            continue
-        rule_id = _fmt(rule.get("rule_id"))
-        target_file = _normalize_target_file(_fmt(rule.get("target_file")))
-        match_type = _fmt(rule.get("match_type"))
-        snippet = _fmt(rule.get("snippet")) or _fmt(rule.get("pattern"))
-        count = rule.get("count")
-        lines.append(f"- Rule: {rule_id} | {target_file} | {match_type}")
-        if count is not None:
-            lines.append(f"  - count: {count}")
-        if snippet:
-            lines.append(f"  - snippet: {snippet}")
-
-    lines.append("")
-    return lines
-
-
 def _attach_rule_scores(item: dict) -> None:
     rules = item.get("rules", []) or []
     total_rules = len(rules)
@@ -359,8 +319,6 @@ def _attach_rule_scores(item: dict) -> None:
     for rule in rules:
         rule["max_points"] = per_rule_max_points
         rule["earned_points"] = per_rule_max_points if rule.get("passed") else 0.0
-
-
 
 
 def _normalize_target_file(target_file: str) -> str:

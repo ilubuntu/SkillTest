@@ -1,199 +1,142 @@
 ---
 name: constraint-score-review
-description: 基于 case.yaml 中的 constraints，使用带权重的确定性规则评估修复后的 HarmonyOS 用例工作区，并将评分摘要追加到 runner 的 output.txt。
+description: "基于五项输入对 HarmonyOS 修复结果按 case.yaml 的 constraints 进行约束评分：原始工程路径、agent 产出的 patch 文件、修复后工程路径、用例 prompt、以及约束规则。适用于修复结果打分、未满足约束分析、原始工程与修复后工程对比，或仅刷新约束评分测试产物而不重新生成修复代码。"
 ---
 
-# 约束评分审查
+# 约束规则评分
 
-## 用途
+使用这个 skill 时，评分对象是修复后的工程，评分标准只看当前用例的 `constraints`。其余输入用于理解基线状态、定位改动范围，以及辅助解释修复意图。
 
-使用当前用例 `constraints` 作为修复后评分的唯一依据。  
-评分由 bench 在 agent 完成代码修改后执行，而不是只依赖 agent 自己的修复总结。
+## 必要输入
 
-## 先看结论
+可用时应尽量同时提供以下 5 项输入：
 
-- `constraints` 自动评分总分固定按 `100 分` 计算
-- 每条 constraint 先根据 `priority` 和 `check_method.type` 算出权重
-- bench 再按权重把这 100 分切分给每条 constraint
-- 每条 constraint 命中规则越完整，拿到的分越多
-- 所有 constraint 的实得分相加，就是最终 `overall_score`
+1. `original_project_root`
+   原始工程的有效根目录路径。
+2. `repair_patch_file`
+   记录 agent 修改内容的 patch 文件。优先使用 unified diff 或 git patch 格式。
+3. `repaired_project_root`
+   修复后工程的有效根目录路径。
+4. `case_prompt`
+   用例输入内容，语义上对应当前 `case.yaml` 中的 prompt。
+5. `constraints`
+   用例约束规则，语义上对应当前 `case.yaml` 中的 constraints。
 
-也就是说：
+如果任一关键路径无效、缺失或不可读，停止评分并明确报告缺失项，不要编造分数。
 
-- 权重不直接等于分数
-- 权重只决定“这条约束在 100 分里占多少”
+## 核心规则
 
-## 评分模型
+- 评分对象是修复后工程，不是 patch 文本。
+- 原始工程只作为基线证据使用。
+- patch 文件只用于帮助理解改了什么，以及哪些文件值得重点检查。
+- `case_prompt` 只用于理解修复目标或消解自然语言歧义。
+- 如果 `case_prompt` 与 `constraints` 冲突，以 `constraints` 为准。
+- 不要自行发明额外约束、隐藏要求或风格偏好。
+- 不要仅凭 agent 的总结给分，必须基于 `repaired_project_root` 下的真实文件核验。
+- 如果 patch 文件与修复后工程内容不一致，以修复后工程为评分依据，并在结论中说明该不一致。
 
-### 1. 权重
+## 工作流程
+
+### 1. 校验输入
+
+- 确认 `original_project_root` 存在，且看起来是有效工程根目录。
+- 确认 `repaired_project_root` 存在且可读。
+- 确认 `repair_patch_file` 存在且可读。
+- 确认 `constraints` 是结构化列表。
+- 当用例依赖修复意图理解时，确认 `case_prompt` 非空。
+
+### 2. 理解基线状态
+
+- 只读取足够理解修复前状态的原始工程内容。
+- 用原始工程解释修复后结果是提升、回退，还是没有变化。
+- 在这个 skill 中，不要把原始工程作为最终评分对象。
+
+### 3. 阅读 patch
+
+- 解析 patch 文件，识别被修改的文件、宣称修复的问题，以及可能遗漏的点。
+- patch 只能作为排查线索，不能直接作为“约束已满足”的证据。
+- 如果 patch 看起来已经修了，但修复后工程里仍缺少对应代码模式，要明确指出。
+
+### 4. 按约束检查修复后工程
+
+- 对 `repaired_project_root` 下的真实文件逐条评估 constraint。
+- 若规则中提供了 `target_file`，优先检查该目标文件。
+- 对于 `original_project/...`、`agent_workspace/...` 这类路径前缀，先归一化为当前项目根目录下的相对路径，再进行检查。
+- 当前评分器支持以下规则类型与匹配模式：
+  - `check_method.type`: `custom_rule`、`scenario_assert`
+  - `match_mode`: `all`、`any`
+  - `match_type`: `contains`、`not_contains`、`count_at_least`、`regex_contains`、`regex_not_contains`、`regex_count_at_least`
+
+### 5. 计算分数
+
+使用以下评分模型：
 
 - 优先级权重：`P0=5`、`P1=3`、`P2=1`
-- 类型权重：
-  - `custom_rule=1.0`
-  - `scenario_assert=1.2`
+- 类型权重：`custom_rule=1.0`、`scenario_assert=1.2`
+- 单条约束权重 = `priority_weight * type_weight`
+- 单条约束满分 = `constraint_weight / sum(all_constraint_weights) * 100`
+- 当 `match_mode=all` 时，约束完成度 = `matched_rules / total_rules`
+- 当 `match_mode=any` 时：
+  - 任意一条规则命中，则完成度为 `100%`
+  - 一条都未命中，则完成度为 `0%`
+- 单条约束实得分 = `constraint_max_points * constraint_completion`
+- `overall_score` = 所有约束实得分之和
+- `effectiveness_score` = 仅基于 `P0` 约束重新归一后的分数
+- `quality_score` = 仅基于 `P1` 和 `P2` 约束重新归一后的分数
+- `constraints_passed` = 最终判定通过的约束条数
 
-单条 constraint 的原始权重计算方式：
+需要特别注意：
 
-```text
-constraint_weight = priority_weight × type_weight
+- `constraints_passed` 是条数，不是分数。
+- `overall_score` 不等于 `effectiveness_score` 和 `quality_score` 的平均值。
+- 某条约束即使未完全通过，也可能因为部分规则命中而获得部分分数。
+
+### 6. 解释评分结果
+
+对于每条未通过或部分命中的约束，要说明：
+
+- 哪条规则失败了
+- 检查的是哪个文件
+- 实际发现了什么证据，或缺少什么证据
+- 相比原始工程，修复后工程是否真的有改善
+
+如果修复后工程相对原始工程没有实质提升，要直接说明。
+
+## 输出要求
+
+输出结果应尽量简洁，但至少包含：
+
+- `overall_score`
+- `effectiveness_score`
+- `quality_score`
+- `constraints_passed`
+- 未满足的约束
+- 评分依据
+- 原始工程与修复后工程的关键差异
+
+如果要生成报告段落，优先使用如下结构：
+
+```md
+## Constraint Review Report
+
+- overall_score: 44.2/100
+- effectiveness_score: 42.0/100
+- quality_score: 100.0/100
+- constraints_passed: 1/6
+
+### Unmet Constraints
+- HM-XXX-01: failed because ...
+
+### Evidence
+- entry/src/main/ets/pages/Index.ets: ...
+
+### Original vs Repaired
+- improved / unchanged / regressed: ...
 ```
 
-### 2. 分值分配
+## 异常处理
 
-先把所有 constraint 的原始权重加起来，再把总分 `100` 按比例分配给每一条 constraint：
-
-```text
-constraint_max_points = constraint_weight / sum(all_constraint_weights) × 100
-```
-
-### 3. 单条约束得分
-
-每条 constraint 内部再根据规则命中率计算完成度：
-
-```text
-constraint_completion = matched_rules / total_rules
-constraint_earned_points = constraint_max_points × constraint_completion
-```
-
-如果某条 constraint 有 4 条规则，命中 3 条，那么它的完成度就是：
-
-```text
-3 / 4 = 75%
-```
-
-### 4. 汇总得分
-
-- `overall_score = 所有 constraint 的 earned_points 之和`
-- `effectiveness_score = 只看 P0 constraint 后重新归一到 100 分`
-- `quality_score = 只看 P1/P2 constraint 后重新归一到 100 分`
-
-## 例子
-
-假设当前用例只有 2 条约束：
-
-```yaml
-constraints:
-  - id: HM-004-001
-    priority: P0
-    check_method:
-      type: custom_rule
-      rules: [r1, r2]
-
-  - id: HM-004-002
-    priority: P1
-    check_method:
-      type: scenario_assert
-      rules: [r1, r2, r3]
-```
-
-先算原始权重：
-
-- `HM-004-001 = P0(5) × custom_rule(1.0) = 5.0`
-- `HM-004-002 = P1(3) × scenario_assert(1.2) = 3.6`
-
-总权重：
-
-```text
-5.0 + 3.6 = 8.6
-```
-
-把总分 100 分按比例切开：
-
-- `HM-004-001 max_points = 5.0 / 8.6 × 100 ≈ 58.1`
-- `HM-004-002 max_points = 3.6 / 8.6 × 100 ≈ 41.9`
-
-两条加起来就是：
-
-```text
-58.1 + 41.9 = 100.0
-```
-
-再假设规则命中结果如下：
-
-- `HM-004-001` 命中 `2/2`，完成度 `100%`
-- `HM-004-002` 命中 `2/3`，完成度 `66.7%`
-
-则实得分为：
-
-- `HM-004-001 earned_points = 58.1 × 100% = 58.1`
-- `HM-004-002 earned_points = 41.9 × 66.7% ≈ 27.9`
-
-最终总分：
-
-```text
-overall_score = 58.1 + 27.9 = 86.0 / 100
-```
-
-这个例子里可以直观看到：
-
-- `P0` 约束占分更大
-- `scenario_assert` 会比 `custom_rule` 分到更高的分值占比
-- 即使 constraint 条目变多，总分口径也始终固定为 `100`
-
-## 规则模型
-
-每条 constraint 应定义以下字段：
-
-- `id`
-- `name`
-- `description`
-- `category`
-- `priority`
-- `check_method`
-
-`check_method` 应使用结构化、可机器匹配的格式，例如：
-
-```yaml
-check_method:
-  type: custom_rule
-  match_mode: all
-  rules:
-    - rule_id: RULE-001
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: contains
-      snippet: "const EVENT_NAME = 'displayModeChange'"
-```
-
-当前自动评分支持的 `check_method.type`：
-
-- `custom_rule`
-- `scenario_assert`
-
-当前支持的 `match_type`：
-
-- `contains`
-- `not_contains`
-- `count_at_least`
-- `regex_contains`
-- `regex_not_contains`
-- `regex_count_at_least`
-
-当前支持的 `match_mode`：
-
-- `all`
-  该 constraint 下所有规则都需要满足，得分按命中比例计算
-- `any`
-  该 constraint 下只要命中任意一条规则就算该 constraint 通过，适合表达“多种合法实现任选一种”
-
-## 输出结果
-
-bench 会在 runner 的 `output.txt` 末尾追加一段 `Constraint Review Report`。
-
-报告中会展示：
-
-- 总分 `overall_score/100`
-- 有效性分 `effectiveness_score/100`
-- 质量分 `quality_score/100`
-- 每条 constraint 的：
-  - `max_points`
-  - `earned_points`
-  - `matched_rules/total_rules`
-  - 每条规则的命中结果
-
-为避免影响后续 evaluator 对原始 agent 输出的使用，原始输出会额外保存在
-`raw_output.txt` 中。
-
-## 运行时说明
-
-运行时，bench 会基于当前 case 的 `constraints` 动态渲染一份针对该用例的 skill，
-并与 runner 产物一起保存为 `constraint_review_skill.md`。
+- 如果目标文件缺失，将相关规则判为失败，并明确指出缺失文件路径。
+- 如果 patch 文件为空，继续基于修复后工程评分，但要说明没有可用的 patch 证据。
+- 如果 `constraints` 为空，明确说明无法执行约束评分。
+- 如果修复后工程无法完整读取，停止评分并报告不可读路径。

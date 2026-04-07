@@ -15,14 +15,14 @@ scenarios:
         category: specialized
         prompt: "这是一个已有的 HarmonyOS ArkTS 商品管理工程：首页展示商品列表，点击添加或编辑会进入详情页，保存后返回首页并更新列表。请基于现有工程修复其中的缺陷，包括列表渲染稳定性、详情页保存与返回逻辑、列表回刷、异常处理，以及明显不合理的废弃 API 或可编译性问题，保持原有业务流程和页面结构不变。"
 
-      - id: case_004
-        case_id: bug_fix_004
+      - id: case_002
+        case_id: bug_fix_002
         title: "【适老化】@ObservedV2类中@Trace缺失导致PersistentStorage更新不刷新UI"
         category: specialized
         prompt: "以下ArkTS代码中，@ObservedV2类的fontSize属性缺少@Trace修饰，导致PersistentStorage持久化的对象属性变更时，预览区字体大小和大小数字文本不刷新，请修复。注意：这是一个多页面场景，存在两个页面：SettingsPage（设置页面，含\"字体大小\"入口）和FontSettingPage（字体设置页面，含Slider调节）。请同时修复这两个页面中缺失的@Trace修饰"
 
-      - id: case_005
-        case_id: bug_fix_005
+      - id: case_003
+        case_id: bug_fix_003
         title: "【应用列表】EventHub事件名不匹配与ForEach keyGenerator修复"
         category: specialized
         prompt: "以下ArkTS代码中，AppDisplayPage（应用展示页）存在以下问题：1）使用eventhub.on监听了'modeChange'事件，而SettingsPage（设置页）发送的事件名是'displayModeChange'，事件名不匹配导致切换模式后应用展示页无法响应；2）ForEach未指定keyGenerator参数，可能导致列表渲染性能问题。请修复：1）将eventhub.on监听事件名从'modeChange'改为'displayModeChange'；2）为ForEach添加keyGenerator参数。注意：这是一个多页面场景，存在两个页面：AppDisplayPage（应用展示页，含网格/列表切换入口）和SettingsPage（设置页，含Checkbox切换控件）。请同时修复这两个页面的EventHub事件名匹配问题和ForEach的keyGenerator问题"
@@ -55,15 +55,23 @@ scenarios:
     cases:
       - id: case_006
         case_id: performance_001
-        title: "List组件滑动性能优化"
+        title: "超长商品列表性能优化"
         category: specialized
-        prompt: "请优化以下List组件代码，使其支持大数据量滑动时的流畅性能（需要使用LazyForEach和cachedCount）"
+        original_project_dir: test_cases/performance/001/original_project
+        prompt: "请基于当前工程实现一个包含10000条商品数据的高性能列表，使用 LazyForEach、IDataSource 和 cachedCount 做滑动优化。"
 
       - id: case_007
         case_id: performance_002
-        title: "Swiper组件滑动性能优化"
+        title: "联系人分组索引列表性能优化"
         category: specialized
-        prompt: "请优化以下Swiper组件代码，使其在自动播放和手动滑动时保持流畅性能"
+        original_project_dir: test_cases/performance/002/original_project
+        prompt: "请基于当前工程实现联系人分组索引列表，使用 ListItemGroup 和 scrollToIndex 实现快速定位与索引高亮。"
+      - id: case_008
+        case_id: performance_003
+        title: "可展开订单列表局部刷新优化"
+        category: specialized
+        original_project_dir: test_cases/performance/003/original_project
+        prompt: "请基于当前工程实现可展开/折叠的订单列表，使用 @ObservedV2 和 @Trace 确保只刷新当前项。"
 
   # ── Project Gen ─────────────────────────────────────────────
   - id: scenario_004
@@ -133,11 +141,29 @@ scenarios:
     cases:
       - id: case_013
         case_id: requirement_001
-        title: "待办事项列表"
+        title: "快捷登录表单基础组件实现"
         category: specialized
-        prompt: "请根据需求实现一个待办事项列表：1.添加待办 2.标记完成 3.删除事项 4.分开显示未完成/已完成"
+        original_project_dir: test_cases/requirement/001/original_project
+        prompt: "请基于当前工程实现快捷登录页，包含手机号输入、密码输入、密码显隐切换，并使用 @Local 管理状态。"
+      - id: case_014
+        case_id: requirement_002
+        title: "商品详情卡片与 @Param 只读传参"
+        category: specialized
+        original_project_dir: test_cases/requirement/002/original_project
+        prompt: "请基于当前工程实现商品详情卡片，通过父组件向子组件传递标题、价格和标签，并使用 @Param 只读展示。"
+      - id: case_015
+        case_id: requirement_003
+        title: "评论列表点赞与 @ObservedV2 最小刷新"
+        category: specialized
+        original_project_dir: test_cases/requirement/003/original_project
+        prompt: "请基于当前工程实现评论列表页面，使用 @ObservedV2 和 @Trace 管理点赞状态与点赞数。"
+      - id: case_016
+        case_id: requirement_004
+        title: "注册表单实时校验与 @Computed 派生状态"
+        category: specialized
+        original_project_dir: test_cases/requirement/004/original_project
+        prompt: "请基于当前工程实现注册表单页面，包含手机号和验证码实时校验，并使用 @Computed 派生提交状态。"
 
-  # ── Test Gen ────────────────────────────────────────────────
   - id: scenario_009
     name: "Test Gen"
     description: "根据代码生成单元测试用例，覆盖正常和边界情况"
