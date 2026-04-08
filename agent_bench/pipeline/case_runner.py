@@ -318,19 +318,40 @@ def _legacy_extract_constraint_review_summary_old(output_text: str) -> dict:
 def _extract_constraint_review_summary(output_text: str) -> dict:
     text = output_text or ""
     summary = {}
+
+    json_block_matches = re.findall(r"```json\s*(\{[\s\S]*?\})\s*```", text, flags=re.IGNORECASE)
+    for block in reversed(json_block_matches):
+        try:
+            payload = json.loads(block)
+        except Exception:
+            continue
+        extracted = _extract_constraint_review_summary_from_json_payload(payload)
+        if extracted:
+            return extracted
+
+    try:
+        direct_payload = json.loads(text.strip())
+    except Exception:
+        direct_payload = None
+    extracted = _extract_constraint_review_summary_from_json_payload(direct_payload)
+    if extracted:
+        return extracted
+
+    field_prefix = r"(?:^|\n)\s*(?:[-*]\s*)?(?:\*{0,2})?"
+    field_suffix = r"(?:\*{0,2})?\s*[:：]\s*"
     scalar_patterns = {
         "overall_score": [
-            r"overall_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            field_prefix + r"overall_score" + field_suffix + r"([0-9]+(?:\.[0-9]+)?)",
             r"internal\s+rule\s+total\s+score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
             r"\|\s*\*{0,2}overall_score\*{0,2}\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*100",
         ],
         "effectiveness_score": [
-            r"effectiveness_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            field_prefix + r"effectiveness_score" + field_suffix + r"([0-9]+(?:\.[0-9]+)?)",
             r"effectiveness\s+score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
             r"\|\s*\*{0,2}effectiveness_score\*{0,2}\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*100",
         ],
         "quality_score": [
-            r"quality_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
+            field_prefix + r"quality_score" + field_suffix + r"([0-9]+(?:\.[0-9]+)?)",
             r"quality\s+score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)",
             r"\|\s*\*{0,2}quality_score\*{0,2}\s*\|\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*100",
         ],
@@ -342,7 +363,7 @@ def _extract_constraint_review_summary(output_text: str) -> dict:
                 summary[key] = float(match.group(1))
                 break
     passed_match = re.search(
-        r"(?:constraints_passed|constraints\s+passed)\s*[:：]\s*([0-9]+)\s*/\s*([0-9]+)",
+        field_prefix + r"(?:constraints_passed|constraints\s+passed)" + field_suffix + r"([0-9]+)\s*/\s*([0-9]+)",
         text,
         flags=re.IGNORECASE,
     )
@@ -355,6 +376,39 @@ def _extract_constraint_review_summary(output_text: str) -> dict:
     if passed_match:
         summary["constraints_passed"] = int(passed_match.group(1))
         summary["constraints_total"] = int(passed_match.group(2))
+    return summary
+
+
+def _extract_constraint_review_summary_from_json_payload(payload) -> dict:
+    if not isinstance(payload, dict) or "overall_score" not in payload:
+        return {}
+    summary = {}
+    if isinstance(payload.get("overall_score"), (int, float)):
+        summary["overall_score"] = float(payload["overall_score"])
+    if isinstance(payload.get("passed_constraints"), list):
+        normalized_passed = []
+        for item in payload.get("passed_constraints") or []:
+            if not isinstance(item, dict):
+                continue
+            constraint_id = str(item.get("constraint_id") or "").strip()
+            score = item.get("score")
+            if not constraint_id:
+                continue
+            try:
+                score_value = float(score)
+            except Exception:
+                score_value = 0.0
+            normalized_passed.append({
+                "constraint_id": constraint_id,
+                "score": round(score_value, 1),
+            })
+        summary["passed_constraints"] = normalized_passed
+    if isinstance(payload.get("unmet_constraint_ids"), list):
+        summary["unmet_constraint_ids"] = [
+            str(item).strip()
+            for item in payload.get("unmet_constraint_ids") or []
+            if str(item).strip()
+        ]
     return summary
 
 

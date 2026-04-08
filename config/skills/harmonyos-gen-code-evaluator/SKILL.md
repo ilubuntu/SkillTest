@@ -15,8 +15,8 @@ description: >
 1. 识别评审对象与任务类型。
 2. 按任务类型读取对应评分参考。
 3. 结合规则集检查明显违规项。
-4. 输出结构化评分报告（只输出数字得分，不输出 A/B/C/D/E 等级）。
-5. 采用统一固定的评测结果 schema，在生成结构化评分报告的同时，同步生成可上报服务器的 JSON 结果文件。
+
+4. 采用统一固定的评测结果 schema，**生成可上报服务器的 JSON 结果文件**，无需生成其他任何总结性报告。
 
 ## 输入识别
 
@@ -42,7 +42,6 @@ description: >
 - `references/continuation_rubric.md`
 - `references/bug_fix_rubric.md`
 - `references/rules_application.md`
-- `references/report_template.md`
 - `references/report_result_schema.json`
 - `references/rubric.yaml`
 - `references/arkts_internal_rules.yaml`
@@ -54,8 +53,7 @@ description: >
 - 判断为 `bug_fix` 时，优先读取 `references/bug_fix_rubric.md`，并在需要核对权重、硬门槛、人工复核规则时读取 `references/rubric.yaml`。
 - 只要涉及 HarmonyOS / ArkTS / ArkUI 规范符合度判断，都要读 `references/rules_application.md`。
 - 只要执行规则命中检查、规则违规标记、must / should / forbidden 判定，都要读取 `references/arkts_internal_rules.yaml`。
-- 输出最终报告前，读 `references/report_template.md`，确保结构稳定。
-- 生成最终结果时，读取 `references/report_result_schema.json`，并按固定 schema 组织本次评测 JSON；不要为单次任务动态生成 schema 文件。
+- 生成最终结果时，读取 `references/report_result_schema.json`，并按固定 schema 组织本次评测 JSON。
 
 ## 评分原则
 
@@ -121,37 +119,17 @@ description: >
 6. 逐项评分，输出 score、confidence、rationale、evidence。
 7. 计算维度分与总分，必要时应用硬门槛上限。
 8. 输出优势项、问题项、风险项、人工复核项。
-9. 询问用户是否把当前结果保存到当前目录；仅在用户明确同意后再写对应 markdown 文件与 JSON 文件。
 
 ## 输出要求
 
-最终输出必须是**结构化评分报告**，至少包含：
-
-- 基本信息
-- 总体结论（**只输出数字总分，不输出 A/B/C/D/E 等级**）
-- 一级维度得分
-- 二级指标评分明细
-- 规则违规标记
-- 风险项
-- 优势项
-- 主要问题
-- 人工复核项
-- 最终建议
-- `result_json_summary`：用 3~8 个要点概括最终 JSON 结果中的关键字段和值，例如任务类型、总分、一级维度数量、规则违规数量、是否包含人工复核项、建议保存文件名。
-
-每次完成评分并把报告展示给用户后，**都要询问用户是否将本次结果保存到当前目录**。
-
-执行规则：
-- 如果用户同意保存，再将报告写成 markdown 文件到当前工作目录。
-- 同一次保存动作中，还要额外生成与 markdown 同名、后缀为 `.result.json` 的评测结果文件，用于上报服务器或被后续程序消费。
-- `.result.json` 必须严格遵循 `references/report_result_schema.json` 定义的统一固定 schema；不要为单次任务动态生成 schema 文件，也不要随任务临时增删顶层字段。
-- 如果用户拒绝保存，就只在对话中输出，不主动写文件，也不生成结果 JSON 文件。
-- 文件名应简洁，优先使用评审对象名加上"评分报告"或"score-report"。
+最终输出必须是严格遵循 `references/report_result_schema.json` 定义的统一固定 schema；不要为单次任务动态生成 schema 文件，也不要随任务临时增删顶层字段。
 
 ## 评审时的注意点
 
 - continuation / bug_fix 若缺少参考工程上下文，要降低置信度，并加入人工复核项。
-- 不要为了凑满问题而过度挑刺；证据不足时明确写 `confidence: low`。
+- 要确保`references/rules_application.md`中每一条规则都被严格审查。
+- 尽量减少人工复核项，不要为了凑满问题而过度挑刺。
+- 证据不足时明确写 `confidence: low`。
 - 不要把外部语言习惯强行盖过 HarmonyOS / ArkTS 平台约束。
 - 对 diff 场景，重点看改动精准度、接入一致性、风险和无关改动。
 - 对完整工程场景，重点看结构、职责、复用、平台实践和整体接手性。

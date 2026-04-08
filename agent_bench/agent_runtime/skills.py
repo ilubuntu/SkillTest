@@ -2,6 +2,7 @@
 """Agent Skill 检查与日志。"""
 
 import json
+import hashlib
 import os
 import shutil
 import sys
@@ -88,6 +89,27 @@ def _remove_existing_path(path: str):
     shutil.rmtree(path)
 
 
+def _directory_fingerprint(path: str) -> str:
+    if not os.path.isdir(path):
+        return ""
+    digest = hashlib.sha256()
+    for current_root, dirnames, filenames in os.walk(path):
+        dirnames.sort()
+        filenames.sort()
+        rel_root = os.path.relpath(current_root, path).replace("\\", "/")
+        digest.update(f"D:{rel_root}\n".encode("utf-8"))
+        for filename in filenames:
+            full_path = os.path.join(current_root, filename)
+            rel_path = os.path.relpath(full_path, path).replace("\\", "/")
+            digest.update(f"F:{rel_path}\n".encode("utf-8"))
+            try:
+                with open(full_path, "rb") as file_obj:
+                    digest.update(file_obj.read())
+            except Exception:
+                digest.update(b"[unreadable]")
+    return digest.hexdigest()
+
+
 def _mount_skill_directory(skill_name: str, source_dir: str, on_progress) -> bool:
     target_root = _resolve_opencode_skill_root()
     target_dir = os.path.join(target_root, skill_name)
@@ -109,6 +131,23 @@ def _mount_skill_directory(skill_name: str, source_dir: str, on_progress) -> boo
     except Exception as exc:
         _notify(on_progress, "ERROR", f"skill 挂载失败: {exc}")
         return False
+
+
+def _sync_mounted_skill_if_needed(skill_name: str, skill_path: str, on_progress) -> bool:
+    try:
+        source_dir = _resolve_declared_skill_source(skill_path)
+    except Exception as exc:
+        _notify(on_progress, "ERROR", f"{skill_name} 同步失败: 无法解析 skill 路径: {exc}")
+        return False
+
+    target_dir = os.path.join(_resolve_opencode_skill_root(), skill_name)
+    source_fp = _directory_fingerprint(source_dir)
+    target_fp = _directory_fingerprint(target_dir)
+    if source_fp and source_fp == target_fp:
+        return False
+
+    _notify(on_progress, "WARNING", f"{skill_name} 本地副本不是最新版本，开始同步到 OpenCode skills 目录")
+    return _mount_skill_directory(skill_name, source_dir, on_progress)
 
 
 def _validate_mounted_skill_target(skill_name: str, skill_path: str, on_progress) -> bool:
@@ -146,6 +185,8 @@ def verify_runtime_skills(agent_spec: AgentSpec, on_progress) -> dict:
         skill_name = skill_spec.name
         if not skill_name:
             continue
+        if _sync_mounted_skill_if_needed(skill_name, skill_spec.path, on_progress):
+            mounted_any = True
         _notify(on_progress, "WARNING", f"{agent_spec.display_name} skill 检测开始: 正在通过 `opencode debug skill` 检查 OpenCode 是否正确配置 {skill_name}")
         found, error_message = _opencode_has_skill(skill_name)
         if found:

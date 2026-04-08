@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Deterministic constraint scorer for case.yaml constraints."""
 
+import json
 import os
 import re
 from typing import Dict, Tuple
@@ -112,17 +113,17 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
         _attach_rule_scores(item)
 
     overall_score = _safe_weighted_avg(weighted_score_total, weighted_total)
-    effectiveness_score = _safe_weighted_avg(
-        p0_weighted_score_total,
-        p0_weighted_total,
-        default=overall_score,
-    )
-    quality_score = _safe_weighted_avg(
-        quality_weighted_score_total,
-        quality_weighted_total,
-        default=overall_score,
-    )
-    passed_constraints = sum(1 for item in item_results if item["passed"])
+
+    passed_constraints = []
+    unmet_constraint_ids = []
+    for item in item_results:
+        if item["passed"]:
+            passed_constraints.append({
+                "constraint_id": item.get("id") or "",
+                "score": round(float(item.get("earned_points", 0.0) or 0.0), 1),
+            })
+        else:
+            unmet_constraint_ids.append(item.get("id") or "")
 
     category_scores = {}
     for category, bucket in category_buckets.items():
@@ -133,12 +134,11 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
         "project_root": project_root,
         "summary": {
             "overall_score": round(overall_score, 1),
-            "effectiveness_score": round(effectiveness_score, 1),
-            "quality_score": round(quality_score, 1),
             "total_points": round(total_points, 1),
             "earned_points": round(sum(item.get("earned_points", 0.0) for item in item_results), 1),
             "constraints_total": len(item_results),
-            "constraints_passed": passed_constraints,
+            "passed_constraints": passed_constraints,
+            "unmet_constraint_ids": unmet_constraint_ids,
         },
         "category_scores": category_scores,
         "items": item_results,
@@ -148,18 +148,12 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
 def build_constraint_review_report(score_result: dict) -> str:
     """Build a short report appended to output.txt."""
     summary = score_result.get("summary", {})
-    lines = [
-        REPORT_MARKER,
-        "",
-        f"- Skill: {score_result.get('skill_name') or SKILL_NAME}",
-        f"- Internal Rule Total Score: {summary.get('overall_score', 0):.1f}/100",
-        f"- Effectiveness Score: {summary.get('effectiveness_score', 0):.1f}/100",
-        f"- Quality Score: {summary.get('quality_score', 0):.1f}/100",
-        (
-            f"- Constraints Passed: {summary.get('constraints_passed', 0)}/"
-            f"{summary.get('constraints_total', 0)}"
-        ),
-    ]
+    payload = {
+        "overall_score": round(float(summary.get("overall_score", 0.0) or 0.0), 1),
+        "passed_constraints": list(summary.get("passed_constraints") or []),
+        "unmet_constraint_ids": list(summary.get("unmet_constraint_ids") or []),
+    }
+    lines = [REPORT_MARKER, "", "```json", json.dumps(payload, ensure_ascii=False, indent=2), "```"]
     return "\n".join(lines).strip()
 
 
