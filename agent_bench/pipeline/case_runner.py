@@ -11,7 +11,7 @@ import time
 from typing import Callable
 
 from agent_bench.agent_runtime import AgentRuntime, build_agent_spec, build_agent_task_prompt
-from agent_bench.agent_runtime.prompts import build_constraint_review_prompt
+from agent_bench.agent_runtime.prompts import build_constraint_review_prompt, build_static_review_prompt
 from agent_bench.pipeline.artifacts import (
     agent_meta_dir,
     agent_workspace_dir,
@@ -238,6 +238,7 @@ def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
             ),
         },
         "constraint_review": case.get("_constraint_review_result") or None,
+        "static_review": case.get("_static_review_result") or None,
     }
 
 
@@ -528,16 +529,20 @@ def _legacy_run_constraint_review_agent_v2(case: dict,
         fallback_timeout=agent_timeout,
         temperature=agent_temperature,
         artifact_prefix="constraint_review",
-        artifact_base_dir="review",
+        artifact_base_dir="constraint",
     )
     output_text = ""
     elapsed = 0.0
     try:
         _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "constraint_review"})
         runtime.prepare()
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"{agent_spec.display_name} 已放大 OpenCode 会话目录到任务根目录: {case_dir}",
+        })
         output_text, elapsed = runtime.execute(
             review_prompt,
-            workspace_dir=workspace_dir,
+            workspace_dir=case_dir,
             tag=f"[{agent_spec.display_name}] ",
         )
         last_error_message = runtime.get_last_error_message()
@@ -797,6 +802,92 @@ def _run_constraint_review_agent(case: dict,
         }
 
 
+def _run_static_review_agent(case: dict,
+                             case_dir: str,
+                             original_dir: str,
+                             workspace_dir: str,
+                             patch_path: str,
+                             on_progress,
+                             agent_timeout: int,
+                             agent_temperature):
+    agent_spec = load_agent_spec("static_code_score_agent")
+    if not agent_spec:
+        _notify(on_progress, "log", {"level": "ERROR", "message": "missing agent config: static_code_score_agent"})
+        return {
+            "status": "error",
+            "reason": "missing_agent_config",
+        }
+
+    review_prompt = build_static_review_prompt(
+        case=case,
+        original_project_root=original_dir,
+        repaired_project_root=workspace_dir,
+        repair_patch_file=patch_path,
+        agent_spec=agent_spec,
+    )
+    runtime = AgentRuntime(
+        agent_spec=agent_spec,
+        enhancements={},
+        on_progress=on_progress,
+        fallback_timeout=agent_timeout,
+        temperature=agent_temperature,
+        artifact_prefix="static_review",
+        artifact_base_dir="static",
+    )
+    output_text = ""
+    elapsed = 0.0
+    _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "static_review"})
+    try:
+        runtime.prepare()
+        output_text, elapsed = runtime.execute(
+            review_prompt,
+            workspace_dir=case_dir,
+            tag=f"[{agent_spec.display_name}] ",
+        )
+        last_error_message = runtime.get_last_error_message()
+        metrics = runtime.get_last_interaction_metrics()
+        save_review_agent_artifacts(
+            case_dir,
+            "static_review",
+            output_text,
+            task_prompt=review_prompt,
+            metrics=metrics,
+        )
+        if not output_text and last_error_message:
+            raise RuntimeError(last_error_message)
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"{agent_spec.display_name} static review completed, output={len(output_text)} chars, elapsed={elapsed:.1f}s",
+        })
+        if output_text:
+            _notify(on_progress, "log", {
+                "level": "WARNING",
+                "message": f"{agent_spec.display_name} output preview:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}",
+            })
+        _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "static_review", "elapsed": elapsed})
+        return {
+            "status": "completed",
+            "agent": {
+                "id": agent_spec.id,
+                "name": agent_spec.display_name,
+                "adapter": agent_spec.adapter,
+                "model": agent_spec.model,
+            },
+            "output_path": os.path.join(static_dir(case_dir), "static_review_output.txt"),
+            "metrics_path": os.path.join(static_dir(case_dir), "static_review_interaction_metrics.json"),
+        }
+    except Exception as exc:
+        _notify(on_progress, "log", {"level": "ERROR", "message": f"static review failed: {exc}"})
+        return {
+            "status": "error",
+            "reason": str(exc),
+            "output_path": os.path.join(static_dir(case_dir), "static_review_output.txt"),
+            "metrics_path": os.path.join(static_dir(case_dir), "static_review_interaction_metrics.json"),
+        }
+    finally:
+        runtime.teardown()
+
+
 def _run_compile_check(case: dict,
                        case_dir: str,
                        project_path: str,
@@ -804,6 +895,7 @@ def _run_compile_check(case: dict,
                        stage_label: str,
                        on_progress):
     template_project_path = resolve_case_original_project(case)
+    _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": stage_name})
     _notify(on_progress, "log", {"level": "WARNING", "message": f"[开始] {stage_label}"})
     t0 = time.time()
     compile_result = check_project_compilable(
@@ -829,6 +921,7 @@ def _run_compile_check(case: dict,
                 "level": "ERROR",
                 "message": f"{stage_label} 错误摘要:\n{error_preview}",
             })
+    _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": stage_name, "status": "done", "elapsed": elapsed})
     return compile_result
 
 
@@ -915,6 +1008,16 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             case["_post_compile_result"] = post_compile_result
             patch_path = _generate_review_patch(case_dir, workspace_dir, baseline_commit, on_progress)
             case["_constraint_review_result"] = _run_constraint_review_agent(
+                case=case,
+                case_dir=case_dir,
+                original_dir=original_project_dir(case_dir),
+                workspace_dir=workspace_dir,
+                patch_path=patch_path,
+                on_progress=on_progress,
+                agent_timeout=agent_timeout,
+                agent_temperature=agent_temperature,
+            )
+            case["_static_review_result"] = _run_static_review_agent(
                 case=case,
                 case_dir=case_dir,
                 original_dir=original_project_dir(case_dir),

@@ -65,13 +65,6 @@ def build_case(execution_id: int,
     }
 
 
-def stage_to_local_status(stage_name: str) -> Optional[str]:
-    mapping = {
-        "Agent运行": "agent_running",
-    }
-    return mapping.get(stage_name)
-
-
 def map_internal_status_to_remote(local_status: str) -> RemoteExecutionStatus:
     normalized = (local_status or "").lower()
     if normalized == "running":
@@ -85,11 +78,13 @@ def map_internal_status_to_remote(local_status: str) -> RemoteExecutionStatus:
 
 def build_status_payload(remote_status: RemoteExecutionStatus,
                          error_message: Optional[str],
-                         conversation: list = None) -> Dict[str, Any]:
+                         conversation: Optional[list] = None,
+                         execution_log: Optional[list] = None) -> Dict[str, Any]:
     payload = CloudStatusReportPayload(
         status=remote_status,
         errorMessage=error_message,
         conversation=conversation,
+        executionLog=execution_log,
     )
     return payload.model_dump(by_alias=True, exclude_none=True)
 

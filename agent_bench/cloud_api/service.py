@@ -24,12 +24,11 @@ from agent_bench.cloud_api.converter import (
     build_prompt,
     build_status_payload,
     map_internal_status_to_remote,
-    stage_to_local_status,
 )
 from agent_bench.cloud_api.models import CloudExecutionStartRequest, RemoteExecutionStatus
 from agent_bench.pipeline.case_runner import run_single_case
 from agent_bench.pipeline.loader import load_agent, load_agent_defaults, load_agents
-from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, original_project_dir
+from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, original_project_dir, review_dir, static_dir
 try:
     from agent_bench.storage_uploader import AgcStorageUploader
     HAS_STORAGE_UPLOADER = True
@@ -60,13 +59,24 @@ AGC_PROJECT_CLIENT_CONFIG = {
 }
 
 STATUS_PUSH_INTERVAL_SECONDS = 2.0
-STATUS_PUSH_MAX_BATCH_SIZE = 20
-STATUS_PUSH_MAX_SSE_BATCH_SIZE = 5
+STATUS_PUSH_DETAIL_FLUSH_SECONDS = 10.0
 logger = logging.getLogger("agent_bench.executor")
+
+STAGE_PENDING = "pending"
+STAGE_PREPARING = "preparing"
+STAGE_GENERATING = "generating"
+STAGE_VALIDATING = "validating"
+STAGE_CONSTRAINT_SCORING = "constraint_scoring"
+STAGE_STATIC_SCORING = "static_scoring"
+STAGE_COMPLETED = "completed"
 
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _now_stage_time() -> str:
+    return datetime.now().strftime("%Y%m%d-%H:%M:%S")
 
 
 def _safe_json(data: Any) -> str:
@@ -309,16 +319,12 @@ class CloudExecutionManager:
 
     def _default_progress_upload_state(self) -> Dict[str, Any]:
         return {
-            "last_enqueued_event_id": 0,
-            "last_imported_sse_line": 0,
-            "last_attempted_event_id": 0,
-            "last_uploaded_event_id": 0,
-            "last_attempted_at": "",
-            "last_uploaded_at": "",
+            "last_payload_signature": "",
+            "last_reported_stage": "",
+            "last_reported_status": "",
+            "last_detail_change_at": 0.0,
+            "last_reported_at_epoch": 0.0,
             "last_response_ok": None,
-            "interval_seconds": STATUS_PUSH_INTERVAL_SECONDS,
-            "max_batch_size": STATUS_PUSH_MAX_BATCH_SIZE,
-            "max_sse_batch_size": STATUS_PUSH_MAX_SSE_BATCH_SIZE,
         }
 
     def _load_progress_upload_state(self, path: str) -> Dict[str, Any]:
@@ -329,84 +335,71 @@ class CloudExecutionManager:
     def _save_progress_upload_state(self, path: str, state: Dict[str, Any]):
         _write_json(path, state)
 
-    def _enqueue_progress_event(self, state: Dict[str, Any], event: Dict[str, Any]):
-        queue_path = str(state.get("progress_queue_path") or "").strip()
-        upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
-        if not queue_path or not upload_state_path:
-            return
-        upload_state = self._load_progress_upload_state(upload_state_path)
-        next_id = int(upload_state.get("last_enqueued_event_id") or 0) + 1
-        payload = {
-            "id": next_id,
-            "source": event.get("source") or "local",
-            "timestamp": event.get("timestamp") or _now_iso(),
-            "eventType": event.get("eventType") or "unknown",
-            "label": event.get("label") or "",
-            "message": _truncate_message(event.get("message")),
+    def _stage_message(self, local_status: str, local_stage: str) -> str:
+        if local_status == "failed":
+            return "任务执行失败"
+        mapping = {
+            STAGE_PENDING: "任务排队中",
+            STAGE_PREPARING: "执行环境准备中",
+            STAGE_GENERATING: "Agent正在处理",
+            STAGE_VALIDATING: "结果验证中",
+            STAGE_CONSTRAINT_SCORING: "约束规则打分中",
+            STAGE_STATIC_SCORING: "静态代码打分中",
+            STAGE_COMPLETED: "任务执行完成",
         }
-        level = str(event.get("level") or "").strip()
-        if level:
-            payload["level"] = level
-        _append_jsonl(queue_path, payload)
-        upload_state["last_enqueued_event_id"] = next_id
-        self._save_progress_upload_state(upload_state_path, upload_state)
+        return mapping.get(local_stage, "任务处理中")
 
-    def _import_sse_progress_events(self, state: Dict[str, Any]):
-        sse_path = str(state.get("sse_progress_log_path") or "").strip()
-        queue_path = str(state.get("progress_queue_path") or "").strip()
-        upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
-        if not sse_path or not queue_path or not upload_state_path or not os.path.exists(sse_path):
+    def _ensure_stage_entry(self, state: Dict[str, Any], stage: str, message: Optional[str] = None):
+        logs = state.setdefault("execution_log", [])
+        if logs and str(logs[-1].get("stage") or "") == stage:
+            if message:
+                logs[-1]["message"] = message
+            return logs[-1]
+        entry = {
+            "stage": stage,
+            "message": message or self._stage_message(str(state.get("local_status") or ""), stage),
+            "detail": [],
+        }
+        logs.append(entry)
+        state["updated_at"] = _now_iso()
+        return entry
+
+    def _append_execution_detail(self, state: Dict[str, Any], stage: str, message: str):
+        if not message:
             return
-        upload_state = self._load_progress_upload_state(upload_state_path)
-        start_line = int(upload_state.get("last_imported_sse_line") or 0)
-        imported = 0
-        try:
-            with open(sse_path, "r", encoding="utf-8") as f:
-                for idx, line in enumerate(f, start=1):
-                    if idx <= start_line:
-                        continue
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        item = json.loads(line)
-                    except Exception:
-                        continue
-                    if not isinstance(item, dict):
-                        continue
-                    self._enqueue_progress_event(state, {
-                        "source": "sse",
-                        "timestamp": item.get("timestamp") or _now_iso(),
-                        "eventType": item.get("eventType") or "unknown",
-                        "label": item.get("label") or "",
-                        "message": item.get("message") or "",
-                    })
-                    upload_state = self._load_progress_upload_state(upload_state_path)
-                    upload_state["last_imported_sse_line"] = idx
-                    self._save_progress_upload_state(upload_state_path, upload_state)
-                    imported += 1
-        except Exception as exc:
-            self._append_local_event(state, "progress_import_error", {"error": str(exc)})
-        if imported:
-            self._append_local_event(state, "progress_import", {"count": imported})
-
-    def _build_progress_batch(self, state: Dict[str, Any]) -> list[Dict[str, Any]]:
-        queue_path = str(state.get("progress_queue_path") or "").strip()
+        entry = self._ensure_stage_entry(state, stage)
+        entry.setdefault("detail", []).append({
+            "time": _now_stage_time(),
+            "message": str(message).strip(),
+        })
+        state["updated_at"] = _now_iso()
         upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
-        if not queue_path or not upload_state_path:
-            return []
-        upload_state = self._load_progress_upload_state(upload_state_path)
-        last_uploaded = int(upload_state.get("last_uploaded_event_id") or 0)
-        max_batch = int(upload_state.get("max_batch_size") or STATUS_PUSH_MAX_BATCH_SIZE)
-        max_sse = int(upload_state.get("max_sse_batch_size") or STATUS_PUSH_MAX_SSE_BATCH_SIZE)
-        events = [item for item in _read_jsonl(queue_path) if int(item.get("id") or 0) > last_uploaded]
-        if not events:
-            return []
-        local_events = [item for item in events if str(item.get("source") or "") != "sse"]
-        sse_events = [item for item in events if str(item.get("source") or "") == "sse"][:max_sse]
-        batch = local_events + sse_events
-        batch.sort(key=lambda item: (str(item.get("timestamp") or ""), int(item.get("id") or 0)))
-        return batch[:max_batch]
+        if upload_state_path:
+            upload_state = self._load_progress_upload_state(upload_state_path)
+            upload_state["last_detail_change_at"] = time.time()
+            self._save_progress_upload_state(upload_state_path, upload_state)
+
+    def _build_execution_log_snapshot(self, state: Dict[str, Any]) -> list[Dict[str, Any]]:
+        return json.loads(json.dumps(state.get("execution_log") or []))
+
+    def _should_report_status(self, state: Dict[str, Any], should_stop: bool) -> bool:
+        upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
+        upload_state = self._load_progress_upload_state(upload_state_path) if upload_state_path else self._default_progress_upload_state()
+        current_status = str(state.get("local_status") or "")
+        current_stage = str(state.get("local_stage") or "")
+        last_status = str(upload_state.get("last_reported_status") or "")
+        last_stage = str(upload_state.get("last_reported_stage") or "")
+        last_detail_change_at = float(upload_state.get("last_detail_change_at") or 0.0)
+        last_reported_at = float(upload_state.get("last_reported_at_epoch") or 0.0)
+        if should_stop or current_status in {"completed", "failed"}:
+            return True
+        if current_status != last_status or current_stage != last_stage:
+            return True
+        if last_reported_at > 0 and (time.time() - last_reported_at) < STATUS_PUSH_DETAIL_FLUSH_SECONDS:
+            return False
+        if last_detail_change_at > last_reported_at and (time.time() - last_reported_at) >= STATUS_PUSH_DETAIL_FLUSH_SECONDS:
+            return True
+        return False
 
     def start(self, payload: CloudExecutionStartRequest, local_base_url: str):
         with self._lock:
@@ -420,9 +413,10 @@ class CloudExecutionManager:
                 "token": (payload.token or "").strip(),
                 "test_case": payload.testCase.model_dump(),
                 "local_status": "pending",
-                "local_stage": "preparing",
+                "local_stage": STAGE_PENDING,
                 "error_message": "",
                 "conversation": [],
+                "execution_log": [],
                 "status_push_stop": False,
                 "created_at": _now_iso(),
                 "updated_at": _now_iso(),
@@ -446,6 +440,7 @@ class CloudExecutionManager:
                 _truncate_message(payload.testCase.input, 300),
                 payload.testCase.fileUrl,
             )
+            self._ensure_stage_entry(state, STAGE_PENDING, "任务排队中")
 
             status_thread = threading.Thread(
                 target=self._status_report_loop,
@@ -493,13 +488,8 @@ class CloudExecutionManager:
         }
         state["conversation"].append(record)
         state["conversation"] = state["conversation"][-200:]
-        state["updated_at"] = _now_iso()
         self._log_runtime_event(state, record)
         self._append_local_event(state, "conversation", record)
-        normalized = self._normalize_local_conversation(record)
-        if normalized:
-            normalized["source"] = "local"
-            self._enqueue_progress_event(state, normalized)
 
     def _log_runtime_event(self, state: Dict[str, Any], record: Dict[str, Any]):
         item_type = str(record.get("type") or "").strip() or "event"
@@ -538,13 +528,13 @@ class CloudExecutionManager:
         })
 
     def _report_remote_status(self, state: Dict[str, Any]):
-        self._import_sse_progress_events(state)
         remote_status = map_internal_status_to_remote(state.get("local_status"))
-        conversation = self._build_progress_batch(state)
+        execution_log = self._build_execution_log_snapshot(state)
         payload = build_status_payload(
             remote_status,
             state.get("error_message"),
-            conversation=conversation or None,
+            conversation=[],
+            execution_log=execution_log,
         )
         state["last_status_payload"] = payload
         response = report_status(
@@ -554,52 +544,21 @@ class CloudExecutionManager:
             token=(state.get("token") or "").strip() or None,
         )
         state["last_status_response"] = response
-        state["updated_at"] = _now_iso()
         upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
-        if upload_state_path and conversation:
+        if upload_state_path:
             upload_state = self._load_progress_upload_state(upload_state_path)
-            upload_state["last_attempted_event_id"] = int(conversation[-1].get("id") or upload_state.get("last_attempted_event_id") or 0)
-            upload_state["last_attempted_at"] = _now_iso()
+            upload_state["last_reported_status"] = str(state.get("local_status") or "")
+            upload_state["last_reported_stage"] = str(state.get("local_stage") or "")
+            upload_state["last_reported_at_epoch"] = time.time()
+            upload_state["last_payload_signature"] = json.dumps(payload, ensure_ascii=False, sort_keys=True)
             upload_state["last_response_ok"] = bool(response.get("ok"))
-            if response.get("ok"):
-                upload_state["last_uploaded_event_id"] = int(conversation[-1].get("id") or upload_state.get("last_uploaded_event_id") or 0)
-                upload_state["last_uploaded_at"] = _now_iso()
             self._save_progress_upload_state(upload_state_path, upload_state)
         self._append_local_event(state, "status_report", {
             "payload": payload,
             "response": response,
         })
 
-    def _normalize_local_conversation(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        item_type = str(item.get("type") or "").strip()
-        message = str(item.get("message") or "").strip()
-        if not item_type:
-            return None
-        label_map = {
-            "status": "本地状态更新",
-            "prepare": "工程准备",
-            "stage_start": "流程开始",
-            "stage_done": "流程结束",
-            "error": "本地执行错误",
-            "case_done": "用例执行完成",
-            "log": "本地日志",
-        }
-        payload = {
-            "timestamp": item.get("timestamp"),
-            "eventType": item_type,
-            "label": label_map.get(item_type, item_type),
-            "message": _truncate_message(message),
-        }
-        level = str(item.get("level") or "").strip()
-        if level:
-            payload["level"] = level
-        return payload
-
-    def _build_status_conversation(self, state: Dict[str, Any]) -> list[Dict[str, Any]]:
-        return self._build_progress_batch(state)
-
     def _status_report_loop(self, execution_id: int):
-        last_payload = None
         while True:
             time.sleep(STATUS_PUSH_INTERVAL_SECONDS)
             with self._lock:
@@ -607,38 +566,17 @@ class CloudExecutionManager:
                 if not state:
                     return
                 should_stop = bool(state.get("status_push_stop"))
-                upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
-                upload_state = self._load_progress_upload_state(upload_state_path) if upload_state_path else self._default_progress_upload_state()
-                try:
-                    payload = build_status_payload(
-                        map_internal_status_to_remote(state.get("local_status")),
-                        state.get("error_message"),
-                        conversation=self._build_progress_batch(state) or None,
-                    )
-                except Exception as exc:
-                    self._append_local_event(state, "status_report_error", {"error": str(exc)})
-                    payload = None
-            if payload and payload != last_payload:
+                should_report = self._should_report_status(state, should_stop)
+            if should_report:
                 with self._lock:
                     state = self._states.get(execution_id)
                     if state:
                         try:
                             self._report_remote_status(state)
-                            last_payload = payload
                         except Exception as exc:
                             self._append_local_event(state, "status_report_error", {"error": str(exc)})
-            interval_seconds = float(upload_state.get("interval_seconds") or STATUS_PUSH_INTERVAL_SECONDS)
             if should_stop:
-                with self._lock:
-                    state = self._states.get(execution_id)
-                    if state:
-                        try:
-                            self._report_remote_status(state)
-                        except Exception:
-                            pass
                 return
-            if interval_seconds != STATUS_PUSH_INTERVAL_SECONDS:
-                time.sleep(max(0.0, interval_seconds - STATUS_PUSH_INTERVAL_SECONDS))
 
     def _run_execution(self, payload: CloudExecutionStartRequest, local_base_url: str):
         execution_id = payload.executionId
@@ -651,6 +589,7 @@ class CloudExecutionManager:
                 state["local_status"] = status
                 if stage:
                     state["local_stage"] = stage
+                    self._ensure_stage_entry(state, stage, self._stage_message(status, stage))
                 state["updated_at"] = _now_iso()
 
         def on_progress(event: str, data: Dict[str, Any]):
@@ -659,23 +598,35 @@ class CloudExecutionManager:
                 if event == "log":
                     message = data.get("message", "")
                     self._append_conversation(current, "log", message, data.get("level", "INFO"))
+                    if str(current.get("local_status") or "") == "running":
+                        self._append_execution_detail(current, str(current.get("local_stage") or STAGE_PENDING), message)
                 elif event == "stage_start":
-                    stage = stage_to_local_status(data.get("stage", ""))
-                    if stage:
-                        current["local_stage"] = stage
+                    stage_name = str(data.get("stage", "")).strip()
+                    stage_map = {
+                        "Agent运行": STAGE_GENERATING,
+                        "constraint_review": STAGE_CONSTRAINT_SCORING,
+                        "约束规则打分": STAGE_CONSTRAINT_SCORING,
+                        "post_compile_check": STAGE_VALIDATING,
+                        "结果验证": STAGE_VALIDATING,
+                        "static_review": STAGE_STATIC_SCORING,
+                        "静态代码打分": STAGE_STATIC_SCORING,
+                    }
+                    mapped_stage = stage_map.get(stage_name)
+                    if mapped_stage:
+                        current["local_stage"] = mapped_stage
+                        self._ensure_stage_entry(current, mapped_stage, self._stage_message(str(current.get("local_status") or ""), mapped_stage))
+                        current["updated_at"] = _now_iso()
                     self._append_conversation(current, "stage_start", data.get("stage", ""))
                 elif event == "stage_done":
-                    stage = stage_to_local_status(data.get("stage", ""))
-                    if stage and data.get("status") == "error":
-                        current["local_stage"] = "failed"
                     self._append_conversation(current, "stage_done", f"{data.get('stage', '')}:{data.get('status', 'done')}")
                 elif event == "error":
                     current["error_message"] = data.get("message", "")
-                    current["local_stage"] = "failed"
+                    current["updated_at"] = _now_iso()
+                    current_stage = str(current.get("local_stage") or STAGE_PENDING)
+                    self._append_execution_detail(current, current_stage, "任务执行失败")
                     self._append_conversation(current, "error", data.get("message", ""), "ERROR")
                 elif event == "case_done":
                     self._append_conversation(current, "case_done", data.get("case_id", ""))
-                current["updated_at"] = _now_iso()
 
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -688,14 +639,14 @@ class CloudExecutionManager:
                 state["case_dir"] = case_dir
                 state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_sse_events.jsonl")
                 state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_progress_events.jsonl")
-                state["progress_queue_path"] = os.path.join(run_dir, "progress_events.jsonl")
                 state["progress_upload_state_path"] = os.path.join(run_dir, "progress_upload_state.json")
                 self._save_progress_upload_state(state["progress_upload_state_path"], self._default_progress_upload_state())
 
-            update_local_status("running", "preparing")
+            update_local_status("running", STAGE_PREPARING)
             with self._lock:
                 self._append_conversation(state, "status", "任务开始执行")
-                self._append_conversation(state, "prepare", f"本地产物目录: {run_dir}")
+                self._append_execution_detail(state, STAGE_PENDING, "任务已接收，等待执行")
+                self._append_execution_detail(state, STAGE_PREPARING, f"本地产物目录: {run_dir}")
             downloaded_project_root = _prepare_project_from_file_url(payload.testCase.fileUrl, source_dir, on_progress=on_progress)
             original_dir = original_project_dir(case_dir)
             if os.path.exists(original_dir):
@@ -791,14 +742,15 @@ class CloudExecutionManager:
                     "response": result_response,
                 })
 
-            update_local_status("completed", "completed")
+            update_local_status("completed", STAGE_COMPLETED)
             with self._lock:
+                self._append_execution_detail(state, STAGE_COMPLETED, "任务执行完成")
                 self._append_conversation(state, "status", "任务执行完成")
         except Exception as exc:
             with self._lock:
                 state["error_message"] = str(exc)
                 self._append_conversation(state, "error", str(exc), "ERROR")
-            update_local_status("failed", "failed")
+            update_local_status("failed", str(state.get("local_stage") or STAGE_PENDING))
         finally:
             with self._lock:
                 state["status_push_stop"] = True

@@ -14,7 +14,8 @@ Post https://xxxxx/api/test-executions/{id}/report
 {
       status: ExecutionStatus;
       errorMessage?: string;
-      conversation?: Record<string, any>[];//和大模型的交互流程
+      conversation?: Record<string, any>[];//和大模型的交互流程，暂时忽略
+      executionLog：{}// 日志详细，云测只保存一份，每次传全量
 }
 
 export enum ExecutionStatus {PENDING = 'pending',RUNNING = 'running',COMPLETED = 'completed',FAILED = 'failed'}
@@ -34,3 +35,5 @@ Post https://xxxxx/api/execution-results
      outputCodeUrl: string;
   }
 }
+
+

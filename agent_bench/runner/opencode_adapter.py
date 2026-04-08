@@ -22,7 +22,7 @@ import urllib.request
 import urllib.error
 from typing import Optional
 
-from agent_bench.pipeline.artifacts import agent_meta_dir, review_dir
+from agent_bench.pipeline.artifacts import agent_meta_dir, review_dir, static_dir
 from agent_bench.runner.adapter import AgentAdapter
 
 DEFAULT_API_BASE = "http://localhost:4096"
@@ -485,9 +485,15 @@ class OpenCodeAdapter(AgentAdapter):
     def _resolve_sse_log_path(self, workspace_dir: Optional[str]) -> Optional[str]:
         if not workspace_dir:
             return None
-        case_dir = os.path.dirname(workspace_dir.rstrip(os.sep))
+        normalized_dir = workspace_dir.rstrip(os.sep)
+        if os.path.isdir(os.path.join(normalized_dir, "workspace")) or os.path.isdir(os.path.join(normalized_dir, "original")):
+            case_dir = normalized_dir
+        else:
+            case_dir = os.path.dirname(normalized_dir)
         if self.artifact_base_dir == "constraint":
             target_dir = review_dir(case_dir)
+        elif self.artifact_base_dir == "static":
+            target_dir = static_dir(case_dir)
         else:
             target_dir = agent_meta_dir(case_dir)
         os.makedirs(target_dir, exist_ok=True)

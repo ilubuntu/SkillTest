@@ -61,10 +61,15 @@ def save_review_agent_artifacts(case_dir: str,
                                 output: str,
                                 task_prompt: str = "",
                                 metrics: dict | None = None):
-    """保存评审/打分 agent 产物到 review 目录。"""
-    target_dir = review_dir(case_dir)
-    os.makedirs(target_dir, exist_ok=True)
+    """保存评审/打分 agent 产物到对应阶段目录。"""
     prefix = (stage or "review").strip()
+    if prefix == "constraint_review":
+        target_dir = review_dir(case_dir)
+    elif prefix == "static_review":
+        target_dir = static_dir(case_dir)
+    else:
+        target_dir = stage_dir(case_dir, prefix or "review")
+    os.makedirs(target_dir, exist_ok=True)
     with open(os.path.join(target_dir, f"{prefix}_output.txt"), "w", encoding="utf-8") as f:
         f.write(output or "")
     if task_prompt:

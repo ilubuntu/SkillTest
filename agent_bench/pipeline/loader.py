@@ -347,10 +347,10 @@ def load_agent_defaults() -> dict:
 
 
 def load_agents() -> List[dict]:
-    """返回可用 Agent 列表。"""
+    """返回 Agent 列表。"""
     registry = load_agents_registry()
     agents = registry.get("agents", [])
-    return [agent for agent in agents if agent.get("enabled", True)]
+    return [agent for agent in agents if isinstance(agent, dict)]
 
 
 def _merge_mounted_skills(defaults: dict, agent: dict) -> List[dict]:
@@ -442,8 +442,6 @@ def validate_runtime_config() -> None:
 
     registry = load_agents_registry()
     for agent in registry.get("agents", []) or []:
-        if not agent.get("enabled", True):
-            continue
         merged = dict(load_agent_defaults())
         merged.update(agent)
         for skill in merged.get("mounted_skills", []) or []:

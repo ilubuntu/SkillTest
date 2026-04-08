@@ -96,9 +96,9 @@ kill_port() {
     local port=$1
     local pids=""
     if command -v lsof >/dev/null 2>&1; then
-        pids="$(lsof -ti :$port 2>/dev/null)"
+        pids="$(lsof -ti :$port 2>/dev/null || true)"
     elif command -v powershell.exe >/dev/null 2>&1; then
-        pids="$(powershell.exe -NoProfile -Command "[int]\$port=$port; \$connections = Get-NetTCPConnection -LocalPort \$port -State Listen -ErrorAction SilentlyContinue; if (\$connections) { \$connections | Select-Object -ExpandProperty OwningProcess -Unique }" | tr -d '\r')"
+        pids="$(powershell.exe -NoProfile -Command "[int]\$port=$port; \$connections = Get-NetTCPConnection -LocalPort \$port -State Listen -ErrorAction SilentlyContinue; if (\$connections) { \$connections | Select-Object -ExpandProperty OwningProcess -Unique }" | tr -d '\r' || true)"
     fi
     if [ -n "$pids" ]; then
         warn "端口 $port 已被占用，正在清理..."
@@ -168,7 +168,7 @@ start_backend() {
         set_executor_log_file
     fi
     cd "$SCRIPT_DIR"
-    nohup "$PYTHON_BIN" -m agent_bench.executor.main >>"$BACKEND_LOG" 2>&1 &
+    nohup "$PYTHON_BIN" -m uvicorn agent_bench.executor.main:app --host 0.0.0.0 --port $BACKEND_PORT --no-access-log --log-level warning >>"$BACKEND_LOG" 2>&1 &
 
     # 等待启动
     for i in $(seq 1 10); do
