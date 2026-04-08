@@ -289,8 +289,9 @@ class OpenCodeAdapter(AgentAdapter):
             if workspace_dir:
                 self._log("INFO", f"OpenCode HTTP 上下文目录: {workspace_dir}", tag=tag)
 
+            logged_payload = self._sanitize_payload_for_logging(message_payload)
             self._log("INFO",
-                f"发给 OpenCode 的完整请求体:\n{json.dumps(message_payload, ensure_ascii=False, indent=2)}",
+                f"发给 OpenCode 的完整请求体:\n{json.dumps(logged_payload, ensure_ascii=False, indent=2)}",
                 tag=tag)
 
             if self._prefer_async_sse:
@@ -331,6 +332,52 @@ class OpenCodeAdapter(AgentAdapter):
             self._last_error_message = f"请求超时 ({self.timeout}s)"
             self._log("ERROR", f"请求超时 ({self.timeout}s)", tag=tag)
             raise TimeoutError(f"Agent 请求超时 ({self.timeout}s)")
+
+    def _sanitize_payload_for_logging(self, message_payload: dict) -> dict:
+        try:
+            cloned = json.loads(json.dumps(message_payload, ensure_ascii=False))
+        except Exception:
+            return message_payload
+        parts = cloned.get("parts")
+        if not isinstance(parts, list):
+            return cloned
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if str(part.get("type") or "").strip().lower() != "text":
+                continue
+            text = str(part.get("text") or "")
+            if "## 输入 5：用例约束规则" not in text:
+                continue
+            part["text"] = self._summarize_constraint_section_for_logging(text)
+        return cloned
+
+    def _summarize_constraint_section_for_logging(self, text: str) -> str:
+        marker = "## 输入 5：用例约束规则"
+        start = text.find(marker)
+        if start < 0:
+            return text
+        next_section = text.find("\n\n## ", start + len(marker))
+        if next_section < 0:
+            next_section = len(text)
+        prefix = text[:start + len(marker)]
+        suffix = text[next_section:]
+        section_body = text[start + len(marker):next_section].strip()
+        try:
+            payload = json.loads(section_body)
+        except Exception:
+            return text
+        if not isinstance(payload, list):
+            return text
+        brief = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            brief.append({
+                "id": item.get("id"),
+                "name": item.get("name"),
+            })
+        return f"{prefix}\n{json.dumps(brief, ensure_ascii=False, indent=2)}{suffix}"
 
     def _execute_message_sync(self,
                               session_id: str,

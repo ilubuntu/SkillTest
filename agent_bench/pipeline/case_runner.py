@@ -128,8 +128,15 @@ def _upload_original_project(case: dict, on_progress: Callable = None) -> str:
 
 
 def _load_stage_interaction_metrics(case_dir: str, stage: str) -> dict:
-    metrics_path = os.path.join(agent_meta_dir(case_dir), "agent_interaction_metrics.json") if stage == "agent" else ""
-    legacy_metrics_path = os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json") if stage == "agent" else ""
+    metrics_path = ""
+    legacy_metrics_path = ""
+    if stage == "agent":
+        metrics_path = os.path.join(agent_meta_dir(case_dir), "agent_interaction_metrics.json")
+        legacy_metrics_path = os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json")
+    elif stage == "constraint_review":
+        metrics_path = os.path.join(review_dir(case_dir), "constraint_review_interaction_metrics.json")
+    elif stage == "static_review":
+        metrics_path = os.path.join(static_dir(case_dir), "static_review_interaction_metrics.json")
     if not metrics_path or not os.path.exists(metrics_path):
         metrics_path = legacy_metrics_path
     if not metrics_path or not os.path.exists(metrics_path):
@@ -141,17 +148,27 @@ def _load_stage_interaction_metrics(case_dir: str, stage: str) -> dict:
         return {}
 
 
-def _log_compile_self_check_signal(case_id: str, agent_label: str, output_text: str, on_progress):
-    marker = "[[BUILD_HARMONY_PROJECT_CALLED]]"
-    if marker in (output_text or ""):
+def _log_compile_self_check_signal(case_id: str,
+                                   agent_label: str,
+                                   output_text: str,
+                                   on_progress,
+                                   target_skills: list[str] | None = None):
+    normalized_output = (output_text or "").lower()
+    expected_skills = [
+        str(name or "").strip().lower()
+        for name in (target_skills or [])
+        if str(name or "").strip()
+    ]
+    matched = [name for name in expected_skills if name in normalized_output]
+    if matched:
         _notify(on_progress, "log", {
             "level": "WARNING",
-            "message": f"{agent_label} 模型输出中自报已调用 build-harmony-project",
+            "message": f"{agent_label} 模型输出中自报已调用预期 skill: {', '.join(matched)}",
         })
         return
     _notify(on_progress, "log", {
         "level": "WARNING",
-        "message": f"{agent_label} 未观察到显式 skill 事件，且模型输出中未包含 build-harmony-project 调用标记",
+        "message": f"{agent_label} 未观察到显式 skill 事件，且模型输出中未包含预期 skill 调用标记",
     })
 
 
@@ -167,28 +184,40 @@ def _find_generated_hap_files(case_dir: str, stage: str) -> list[str]:
     return hap_files
 
 
-def _log_skill_call_detection(case_id: str, agent_label: str, case_dir: str, stage: str, output_text: str, on_progress):
+def _log_skill_call_detection(case_id: str,
+                              agent_label: str,
+                              case_dir: str,
+                              stage: str,
+                              output_text: str,
+                              on_progress,
+                              target_skills: list[str] | None = None):
     metrics = _load_stage_interaction_metrics(case_dir, stage)
     raw = metrics.get("raw") or {}
     message_info = raw.get("message_info") or {}
     raw_parts = message_info.get("parts") if isinstance(message_info.get("parts"), list) else []
     explicit_skill_matches = []
     compile_command_matches = []
+    expected_skills = [
+        str(name or "").strip().lower()
+        for name in (target_skills or [])
+        if str(name or "").strip()
+    ]
     for part in raw_parts:
         if not isinstance(part, dict):
             continue
         serialized = json.dumps(part, ensure_ascii=False).lower()
         part_type = str(part.get("type") or "unknown")
-        if part_type in {"tool", "skill"} and "build-harmony-project" in serialized:
-            explicit_skill_matches.append(part_type)
+        matched_skill = next((name for name in expected_skills if name in serialized), "")
+        if part_type in {"tool", "skill"} and matched_skill:
+            explicit_skill_matches.append(f"{part_type}:{matched_skill}")
             continue
-        if any(token in serialized for token in ("hvigor", "assemblehap", "--stop-daemon")):
+        if "build-harmony-project" in expected_skills and any(token in serialized for token in ("hvigor", "assemblehap", "--stop-daemon")):
             compile_command_matches.append(part_type)
     if explicit_skill_matches:
         summary = ",".join(str(item) for item in explicit_skill_matches[:3])
         _notify(on_progress, "log", {
-        "level": "WARNING",
-            "message": f"{agent_label} 在 interaction_metrics 中观察到 build-harmony-project 明确调用痕迹，事件={summary}",
+            "level": "WARNING",
+            "message": f"{agent_label} 在 interaction_metrics 中观察到预期 skill 明确调用痕迹，事件={summary}",
         })
         return
     if compile_command_matches:
@@ -206,7 +235,7 @@ def _log_skill_call_detection(case_id: str, agent_label: str, case_dir: str, sta
             "message": f"{agent_label} 未观察到显式 skill 事件，但检测到真实编译产物: {', '.join(rel_files)}",
         })
         return
-    _log_compile_self_check_signal(case_id, agent_label, output_text, on_progress)
+    _log_compile_self_check_signal(case_id, agent_label, output_text, on_progress, expected_skills)
 def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
     post_compile_result = case.get("_post_compile_result") or {}
     pre_compile_result = case.get("_pre_compile_result") or {}
@@ -409,6 +438,53 @@ def _extract_constraint_review_summary_from_json_payload(payload) -> dict:
             for item in payload.get("unmet_constraint_ids") or []
             if str(item).strip()
         ]
+    return summary
+
+
+def _extract_static_review_summary(output_text: str) -> dict:
+    text = output_text or ""
+
+    json_block_matches = re.findall(r"```json\s*(\{[\s\S]*?\})\s*```", text, flags=re.IGNORECASE)
+    for block in reversed(json_block_matches):
+        try:
+            payload = json.loads(block)
+        except Exception:
+            continue
+        extracted = _extract_static_review_summary_from_json_payload(payload)
+        if extracted:
+            return extracted
+
+    try:
+        direct_payload = json.loads(text.strip())
+    except Exception:
+        direct_payload = None
+    extracted = _extract_static_review_summary_from_json_payload(direct_payload)
+    if extracted:
+        return extracted
+
+    total_match = re.search(r"total_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)", text, flags=re.IGNORECASE)
+    if total_match:
+        score = float(total_match.group(1))
+        return {"quality_score": score, "overall_score": score}
+    return {}
+
+
+def _extract_static_review_summary_from_json_payload(payload) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    summary = {}
+    overall = payload.get("overall_score")
+    if isinstance(overall, (int, float)):
+        summary["overall_score"] = float(overall)
+    overall_conclusion = payload.get("overall_conclusion")
+    if isinstance(overall_conclusion, dict):
+        total_score = overall_conclusion.get("total_score")
+        if isinstance(total_score, (int, float)):
+            summary["quality_score"] = float(total_score)
+            summary.setdefault("overall_score", float(total_score))
+    quality = payload.get("quality_score")
+    if isinstance(quality, (int, float)):
+        summary["quality_score"] = float(quality)
     return summary
 
 
@@ -705,7 +781,7 @@ def _run_constraint_review_attempt(case: dict,
         fallback_timeout=agent_timeout,
         temperature=agent_temperature,
         artifact_prefix="constraint_review",
-        artifact_base_dir="review",
+        artifact_base_dir="constraint",
     )
     output_text = ""
     elapsed = 0.0
@@ -728,6 +804,15 @@ def _run_constraint_review_attempt(case: dict,
             output_text,
             task_prompt=review_prompt,
             metrics=metrics,
+        )
+        _log_skill_call_detection(
+            case["id"],
+            agent_spec.display_name,
+            case_dir,
+            "constraint_review",
+            output_text,
+            on_progress,
+            [item.name for item in agent_spec.mounted_skills],
         )
         failure_reason = _build_constraint_review_failure_reason(
             output_text=output_text,
@@ -907,8 +992,19 @@ def _run_static_review_agent(case: dict,
             task_prompt=review_prompt,
             metrics=metrics,
         )
+        _log_skill_call_detection(
+            case["id"],
+            agent_spec.display_name,
+            case_dir,
+            "static_review",
+            output_text,
+            on_progress,
+            [item.name for item in agent_spec.mounted_skills],
+        )
         if not output_text and last_error_message:
             raise RuntimeError(last_error_message)
+        if not output_text.strip():
+            raise RuntimeError("static review produced empty output")
         _notify(on_progress, "log", {
             "level": "WARNING",
             "message": f"{agent_spec.display_name} static review completed, output={len(output_text)} chars, elapsed={elapsed:.1f}s",
@@ -918,6 +1014,7 @@ def _run_static_review_agent(case: dict,
                 "level": "WARNING",
                 "message": f"{agent_spec.display_name} output preview:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}",
             })
+        summary = _extract_static_review_summary(output_text)
         _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "static_review", "elapsed": elapsed})
         return {
             "status": "completed",
@@ -929,6 +1026,7 @@ def _run_static_review_agent(case: dict,
             },
             "output_path": os.path.join(static_dir(case_dir), "static_review_output.txt"),
             "metrics_path": os.path.join(static_dir(case_dir), "static_review_interaction_metrics.json"),
+            "summary": summary,
         }
     except Exception as exc:
         _notify(on_progress, "log", {"level": "ERROR", "message": f"static review failed: {exc}"})
@@ -950,6 +1048,10 @@ def _run_compile_check(case: dict,
                        on_progress):
     template_project_path = resolve_case_original_project(case)
     _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": stage_name})
+    _notify(on_progress, "log", {
+        "level": "INFO",
+        "message": f"{stage_label} 已开始，过程可能较长，请稍候...",
+    })
     _notify(on_progress, "log", {"level": "WARNING", "message": f"[开始] {stage_label}"})
     t0 = time.time()
     compile_result = check_project_compilable(
@@ -1081,7 +1183,15 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 agent_timeout=agent_timeout,
                 agent_temperature=agent_temperature,
             )
-            _log_skill_call_detection(case_id, agent_spec.display_name, case_dir, "agent", output_text, on_progress)
+            _log_skill_call_detection(
+                case_id,
+                agent_spec.display_name,
+                case_dir,
+                "agent",
+                output_text,
+                on_progress,
+                [item.name for item in agent_spec.mounted_skills],
+            )
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "Agent运行", "elapsed": elapsed})
 
     result = _build_runner_only_result(case, case_dir, agent)

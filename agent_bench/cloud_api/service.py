@@ -59,7 +59,7 @@ AGC_PROJECT_CLIENT_CONFIG = {
 }
 
 STATUS_PUSH_INTERVAL_SECONDS = 2.0
-STATUS_PUSH_DETAIL_FLUSH_SECONDS = 10.0
+STATUS_PUSH_DETAIL_FLUSH_SECONDS = 6.0
 logger = logging.getLogger("agent_bench.executor")
 
 STAGE_PENDING = "pending"
@@ -135,6 +135,35 @@ def _truncate_message(value: Any, limit: int = 100) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
+
+
+def _normalize_execution_detail_message(stage: str, message: str) -> Optional[str]:
+    text = str(message or "").strip()
+    if not text:
+        return None
+    if stage in {STAGE_GENERATING, STAGE_CONSTRAINT_SCORING, STAGE_STATIC_SCORING}:
+        if "任务已发送" in text:
+            return "任务已发送"
+        if "已收到任务" in text:
+            return "Agent已收到任务"
+        if any(token in text for token in (
+            "开始处理任务",
+            "模型开始思考",
+            "开始分析",
+            "开始检查工程和读取文件",
+            "开始调用工具",
+            "开始输出结果",
+        )):
+            return "正在处理"
+        if any(token in text for token in (
+            "运行完成",
+            "处理完成",
+            "打分完成",
+            "本轮执行结束: stop",
+        )):
+            return "Agent处理完成"
+        return None
+    return text
 
 
 def _read_jsonl(path: str) -> list[Dict[str, Any]]:
@@ -367,12 +396,16 @@ class CloudExecutionManager:
         return entry
 
     def _append_execution_detail(self, state: Dict[str, Any], stage: str, message: str):
-        if not message:
+        normalized_message = _normalize_execution_detail_message(stage, message)
+        if not normalized_message:
             return
         entry = self._ensure_stage_entry(state, stage)
-        entry.setdefault("detail", []).append({
+        details = entry.setdefault("detail", [])
+        if details and str(details[-1].get("message") or "").strip() == normalized_message:
+            return
+        details.append({
             "time": _now_stage_time(),
-            "message": str(message).strip(),
+            "message": normalized_message,
         })
         state["updated_at"] = _now_iso()
         upload_state_path = str(state.get("progress_upload_state_path") or "").strip()

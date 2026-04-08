@@ -194,21 +194,18 @@ def _extract_build_skill_execution_count(metrics: Dict[str, Any]) -> int:
         serialized = json.dumps(part, ensure_ascii=False).lower()
         state = part.get("state") if isinstance(part.get("state"), dict) else {}
         status = str(state.get("status") or "").strip().lower()
-        output = str(state.get("output") or "")
-        metadata = state.get("metadata") if isinstance(state.get("metadata"), dict) else {}
-        metadata_output = str(metadata.get("output") or "")
         command_input = state.get("input") if isinstance(state.get("input"), dict) else {}
-        command = str(command_input.get("command") or command_input.get("cmd") or "")
+        skill_name = str(command_input.get("name") or "").strip().lower()
 
-        is_build_skill = "build-harmony-project" in serialized
-        is_build_command = any(
-            token in (serialized + "\n" + command.lower() + "\n" + output.lower() + "\n" + metadata_output.lower())
-            for token in ("hvigor", "assemblehap", "--stop-daemon")
+        is_build_skill = (
+            skill_name == "build-harmony-project"
+            or "\"name\": \"build-harmony-project\"" in serialized
+            or "\"name\":\"build-harmony-project\"" in serialized
         )
-        if not is_build_skill and not is_build_command:
+        if not is_build_skill:
             continue
 
-        if status not in {"completed", "running"} and not metadata_output and not output:
+        if status not in {"completed", "running"}:
             continue
 
         identity = (
@@ -303,6 +300,8 @@ def build_execution_result_payload(execution_id: int,
     compile_results = result.get("compile_results") or {}
     constraint_review = result.get("constraint_review") or {}
     constraint_summary = constraint_review.get("summary") or {}
+    static_review = result.get("static_review") or {}
+    static_summary = static_review.get("summary") or {}
 
     is_build_success = bool(compile_results.get("compilable"))
     token_consumption = _extract_total_tokens(metrics)
@@ -310,6 +309,13 @@ def build_execution_result_payload(execution_id: int,
     resolved_expected_output_score = expected_output_score
     if resolved_expected_output_score is None:
         resolved_expected_output_score = _normalize_score_value(constraint_summary.get("overall_score"))
+    resolved_code_quality_score = code_quality_score
+    if resolved_code_quality_score is None:
+        resolved_code_quality_score = _normalize_score_value(static_summary.get("quality_score"))
+    if resolved_code_quality_score is None:
+        resolved_code_quality_score = _normalize_score_value(static_summary.get("overall_score"))
+    if resolved_code_quality_score is None:
+        resolved_code_quality_score = 0
 
     payload = CloudExecutionResultPayload(
         testExecutionId=execution_id,
@@ -318,7 +324,7 @@ def build_execution_result_payload(execution_id: int,
             executionTime=max(0, int(execution_time_ms)),
             tokenConsumption=max(0, int(token_consumption)),
             iterationCount=max(0, int(iteration_count)),
-            codeQualityScore=_score_code_quality(is_build_success) if code_quality_score is None else max(0, min(100, int(code_quality_score))),
+            codeQualityScore=max(0, min(100, int(resolved_code_quality_score))),
             expectedOutputScore=_score_expected_output(expected_output, output_text) if resolved_expected_output_score is None else max(0, min(100, int(resolved_expected_output_score))),
             outputCodeUrl=output_code_url,
         ),
