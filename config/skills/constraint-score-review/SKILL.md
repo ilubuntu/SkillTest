@@ -54,19 +54,27 @@ description: "基于结构化评审输入对 HarmonyOS 修复结果按 case.yaml
 - `额外执行要求`
   只作为流程提醒，不改变评分规则，不应被误判为新的约束。
 
-如果 `original_project_root`、`repaired_project_root`、`constraints` 任一关键输入无效、缺失或不可读，停止评分并明确报告缺失项，不要编造分数。`repair_patch_file` 允许缺失，但必须在结果中明确说明评分降级为“仅基于 repaired_project_root 的直接核验”。
+输入有效性与降级原则：
+
+- `original_project_root`、`repaired_project_root`、`constraints` 是关键输入；任一无效、缺失或不可读时，立即停止评分并明确报告缺失项，不要编造分数。
+- `repair_patch_file` 允许缺失；若被明确声明为 unavailable，则继续执行，但本次评分降级为“仅基于 `repaired_project_root` 的直接核验”，并在结果中标注“已跳过 patch 一致性校验”。
 
 ## 核心规则
 
-- 评分对象优先是“原始工程 + diff patch”对应生成的修复工程；若输入明确声明 patch 不可用，则评分对象降级为 `repaired_project_root` 所代表的当前修复结果。
-- 原始工程只作为基线证据使用。
-- patch 文件既用于帮助理解改了什么，也用于界定修复工程应当呈现出的修改结果与检查范围。
+- 先明确三类输入的角色：
+  - `original_project_root`：基线工程，只用于理解修复前状态、做前后对比，以及在 patch 可用时提供 patch 的映射起点。
+  - `repair_patch_file`：修复意图与改动范围的中间证据；patch 可用时，用它约束“修复工程应该长成什么样”，并校验 `repaired_project_root` 是否与之对应。
+  - `repaired_project_root`：最终评分对象；所有约束是否满足，最终都要落到这个目录下的真实文件来核验。
+- 按 patch 可用性区分两种评分模式：
+  - patch 可用：按照“`original_project_root` -> `repair_patch_file` -> `repaired_project_root`”这条证据链评分，既检查约束是否满足，也检查修复工程是否真的是该 patch 对应的结果。
+  - patch 不可用：按降级原则直接检查 `repaired_project_root`，原始工程仅作为辅助对比基线，不再构造 patch 推导链路。
+- patch 不能单独作为“约束已满足”的证据；即使 patch 写得很完整，也必须以 `repaired_project_root` 中的真实文件为准。
 - `case_prompt` 只用于理解修复目标或消解自然语言歧义。
 - 如果 `case_prompt` 与 `constraints` 冲突，以 `constraints` 为准。
 - 不要自行发明额外约束、隐藏要求或风格偏好。
-- 不要仅凭 agent 的总结给分，必须基于 `original_project_root` + `repair_patch_file` 推导得到、并落在 `repaired_project_root` 下的真实文件核验。
+- 不要仅凭 agent 的总结给分。
 - 如果 patch 文件与 `repaired_project_root` 的实际内容不一致，要优先指出“修复工程不是该 patch 正确应用后的结果”，并将相关约束判定为不可信或失败。
-- 如果 patch 明确不可用，不得伪造 patch 推导链路；需要在结论中单独标注“已跳过 patch 一致性校验”。
+- 如果 patch 明确不可用，不得伪造 patch 推导链路。
 
 ## 工作流程
 
@@ -76,31 +84,24 @@ description: "基于结构化评审输入对 HarmonyOS 修复结果按 case.yaml
 - 优先从结构化输入文本中提取“输入 1”到“输入 5”，不要只依赖自由文本猜测字段。
 - 确认 `repair_patch_file` 是以下两种情况之一：
   - 存在且可读，且是可解析的 diff / git patch。
-  - 被明确声明为 unavailable，此时进入“无 patch 降级评分”流程。
-- 确认 `repaired_project_root` 存在且可读；若 patch 可用，则语义上应是由 `original_project_root` 应用 `repair_patch_file` 后得到的工程。
+  - 被明确声明为 unavailable，此时按前述降级原则继续评分。
+- 确认 `repaired_project_root` 存在且可读。
 - 确认 `constraints` 是结构化列表。
 - 当用例依赖修复意图理解时，确认 `case_prompt` 非空。
 
-### 2. 理解基线状态
+### 2. 建立证据链
 
-- 只读取足够理解修复前状态的原始工程内容。
-- 用原始工程解释修复后结果是提升、回退，还是没有变化。
-- 在这个 skill 中，不要把原始工程作为最终评分对象；最终评分对象是当前输入所指向的修复工程，优先是“原始工程 + patch”对应结果，patch 缺失时则直接是 `repaired_project_root`。
+- 先读取足够理解修复前状态的原始工程内容，用它建立基线。
+- 若 patch 可用：
+  - 解析 patch，识别被修改的文件、宣称修复的问题，以及预期影响范围。
+  - 检查 patch 是否能合理映射到 `original_project_root`，并据此判断 `repaired_project_root` 是否应被视为该 patch 的落地结果。
+- 若 patch 不可用：
+  - 明确本次没有 patch 证据链，后续只做“基线对比 + 修复工程实查”的降级评分。
 
-### 3. 阅读 patch
+### 3. 检查修复工程并评分
 
-- 若 `repair_patch_file` 可用：
-  - 解析 patch 文件，识别被修改的文件、宣称修复的问题，以及可能遗漏的点。
-  - 确认 patch 能否合理映射到 `original_project_root`，并据此判断 `repaired_project_root` 是否真的是该 patch 应用后的结果。
-  - patch 不能单独作为“约束已满足”的证据，必须结合 patch 应用后的修复工程内容核验。
-  - 如果 patch 看起来已经修了，但修复工程里仍缺少对应代码模式，要明确指出 patch 与修复工程结果不一致。
-- 若 `repair_patch_file` 不可用：
-  - 明确记录“跳过 patch 阅读与一致性校验”。
-  - 后续评分仅基于 `original_project_root` 与 `repaired_project_root` 的对比、以及 `repaired_project_root` 中的真实文件内容。
-
-### 4. 按约束检查修复工程
-
-- 对 `repaired_project_root` 下的真实文件逐条评估 constraint；若 patch 可用，还需同时确认这些文件符合 `original_project_root + repair_patch_file` 的预期结果。
+- 对 `repaired_project_root` 下的真实文件逐条评估 constraint。
+- 若 patch 可用，同时核对修复工程是否符合 patch 所声明的修改结果；如果 patch 看起来已经修了，但修复工程里仍缺少对应代码模式，要明确指出 patch 与修复工程结果不一致。
 - 若规则中提供了 `target_file`，优先检查该目标文件。
 - 对于 `original_project/...`、`agent_workspace/...` 这类路径前缀，先归一化为当前项目根目录下的相对路径，再进行检查。
 - 当前评分器支持以下规则类型与匹配模式：
@@ -121,15 +122,15 @@ description: "基于结构化评审输入对 HarmonyOS 修复结果按 case.yaml
   - 任意一条规则命中，则完成度为 `100%`
   - 一条都未命中，则完成度为 `0%`
 - 单条约束实得分 = `constraint_max_points * constraint_completion`
-- `overall_score` = 所有约束实得分之和
-- `effectiveness_score` = 仅基于 `P0` 约束重新归一后的分数
-- `quality_score` = 仅基于 `P1` 和 `P2` 约束重新归一后的分数
-- `constraints_passed` = 最终判定通过的约束条数
+- `overall_score` = 所有约束实得分之和，也是最终唯一需要输出和解释的总体得分
+- `passed_constraints` = 最终判定通过的约束对象数组，每项至少包含 `constraint_id` 和 `score`
+- `unmet_constraint_ids` = 最终判定未通过的约束 id 数组
 
 需要特别注意：
 
-- `constraints_passed` 是条数，不是分数。
-- `overall_score` 不等于 `effectiveness_score` 和 `quality_score` 的平均值。
+- `passed_constraints` 是对象数组，不是分数；每个对象都要同时给出约束 id 和该约束得分。
+- `unmet_constraint_ids` 是 id 数组，不是分数。
+- `overall_score` 已经综合了约束优先级、规则类型权重和规则命中情况，不需要再拆分子分数。
 - 某条约束即使未完全通过，也可能因为部分规则命中而获得部分分数。
 
 ### 6. 解释评分结果
@@ -147,39 +148,30 @@ description: "基于结构化评审输入对 HarmonyOS 修复结果按 case.yaml
 
 输出结果应尽量简洁，但至少包含：
 
+- 最终结果优先直接输出一个 JSON 对象，避免再混入旧版 `effectiveness_score`、`quality_score`、`constraints_passed` 字段
 - `overall_score`
-- `effectiveness_score`
-- `quality_score`
-- `constraints_passed`
-- 未满足的约束
-- 评分依据
-- 原始工程与修复工程的关键差异；若 patch 可用，再补充 patch 与修复工程的一致性结论
-- patch 是否可用；若不可用，需明确说明已跳过 patch 一致性校验
+- `passed_constraints`：以对象数组形式列出通过的约束；每个对象至少包含 `constraint_id` 和 `score`；若没有则输出 `[]`
+- `unmet_constraint_ids`：以数组形式列出未通过的约束 id；若全部满足则输出 `[]`
 
-如果要生成报告段落，优先使用如下结构：
+例如：
 
-```md
-## Constraint Review Report
-
-- overall_score: 44.2/100
-- effectiveness_score: 42.0/100
-- quality_score: 100.0/100
-- constraints_passed: 1/6
-
-### Unmet Constraints
-- HM-XXX-01: failed because ...
-
-### Evidence
-- entry/src/main/ets/pages/Index.ets: ...
-
-### Original vs Repaired
-- improved / unchanged / regressed: ...
+```json
+{
+  "overall_score": 44.2,
+  "passed_constraints": [
+    {
+      "constraint_id": "HM-XXX-02",
+      "score": 16.7
+    }
+  ],
+  "unmet_constraint_ids": ["HM-XXX-01", "HM-XXX-03"]
+}
 ```
 
 ## 异常处理
 
 - 如果目标文件缺失，将相关规则判为失败，并明确指出缺失文件路径。
 - 如果 patch 文件为空、不是 diff 格式，或无法从原始工程推导出有效修复结果，停止评分并明确报告。
-- 如果输入已明确声明 `repair_patch_file unavailable`，不要因此报错；改为继续执行，但要在结果中标注该次评分无法验证 patch 到修复工程的映射关系。
+- 如果输入已明确声明 `repair_patch_file unavailable`，不要因此报错；按前述降级原则继续执行。
 - 如果 `constraints` 为空，明确说明无法执行约束评分。
-- 如果修复工程无法完整读取，或无法确认其是由原始工程应用 patch 后生成，停止评分并报告不可读/不可验证路径。
+- 如果修复工程无法完整读取，或在 patch 可用时无法确认其是由原始工程应用 patch 后生成，停止评分并报告不可读/不可验证路径。

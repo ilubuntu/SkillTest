@@ -4,28 +4,51 @@ case:
   title: 超长商品列表性能优化
   prompt: 这是一个列表与性能类需求。请基于当前 HarmonyOS 工程实现一个商品列表页面，列表中包含 10000 条商品数据，每项展示标题、价格和简短描述。为了保证滑动性能，必须使用 LazyForEach 与 IDataSource 驱动渲染，并合理设置 cachedCount，避免长列表滚动卡顿。
   output_requirements: 请直接在当前工程中修改代码并完成需求实现，页面需可编译，主入口保持在 entry/src/main/ets/pages/Index.ets，并在回复中说明数据源设计和性能优化点。
-
 constraints:
-  - id: HM-PERF-001-01
-    name: 长列表使用 LazyForEach 与 IDataSource
-    description: 10000 条商品数据列表必须通过 LazyForEach 和 IDataSource 实现，以降低大列表渲染开销。
-    priority: P0
-    rules:
-      - id: HM-PERF-001-01-R1
-        file: entry/src/main/ets/pages/Index.ets
-        contains: LazyForEach
-      - id: HM-PERF-001-01-R2
-        file: entry/src/main/ets/pages/Index.ets
-        contains: IDataSource
-      - id: HM-PERF-001-01-R3
-        file: entry/src/main/ets/pages/Index.ets
-        regex: "10000"
-
-  - id: HM-PERF-001-02
-    name: 列表显式配置 cachedCount
-    description: 需要显式配置 cachedCount 来平衡内存与滚动性能。
-    priority: P1
-    rules:
-      - id: HM-PERF-001-02-R1
-        file: entry/src/main/ets/pages/Index.ets
-        regex: "cachedCount\\("
+- id: HM-PERF-001-01
+  name: 长列表使用 LazyForEach 与 IDataSource
+  description: 10000 条商品数据列表必须通过 LazyForEach 和 IDataSource 实现，以降低大列表渲染开销。
+  priority: P0
+  rules:
+  - id: HM-PERF-001-01-R1
+    file: entry/src/main/ets/pages/Index.ets
+    contains: LazyForEach
+  - id: HM-PERF-001-01-R2
+    file: entry/src/main/ets/pages/Index.ets
+    contains: IDataSource
+  - id: HM-PERF-001-01-R3
+    file: entry/src/main/ets/pages/Index.ets
+    regex: '10000'
+- id: HM-PERF-001-02
+  name: 列表显式配置 cachedCount
+  description: 需要显式配置 cachedCount 来平衡内存与滚动性能。
+  priority: P1
+  rules:
+  - id: HM-PERF-001-02-R1
+    file: entry/src/main/ets/pages/Index.ets
+    regex: cachedCount\(
+- id: HM-PERF-001-03
+  name: 页面状态管理必须统一使用 V2 装饰器
+  description: 页面组件和状态模型必须统一使用 @ObservedV2、@Trace、@ComponentV2、@Local、@Param、@Provider、@Consumer、@Monitor、@Computed 等 V2 装饰器体系，禁止继续使用旧版 @State、@Link、@ObjectLink 等状态管理写法。
+  priority: P0
+  rules:
+  - id: HM-PERF-001-03-R1
+    file: entry/src/main/ets/pages/Index.ets
+    regex: '@(?:ObservedV2|ComponentV2|Local|Param|Provider|Consumer|Monitor|Computed|Trace)\\b'
+  - id: HM-PERF-001-03-R2
+    file: entry/src/main/ets/pages/Index.ets
+    regex_not: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\\b'
+- id: HM-PERF-001-04
+  name: 页面路由管理必须统一使用 Navigation
+  description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
+  priority: P0
+  rules:
+  - id: HM-PERF-001-04-R1
+    file: entry/src/main/ets/pages/Index.ets
+    regex: Navigation\\s*\\(
+  - id: HM-PERF-001-04-R2
+    file: entry/src/main/ets/pages/Index.ets
+    regex: NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\(
+  - id: HM-PERF-001-04-R3
+    file: entry/src/main/ets/pages/Index.ets
+    regex_not: \\brouter\\.

@@ -1,3 +1,8 @@
+---
+name: static-code-score-review
+description: Evaluate repaired HarmonyOS projects from a static code quality perspective based on the original project, repaired project, and patch. Focus on correctness, readability, maintainability, unnecessary complexity, risky patterns, and obvious regressions introduced by the change set.
+---
+
 # Static Code Score Review
 
 ## Overview
