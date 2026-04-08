@@ -10,8 +10,6 @@ _RULE_KEY_ALIASES = (
     ("not_contains", "not_contains", "snippet"),
     ("regex", "regex_contains", "pattern"),
     ("regex_not", "regex_not_contains", "pattern"),
-    ("count_at_least", "count_at_least", "snippet"),
-    ("regex_count_at_least", "regex_count_at_least", "pattern"),
 )
 
 
@@ -33,7 +31,7 @@ def normalize_constraint_item(item: Dict[str, Any] | None) -> Dict[str, Any]:
 
 def normalize_check_method(source: Dict[str, Any] | None) -> Dict[str, Any]:
     if not isinstance(source, dict):
-        return {"type": "custom_rule", "match_mode": "all", "rules": []}
+        return {"rules": []}
 
     raw = source.get("check_method")
     raw = raw if isinstance(raw, dict) else {}
@@ -42,8 +40,6 @@ def normalize_check_method(source: Dict[str, Any] | None) -> Dict[str, Any]:
         raw_rules = source.get("rules") or []
 
     return {
-        "type": _as_text(raw.get("type")) or _as_text(source.get("type")) or "custom_rule",
-        "match_mode": (_as_text(raw.get("match_mode")) or _as_text(source.get("match_mode")) or "all").lower(),
         "rules": [normalize_rule(rule) for rule in raw_rules if isinstance(rule, dict)],
     }
 
@@ -75,7 +71,6 @@ def normalize_rule(rule: Dict[str, Any] | None) -> Dict[str, Any]:
     normalized["match_type"] = match_type or "contains"
     normalized["snippet"] = snippet
     normalized["pattern"] = pattern
-    normalized["count"] = _normalize_count(rule.get("count"))
     return normalized
 
 
@@ -91,13 +86,6 @@ def iter_constraint_target_files(case_spec: Dict[str, Any] | None) -> List[str]:
             seen.add(path)
             paths.append(path)
     return paths
-
-
-def _normalize_count(value: Any) -> int:
-    try:
-        return int(value or 1)
-    except (TypeError, ValueError):
-        return 1
 
 
 def _as_text(value: Any) -> str:

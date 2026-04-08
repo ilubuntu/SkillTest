@@ -6,70 +6,64 @@ case:
   output_requirements: 请直接在当前工程中修改代码并完成需求实现，页面需可编译，主入口保持在 entry/src/main/ets/pages/Index.ets，并在回复中说明实时校验和 @Computed 的实现方式。
 constraints:
 - id: HM-REQ-004-01
-  name: 页面必须使用 V2 组件和 @Computed 派生可提交状态
-  description: 注册页应使用 @ComponentV2，并通过 @Computed 生成表单是否可提交的布尔值。
-  category: 组件规范
+  name: 注册页布局必须具备手机和平板适配能力
+  description: 注册页应通过 GridRow 和 GridCol 等栅格布局组织表单内容，保证在手机和平板上都能保持稳定的输入区和操作区布局。
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-REQ-004-01-R1
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: contains
-      snippet: '@ComponentV2'
+      snippet: GridRow(
     - rule_id: HM-REQ-004-01-R2
       target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: '@Computed\s+\w+\s*\('
+      match_type: contains
+      snippet: GridCol(
     - rule_id: HM-REQ-004-01-R3
       target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_not_contains
-      pattern: '@Monitor\s+'
+      match_type: regex_contains
+      pattern: '(?:xs|sm|md|lg)\s*:'
 - id: HM-REQ-004-02
-  name: 注册表单必须包含手机号和验证码输入
-  description: 页面需要包含两个输入框，并分别承载手机号与验证码输入。
-  category: 可用性
+  name: 注册表单接口必须由字段与校验规则配置驱动
+  description: 注册表单组件应通过字段配置和校验规则接口驱动输入项与验证逻辑，便于扩展到更多注册或认证场景。
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-REQ-004-02-R1
       target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_count_at_least
-      pattern: TextInput\(
-      count: 2
+      match_type: regex_contains
+      pattern: '@Param\s+\w*(?:fields|items|configs)\s*:\s*(?:Array<|ReadonlyArray<)'
     - rule_id: HM-REQ-004-02-R2
       target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_count_at_least
-      pattern: '@Local\s+'
-      count: 2
+      match_type: regex_contains
+      pattern: '@Param\s+\w*(?:rules|validators|validatorMap)\s*:\s*(?:Array<|Record<|\w+)'
+    - rule_id: HM-REQ-004-02-R3
+      target_file: entry/src/main/ets/pages/Index.ets
+      match_type: regex_contains
+      pattern: 'ForEach\(\s*this\.\w*(?:fields|items|configs)'
 - id: HM-REQ-004-03
-  name: 提交按钮必须跟随校验结果联动
-  description: 当手机号或验证码不满足要求时，提交按钮应处于不可点击状态。
-  category: 交互
+  name: 提交能力与派生校验结果接口必须支持定制
+  description: 注册表单组件应通过派生校验结果控制可提交状态，并开放按钮文案与提交回调接口，便于适配不同注册流程。
   priority: P1
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-REQ-004-03-R1
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_contains
-      pattern: Button\(
+      pattern: '@Computed\s+\w+\s*\('
     - rule_id: HM-REQ-004-03-R2
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_contains
-      pattern: \.enabled\(
+      pattern: '@Param\s+\w*(?:submitText|buttonText)\s*:\s*string'
+    - rule_id: HM-REQ-004-03-R3
+      target_file: entry/src/main/ets/pages/Index.ets
+      match_type: regex_contains
+      pattern: '@Param\s+\w*(?:onSubmit|submitAction)\s*:\s*\([^)]*\)\s*=>'
 - id: HM-REQ-004-04
   name: 页面路由管理必须统一使用 Navigation
   description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
-  category: 生态规范
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-REQ-004-04-R1
       target_file: entry/src/main/ets/pages/Index.ets
@@ -83,20 +77,3 @@ constraints:
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_not_contains
       pattern: \brouter\.
-- id: HM-REQ-004-05
-  name: 页面状态管理必须统一使用 V2 装饰器
-  description: 页面组件和状态模型必须统一使用 @ObservedV2、@Trace、@ComponentV2、@Local、@Param、@Provider、@Consumer、@Monitor、@Computed 等 V2 装饰器体系，禁止继续使用旧版 @State、@Link、@ObjectLink 等状态管理写法。
-  category: 生态规范
-  priority: P0
-  check_method:
-    type: custom_rule
-    match_mode: all
-    rules:
-    - rule_id: HM-REQ-004-05-R1
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: '@(?:ObservedV2|ComponentV2|Local|Param|Provider|Consumer|Monitor|Computed|Trace)\\b'
-    - rule_id: HM-REQ-004-05-R2
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_not_contains
-      pattern: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\\b'

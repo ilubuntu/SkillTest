@@ -11,13 +11,13 @@ constraints:
   priority: P0
   rules:
   - id: HM-PERF-001-01-R1
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     contains: LazyForEach
   - id: HM-PERF-001-01-R2
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     contains: IDataSource
   - id: HM-PERF-001-01-R3
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: '10000'
 - id: HM-PERF-001-02
   name: 列表显式配置 cachedCount
@@ -25,7 +25,7 @@ constraints:
   priority: P1
   rules:
   - id: HM-PERF-001-02-R1
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: cachedCount\(
 - id: HM-PERF-001-03
   name: 页面状态管理必须统一使用 V2 装饰器
@@ -33,10 +33,10 @@ constraints:
   priority: P0
   rules:
   - id: HM-PERF-001-03-R1
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: '@(?:ObservedV2|ComponentV2|Local|Param|Provider|Consumer|Monitor|Computed|Trace)\\b'
   - id: HM-PERF-001-03-R2
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex_not: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\\b'
 - id: HM-PERF-001-04
   name: 页面路由管理必须统一使用 Navigation
@@ -44,11 +44,11 @@ constraints:
   priority: P0
   rules:
   - id: HM-PERF-001-04-R1
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: Navigation\\s*\\(
   - id: HM-PERF-001-04-R2
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\(
   - id: HM-PERF-001-04-R3
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex_not: \\brouter\\.

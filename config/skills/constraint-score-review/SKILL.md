@@ -104,33 +104,31 @@ description: "基于结构化评审输入对 HarmonyOS 修复结果按 case.yaml
 - 若 patch 可用，同时核对修复工程是否符合 patch 所声明的修改结果；如果 patch 看起来已经修了，但修复工程里仍缺少对应代码模式，要明确指出 patch 与修复工程结果不一致。
 - 若规则中提供了 `target_file`，优先检查该目标文件。
 - 对于 `original_project/...`、`agent_workspace/...` 这类路径前缀，先归一化为当前项目根目录下的相对路径，再进行检查。
-- 当前评分器支持以下规则类型与匹配模式：
-  - `check_method.type`: `custom_rule`、`scenario_assert`
-  - `match_mode`: `all`、`any`
-  - `match_type`: `contains`、`not_contains`、`count_at_least`、`regex_contains`、`regex_not_contains`、`regex_count_at_least`
+- 当前评分器当前只读取 `check_method.rules`，并按“全部规则都参与完成度计算”的固定语义执行评分。
 
 ### 5. 计算分数
 
 使用以下评分模型：
 
 - 优先级权重：`P0=5`、`P1=3`、`P2=1`
-- 类型权重：`custom_rule=1.0`、`scenario_assert=1.2`
-- 单条约束权重 = `priority_weight * type_weight`
-- 单条约束满分 = `constraint_weight / sum(all_constraint_weights) * 100`
-- 当 `match_mode=all` 时，约束完成度 = `matched_rules / total_rules`
-- 当 `match_mode=any` 时：
-  - 任意一条规则命中，则完成度为 `100%`
-  - 一条都未命中，则完成度为 `0%`
-- 单条约束实得分 = `constraint_max_points * constraint_completion`
-- `overall_score` = 所有约束实得分之和，也是最终唯一需要输出和解释的总体得分
-- `passed_constraints` = 最终判定通过的约束对象数组，每项至少包含 `constraint_id` 和 `score`
+- 单条约束权重 = `priority_weight`
+- 单条约束满分 `constraint_max_points` = `constraint_weight / sum(all_constraint_weights) * 100`
+- 若某条约束包含规则，则约束完成度 `constraint_completion` = `matched_rules / total_rules`
+- 若某条约束未配置任何规则，则默认 `constraint_completion = 100%`
+- 单条约束实得分 `earned_points` = `constraint_max_points * constraint_completion`
+- `overall_score` = 所有约束 `earned_points` 之和，范围为 `0-100`，也是最终唯一需要输出和解释的总体得分
+- `passed_constraints` = 最终判定通过的约束对象数组，每项至少包含：
+  - `constraint_id`
+  - `score`
+- 其中 `passed_constraints[*].score` 表示该约束的实际得分 `earned_points`，不是原始完成度百分比
 - `unmet_constraint_ids` = 最终判定未通过的约束 id 数组
 
 需要特别注意：
 
 - `passed_constraints` 是对象数组，不是分数；每个对象都要同时给出约束 id 和该约束得分。
+- `passed_constraints[*].score` 是该约束按权重折算后的实际得分，不是 `100/0` 形式的布尔分，也不是原始规则命中率。
 - `unmet_constraint_ids` 是 id 数组，不是分数。
-- `overall_score` 已经综合了约束优先级、规则类型权重和规则命中情况，不需要再拆分子分数。
+- `overall_score` 已经综合了约束优先级和规则命中情况，不需要再拆分子分数。
 - 某条约束即使未完全通过，也可能因为部分规则命中而获得部分分数。
 
 ### 6. 解释评分结果

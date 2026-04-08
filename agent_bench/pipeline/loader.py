@@ -241,9 +241,7 @@ def _format_check_method_lines(check_method) -> List[str]:
         formatted = _format_prompt_value(check_method)
         return [f"  检查方式: {formatted}"] if formatted else []
 
-    method_type = _format_prompt_value(check_method.get("type")) or "custom_rule"
-    match_mode = _format_prompt_value(check_method.get("match_mode")) or "all"
-    lines = [f"  检查方式: {method_type} (match_mode={match_mode})"]
+    lines = []
 
     rules = check_method.get("rules") or []
     for rule in rules:
@@ -259,13 +257,9 @@ def _format_check_method_lines(check_method) -> List[str]:
         snippet = _compact_prompt_hint(
             _format_prompt_value(rule.get("snippet")) or _format_prompt_value(rule.get("pattern"))
         )
-        count = _format_prompt_value(rule.get("count"))
-
         header_parts = [part for part in [rule_id, target_file, match_type] if part]
         if header_parts:
             lines.append(f"  规则: {' | '.join(header_parts)}")
-        if count:
-            lines.append(f"    count: {count}")
         if snippet:
             lines.append(f"    hint: {snippet}")
 
