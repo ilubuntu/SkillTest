@@ -351,10 +351,12 @@ class CloudExecutionManager:
 
     def _ensure_stage_entry(self, state: Dict[str, Any], stage: str, message: Optional[str] = None):
         logs = state.setdefault("execution_log", [])
-        if logs and str(logs[-1].get("stage") or "") == stage:
+        for entry in logs:
+            if str(entry.get("stage") or "") != stage:
+                continue
             if message:
-                logs[-1]["message"] = message
-            return logs[-1]
+                entry["message"] = message
+            return entry
         entry = {
             "stage": stage,
             "message": message or self._stage_message(str(state.get("local_status") or ""), stage),

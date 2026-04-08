@@ -80,11 +80,14 @@ def build_status_payload(remote_status: RemoteExecutionStatus,
                          error_message: Optional[str],
                          conversation: Optional[list] = None,
                          execution_log: Optional[list] = None) -> Dict[str, Any]:
+    execution_log_text = None
+    if execution_log is not None:
+        execution_log_text = json.dumps(execution_log, ensure_ascii=False)
     payload = CloudStatusReportPayload(
         status=remote_status,
         errorMessage=error_message,
         conversation=conversation,
-        executionLog=execution_log,
+        executionLog=execution_log_text,
     )
     return payload.model_dump(by_alias=True, exclude_none=True)
 

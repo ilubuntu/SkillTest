@@ -32,7 +32,7 @@ class CloudStatusReportPayload(BaseModel):
     status: RemoteExecutionStatus
     errorMessage: Optional[str] = None
     conversation: Optional[List[Dict[str, Any]]] = None
-    executionLog: Optional[List[Dict[str, Any]]] = None
+    executionLog: Optional[str] = None
 
 
 class CloudExecutionResultData(BaseModel):
