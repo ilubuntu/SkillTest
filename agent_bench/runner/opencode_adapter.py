@@ -432,6 +432,7 @@ class OpenCodeAdapter(AgentAdapter):
         """用 prompt_async 触发任务，并将 SSE 事件原样写入本地文件。"""
         sse_log_path = self._resolve_sse_log_path(workspace_dir)
         progress_log_path = self._resolve_sse_progress_log_path(sse_log_path) if sse_log_path else None
+        full_sse_log_path = self._resolve_sse_full_log_path(sse_log_path) if sse_log_path else None
         stop_event = threading.Event()
         connected_event = threading.Event()
         sse_thread = None
@@ -440,6 +441,8 @@ class OpenCodeAdapter(AgentAdapter):
             open(sse_log_path, "a", encoding="utf-8").close()
             if progress_log_path:
                 open(progress_log_path, "a", encoding="utf-8").close()
+            if full_sse_log_path:
+                open(full_sse_log_path, "a", encoding="utf-8").close()
             sse_thread = threading.Thread(
                 target=self._capture_sse_events,
                 args=(session_id, sse_log_path, stop_event, connected_event, tag),
@@ -471,6 +474,7 @@ class OpenCodeAdapter(AgentAdapter):
                     all_messages=assistant_messages,
                     output_path=sse_log_path,
                     mapped_path=progress_log_path,
+                    full_path=full_sse_log_path,
                 )
             message_id = self._extract_message_id(payload)
             message_info = self._fetch_message_info(session_id, message_id) if message_id else None
@@ -550,9 +554,14 @@ class OpenCodeAdapter(AgentAdapter):
         base_dir = os.path.dirname(output_path)
         return os.path.join(base_dir, f"{self.artifact_prefix}_opencode_progress_events.jsonl")
 
+    def _resolve_sse_full_log_path(self, output_path: str) -> str:
+        base_dir = os.path.dirname(output_path)
+        return os.path.join(base_dir, f"{self.artifact_prefix}_opencode_sse_full.jsonl")
+
     def _capture_sse_events(self, session_id: str, output_path: str, stop_event: threading.Event, connected_event: threading.Event, tag: str = ""):
         self._log("WARNING", f"开始监听 OpenCode SSE 事件流: {output_path}", tag=tag)
         progress_output_path = self._resolve_sse_progress_log_path(output_path)
+        full_output_path = self._resolve_sse_full_log_path(output_path)
         while not stop_event.is_set():
             try:
                 connected = False
@@ -577,7 +586,7 @@ class OpenCodeAdapter(AgentAdapter):
                                 elif line == "":
                                     payload = self._parse_sse_event_payload(event_name, data_lines)
                                     if payload is not None and self._event_matches_session(payload, session_id):
-                                        self._append_jsonl(output_path, payload, progress_output_path)
+                                        self._append_jsonl(output_path, payload, progress_output_path, full_output_path)
                                         self._emit_runtime_progress_log(payload, tag=tag)
                                     event_name = None
                                     data_lines = []
@@ -596,7 +605,7 @@ class OpenCodeAdapter(AgentAdapter):
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     "event": "sse.error",
                     "data": {"error": str(exc)},
-                }, progress_output_path)
+                }, progress_output_path, full_output_path)
                 time.sleep(1)
 
     def _parse_sse_event_payload(self, event_name: Optional[str], data_lines: list[str]) -> Optional[dict]:
@@ -864,7 +873,15 @@ class OpenCodeAdapter(AgentAdapter):
             return session_id in serialized
         return session_id in str(data)
 
-    def _append_jsonl(self, path: str, payload: dict, mapped_path: Optional[str] = None):
+    def _append_jsonl(self,
+                      path: str,
+                      payload: dict,
+                      mapped_path: Optional[str] = None,
+                      full_path: Optional[str] = None):
+        if full_path:
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
         if self._should_store_raw_sse_payload(payload):
             os.makedirs(os.path.dirname(path), exist_ok=True)
             raw_payload = self._shrink_raw_sse_payload(payload)
@@ -899,7 +916,11 @@ class OpenCodeAdapter(AgentAdapter):
             if payload:
                 self._emit_runtime_progress_log(payload, tag=tag)
 
-    def _backfill_sse_logs_from_messages(self, all_messages: list, output_path: str, mapped_path: Optional[str] = None):
+    def _backfill_sse_logs_from_messages(self,
+                                        all_messages: list,
+                                        output_path: str,
+                                        mapped_path: Optional[str] = None,
+                                        full_path: Optional[str] = None):
         try:
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 return
@@ -917,7 +938,7 @@ class OpenCodeAdapter(AgentAdapter):
                 payload = self._make_synthetic_sse_payload(part)
                 if not payload:
                     continue
-                self._append_jsonl(output_path, payload, mapped_path)
+                self._append_jsonl(output_path, payload, mapped_path, full_path)
                 wrote_any = True
         if wrote_any:
             self._log("INFO", f"[OpenCode] 原始 SSE 缺失，已根据消息历史回填: {output_path}")

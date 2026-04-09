@@ -44,7 +44,7 @@ def create_adapter(agent: dict,
     adapter_type = _resolve_codex_adapter_type(agent, agent.get("adapter", "opencode"))
     if adapter_type == "opencode":
         emit("WARNING", "检查 OpenCode 服务状态...")
-        api_base = ensure_opencode_server()
+        api_base = ensure_opencode_server(proxy_config=agent.get("opencode_proxy"))
         if check_api_available(api_base):
             emit("INFO", f"OpenCode 服务已就绪: {api_base}")
         else:

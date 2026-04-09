@@ -1,1 +1,23 @@
 deveco_path: null
+
+# OpenCode 权限配置提醒：
+# 当前程序不会自动把下面的配置写入 ~/.opencode/opencode.json。
+# 如果需要放开 OpenCode 的外部目录/工具权限，请手动把对应 permission 节点加到 ~/.opencode/opencode.json。
+# 示例：
+  # "permission": {
+  #   "read": "allow",
+  #   "edit": "allow",
+  #   "glob": "allow",
+  #   "grep": "allow",
+  #   "list": "allow",
+  #   "bash": "allow",
+  #   "task": "allow",
+  #   "external_directory": "allow",
+  #   "skill": "allow",
+  #   "webfetch": "allow",
+  #   "websearch": "allow",
+  #   "codesearch": "allow",
+  #   "lsp": "allow",
+  #   "doom_loop": "allow",
+  #   "question": "allow"
+  # }

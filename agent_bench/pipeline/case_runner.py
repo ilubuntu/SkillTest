@@ -551,6 +551,17 @@ def _extract_static_review_summary(output_text: str) -> dict:
     if markdown_total_match:
         score = float(markdown_total_match.group(1))
         return {"quality_score": score, "overall_score": score}
+
+    prose_patterns = [
+        r"(?:最终分数|总分)\s*[:：]\s*`?([0-9]+(?:\.[0-9]+)?)\s*/\s*100`?",
+        r"(?:最终分数|总分)\s*[:：]\s*`?([0-9]+(?:\.[0-9]+)?)\s*分\s*/\s*100\s*分`?",
+        r"(?:最终分数|总分)\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)\s*分",
+    ]
+    for pattern in prose_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            score = float(match.group(1))
+            return {"quality_score": score, "overall_score": score}
     return {}
 
 
@@ -577,12 +588,18 @@ def _extract_static_review_summary_from_file(case_dir: str) -> tuple[dict, str]:
     candidate_paths = [
         os.path.join(case_dir, "bug_fix_score_result.json"),
         os.path.join(static_dir(case_dir), "bug_fix_score_result.json"),
+        os.path.join(case_dir, "evaluation_result.json"),
+        os.path.join(static_dir(case_dir), "evaluation_result.json"),
+        os.path.join(case_dir, "harmonyos_gen_code_evaluation.json"),
+        os.path.join(static_dir(case_dir), "harmonyos_gen_code_evaluation.json"),
+        os.path.join(case_dir, "harmonyos_gen_code_evaluation_result.json"),
+        os.path.join(static_dir(case_dir), "harmonyos_gen_code_evaluation_result.json"),
     ]
     for base_dir in [case_dir, static_dir(case_dir)]:
         if not os.path.isdir(base_dir):
             continue
         for name in sorted(os.listdir(base_dir)):
-            if not name.endswith("_score_result.json"):
+            if not (name.endswith("_score_result.json") or name.endswith("_evaluation.json") or name.endswith("_evaluation_result.json")):
                 continue
             candidate_paths.append(os.path.join(base_dir, name))
 

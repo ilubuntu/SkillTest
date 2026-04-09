@@ -86,6 +86,18 @@ def _safe_json(data: Any) -> str:
         return str(data)
 
 
+def _log_local_only(message: str, level: str = "INFO"):
+    level_name = str(level or "INFO").upper()
+    log_fn = {
+        "DEBUG": logger.debug,
+        "INFO": logger.info,
+        "WARN": logger.warning,
+        "WARNING": logger.warning,
+        "ERROR": logger.error,
+    }.get(level_name, logger.info)
+    log_fn("%s", message)
+
+
 def _append_jsonl(path: str, payload: Dict[str, Any]):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a", encoding="utf-8") as f:
@@ -807,6 +819,10 @@ class CloudExecutionManager:
                 "payload": result_payload,
                 "has_token": bool((state.get("token") or "").strip()),
             })
+            self._append_local_event(state, "result_report_request", {
+                "payload": result_payload,
+            })
+            _log_local_only(f"上传任务报告请求:\n{_safe_json(result_payload)}")
             result_response = upload_execution_result(
                 cloud_base_url=state.get("cloud_base_url") or CLOUD_BASE_URL,
                 payload=result_payload,
@@ -818,9 +834,23 @@ class CloudExecutionManager:
                     "payload": result_payload,
                     "response": result_response,
                 })
+                self._append_local_event(state, "result_report_response", {
+                    "response": result_response,
+                })
+                _log_local_only(f"上传任务报告响应:\n{_safe_json(result_response)}")
 
             update_local_status("completed", STAGE_COMPLETED)
             with self._lock:
+                self._append_execution_detail(
+                    state,
+                    STAGE_COMPLETED,
+                    f"上传任务报告请求: {_truncate_message(_safe_json(result_payload), 500)}",
+                )
+                self._append_execution_detail(
+                    state,
+                    STAGE_COMPLETED,
+                    f"上传任务报告响应: {_truncate_message(_safe_json(result_response), 500)}",
+                )
                 self._append_execution_detail(state, STAGE_COMPLETED, "任务执行完成")
                 self._append_conversation(state, "status", "任务执行完成")
         except Exception as exc:

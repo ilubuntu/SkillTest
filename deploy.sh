@@ -32,6 +32,10 @@ OPENCODE_LOG="$LOG_DIR/opencode.log"
 CURRENT_EXECUTOR_LOG_FILE="$LOG_DIR/current_executor_log"
 BACKEND_LOG=""
 PYTHON_BIN=""
+OPENCODE_HTTP_PROXY=""
+OPENCODE_HTTPS_PROXY=""
+OPENCODE_ALL_PROXY=""
+OPENCODE_NO_PROXY=""
 
 
 # ── 颜色 ──────────────────────────────────────────────────
@@ -91,6 +95,56 @@ resolve_executor_log_file() {
     ls -t "$LOG_DIR"/agent_bench_*.log 2>/dev/null | head -1
 }
 
+load_opencode_proxy_config() {
+    local config_path="$SCRIPT_DIR/config/agents.yaml"
+    if [ ! -f "$config_path" ]; then
+        return
+    fi
+    local proxy_values=""
+    proxy_values="$("$PYTHON_BIN" - "$config_path" <<'PY'
+import sys
+try:
+    import yaml
+except Exception:
+    sys.exit(0)
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+except Exception:
+    sys.exit(0)
+
+proxy = {}
+agents = data.get("agents") or []
+if isinstance(agents, list):
+    for agent in agents:
+        if not isinstance(agent, dict):
+            continue
+        if str(agent.get("adapter") or "").strip() != "opencode":
+            continue
+        candidate = agent.get("opencode_proxy") or {}
+        if isinstance(candidate, dict) and candidate:
+            proxy = candidate
+            break
+if not isinstance(proxy, dict):
+    sys.exit(0)
+
+for key in ("http_proxy", "https_proxy", "all_proxy", "no_proxy"):
+    value = str(proxy.get(key) or "").strip()
+    print(f"{key}={value}")
+PY
+)"
+    while IFS='=' read -r key value; do
+        case "$key" in
+            http_proxy) OPENCODE_HTTP_PROXY="$value" ;;
+            https_proxy) OPENCODE_HTTPS_PROXY="$value" ;;
+            all_proxy) OPENCODE_ALL_PROXY="$value" ;;
+            no_proxy) OPENCODE_NO_PROXY="$value" ;;
+        esac
+    done <<< "$proxy_values"
+}
+
 # ── 清理已有进程 ──────────────────────────────────────────
 kill_port() {
     local port=$1
@@ -125,7 +179,22 @@ start_opencode() {
 
     kill_port $OPENCODE_PORT
 
-    nohup opencode serve --port $OPENCODE_PORT >>"$OPENCODE_LOG" 2>&1 &
+    if [ -n "$OPENCODE_HTTP_PROXY" ] || [ -n "$OPENCODE_HTTPS_PROXY" ] || [ -n "$OPENCODE_ALL_PROXY" ]; then
+        info "OpenCode Server 启动将使用代理环境 (NO_PROXY=$OPENCODE_NO_PROXY)"
+        env \
+            http_proxy="$OPENCODE_HTTP_PROXY" \
+            https_proxy="$OPENCODE_HTTPS_PROXY" \
+            HTTP_PROXY="$OPENCODE_HTTP_PROXY" \
+            HTTPS_PROXY="$OPENCODE_HTTPS_PROXY" \
+            all_proxy="$OPENCODE_ALL_PROXY" \
+            ALL_PROXY="$OPENCODE_ALL_PROXY" \
+            no_proxy="$OPENCODE_NO_PROXY" \
+            NO_PROXY="$OPENCODE_NO_PROXY" \
+            nohup opencode serve --port $OPENCODE_PORT >>"$OPENCODE_LOG" 2>&1 &
+    else
+        info "OpenCode Server 启动不使用代理环境"
+        nohup opencode serve --port $OPENCODE_PORT >>"$OPENCODE_LOG" 2>&1 &
+    fi
 
     # 等待启动
     info "等待 OpenCode Server 启动..."
@@ -190,8 +259,9 @@ start_executor() {
     echo ""
     check_deps
     ensure_log_dir
-    start_opencode
     install_python_deps
+    load_opencode_proxy_config
+    start_opencode
     start_backend
     echo ""
     info "执行器已就绪，等待任务下发..."

@@ -1,24 +1,25 @@
-defaults:
-  adapter: opencode
-  api_base: "http://127.0.0.1:4096"
-  opencode_agent: "build"
-  tools:
-    skill: true
-  timeout: 480
-  temperature: null
-  model: "minimax-cn-coding-plan/MiniMax-M2.7"
-  mounted_skills:
-    - name: "build-harmony-project"
-      path: "config/skills/build-harmony-project"
-  extra_prompt: "你已挂载 build-harmony-project skill。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了 build-harmony-project、是否执行成功；如果失败，必须说明失败阶段和错误原因。"
-
 agents:
   - id: agent_default
     name: "OpenCode"
     adapter: opencode
     api_base: "http://127.0.0.1:4096"
     opencode_agent: "build"
-    model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    opencode_proxy:
+      http_proxy: "http://127.0.0.1:7890"
+      https_proxy: "http://127.0.0.1:7890"
+      all_proxy: "http://127.0.0.1:7890"
+      no_proxy: "127.0.0.1,localhost"
+    tools:
+      skill: true
+    timeout: 480
+    temperature: null
+    # model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    model: "openai/gpt-5.4"
+    # model: "bailian-coding-plan/glm-5"
+    mounted_skills:
+      - name: "build-harmony-project"
+        path: "config/skills/build-harmony-project"
+    extra_prompt: "你已挂载 build-harmony-project skill。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了 build-harmony-project、是否执行成功；如果失败，必须说明失败阶段和错误原因。"
 
   - id: "codex_local"
     name: "Codex Local"
@@ -40,11 +41,21 @@ agents:
     adapter: opencode
     api_base: "http://127.0.0.1:4096"
     opencode_agent: "build"
-    model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    opencode_proxy:
+      http_proxy: "http://127.0.0.1:7890"
+      https_proxy: "http://127.0.0.1:7890"
+      all_proxy: "http://127.0.0.1:7890"
+      no_proxy: "127.0.0.1,localhost"
+    # model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    # model: "bailian-coding-plan/glm-5"
+    model: "openai/gpt-5.4"
     tools:
       skill: true
     timeout: 480
+    temperature: null
     mounted_skills:
+      - name: "build-harmony-project"
+        path: "config/skills/build-harmony-project"
       - name: "harmonyos-gen-code-evaluator"
         path: "config/skills/harmonyos-gen-code-evaluator"
     extra_prompt: "你有一个静态代码打分 skill：harmonyos-gen-code-evaluator。完成代码分析后，必须调用这个 skill 对当前工程进行静态代码质量打分，并输出最终分数、主要问题和评分依据。"
@@ -54,11 +65,21 @@ agents:
     adapter: opencode
     api_base: "http://127.0.0.1:4096"
     opencode_agent: "build"
-    model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    opencode_proxy:
+      http_proxy: "http://127.0.0.1:7890"
+      https_proxy: "http://127.0.0.1:7890"
+      all_proxy: "http://127.0.0.1:7890"
+      no_proxy: "127.0.0.1,localhost"
+    # model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    # model: "bailian-coding-plan/glm-5"
+    model: "openai/gpt-5.4"
     tools:
       skill: true
     timeout: 480
+    temperature: null
     mounted_skills:
+      - name: "build-harmony-project"
+        path: "config/skills/build-harmony-project"
       - name: "constraint-score-review"
         path: "config/skills/constraint-score-review"
     extra_prompt: "你有一个约束规则打分skill：constraint-score-review。完成代码分析后，必须调用这个skil根据skill中的核心规则对当前修复后的工程进行评分，并输出最终的评分结果"
