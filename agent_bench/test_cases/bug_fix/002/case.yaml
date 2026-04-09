@@ -11,10 +11,10 @@ constraints:
   priority: P0
   rules:
   - id: HM-BUGFIX-002-01-R1
-    file: entry/src/main/ets/model/FontSettings.ets
+    target_file: entry/src/main/ets/model/FontSettings.ets
     contains: '@ObservedV2'
   - id: HM-BUGFIX-002-01-R2
-    file: entry/src/main/ets/model/FontSettings.ets
+    target_file: entry/src/main/ets/model/FontSettings.ets
     regex: '@Trace\s+fontSize\s*:\s*number(?:\s*=\s*\d+)?'
 - id: HM-BUGFIX-002-02
   name: 首页与设置页共享同一份字体配置
@@ -22,17 +22,16 @@ constraints:
   priority: P0
   rules:
   - id: HM-BUGFIX-002-02-R1
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: settings\s*:\s*FontSettings\s*=\s*getFontSettings\(\)
   - id: HM-BUGFIX-002-02-R2
-    file: entry/src/main/ets/pages/FontSettingPage.ets
+    target_file: entry/src/main/ets/pages/FontSettingPage.ets
     regex: settings\s*:\s*FontSettings\s*=\s*getFontSettings\(\)
   - id: HM-BUGFIX-002-02-R3
-    file: entry/src/main/ets/pages/Index.ets
-    regex_count_at_least: settings\.fontSize
-    count: 3
+    target_file: entry/src/main/ets/pages/Index.ets
+    regex: '(?:settings\.fontSize[\s\S]*?){3,}'
   - id: HM-BUGFIX-002-02-R4
-    file: entry/src/main/ets/pages/FontSettingPage.ets
+    target_file: entry/src/main/ets/pages/FontSettingPage.ets
     regex: settings\.fontSize\s*=\s*\w+
 - id: HM-BUGFIX-002-03
   name: 页面状态管理必须统一使用 V2 装饰器
@@ -40,16 +39,16 @@ constraints:
   priority: P0
   rules:
   - id: HM-BUGFIX-002-03-R1
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: '@(?:ObservedV2|ComponentV2|Local|Param|Provider|Consumer|Monitor|Computed|Trace)\\b'
   - id: HM-BUGFIX-002-03-R2
-    file: entry/src/main/ets/model/FontSettings.ets
+    target_file: entry/src/main/ets/model/FontSettings.ets
     regex_not: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\\b'
   - id: HM-BUGFIX-002-03-R3
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex_not: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\\b'
   - id: HM-BUGFIX-002-03-R4
-    file: entry/src/main/ets/pages/FontSettingPage.ets
+    target_file: entry/src/main/ets/pages/FontSettingPage.ets
     regex_not: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\\b'
 - id: HM-BUGFIX-002-04
   name: 页面路由管理必须统一使用 Navigation
@@ -57,17 +56,17 @@ constraints:
   priority: P0
   rules:
   - id: HM-BUGFIX-002-04-R1
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: Navigation\\s*\\(
   - id: HM-BUGFIX-002-04-R2
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex: NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\(
   - id: HM-BUGFIX-002-04-R3
-    file: entry/src/main/ets/pages/FontSettingPage.ets
+    target_file: entry/src/main/ets/pages/FontSettingPage.ets
     regex: NavDestination\\s*\\(
   - id: HM-BUGFIX-002-04-R4
-    file: entry/src/main/ets/pages/Index.ets
+    target_file: entry/src/main/ets/pages/Index.ets
     regex_not: \\brouter\\.
   - id: HM-BUGFIX-002-04-R5
-    file: entry/src/main/ets/pages/FontSettingPage.ets
+    target_file: entry/src/main/ets/pages/FontSettingPage.ets
     regex_not: \\brouter\\.

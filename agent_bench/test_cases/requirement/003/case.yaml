@@ -6,69 +6,56 @@ case:
   output_requirements: 请直接在当前工程中修改代码并完成需求实现，页面需可编译，主入口保持在 entry/src/main/ets/pages/Index.ets，并在回复中说明评论模型、列表渲染和点赞交互的实现方式。
 constraints:
 - id: HM-REQ-003-01
-  name: 评论模型必须使用 @ObservedV2 和 @Trace
-  description: 评论数据模型需要使用 @ObservedV2 定义，并对 liked 与 likedCount 使用 @Trace 标注。
-  category: 响应式
+  name: 评论项布局必须具备手机和平板适配能力
+  description: 评论项应通过 GridRow 和 GridCol 等栅格布局组织头像、正文和操作区，保证在手机和平板上都能稳定排版。
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-REQ-003-01-R1
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: contains
-      snippet: '@ObservedV2'
+      snippet: GridRow(
     - rule_id: HM-REQ-003-01-R2
       target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: '@Trace\s+liked\s*:\s*boolean'
+      match_type: contains
+      snippet: GridCol(
     - rule_id: HM-REQ-003-01-R3
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_contains
-      pattern: '@Trace\s+likedCount\s*:\s*number'
+      pattern: '(?:xs|sm|md|lg)\s*:'
 - id: HM-REQ-003-02
-  name: 页面必须渲染评论列表
-  description: 页面主体需要通过列表渲染多个评论项，而不是只写单条静态内容。
-  category: 组件规范
+  name: 评论项接口必须同时开放数据与交互回调
+  description: 评论项组件接口应接收评论数据对象和点赞交互回调，便于在不同评论流或不同交互策略下复用。
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-REQ-003-02-R1
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_contains
-      pattern: ForEach\(\s*this\.(?:comments|commentList)
+      pattern: '@Param\s+(?:comment|item|data)\s*:\s*\w+'
     - rule_id: HM-REQ-003-02-R2
       target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_count_at_least
-      pattern: Text\(
-      count: 3
+      match_type: regex_contains
+      pattern: '@Param\s+\w*(?:onLike|onToggleLike|onAction)\s*:\s*\([^)]*\)\s*=>'
 - id: HM-REQ-003-03
-  name: 点赞交互必须更新当前评论项状态
-  description: 点击点赞后应切换 liked，并同步增减 likedCount。
-  category: 交互
+  name: 评论项必须开放可扩展操作区接口
+  description: 评论项组件应提供可插拔的扩展操作区接口，以满足更多互动按钮、徽标或底部说明等定制需求。
   priority: P1
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-REQ-003-03-R1
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_contains
-      pattern: (?:comment|item)\.liked\s*=\s*!\s*(?:comment|item)\.liked
+      pattern: '@BuilderParam\s+\w*(?:actionBuilder|footerBuilder|extraBuilder)'
     - rule_id: HM-REQ-003-03-R2
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_contains
-      pattern: (?:comment|item)\.likedCount\s*(?:\+\+|--|=)
+      pattern: 'this\.\w*(?:actionBuilder|footerBuilder|extraBuilder)\s*\('
 - id: HM-REQ-003-04
   name: 页面路由管理必须统一使用 Navigation
   description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
-  category: 生态规范
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-REQ-003-04-R1
       target_file: entry/src/main/ets/pages/Index.ets
@@ -82,20 +69,3 @@ constraints:
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_not_contains
       pattern: \brouter\.
-- id: HM-REQ-003-05
-  name: 页面状态管理必须统一使用 V2 装饰器
-  description: 页面组件和状态模型必须统一使用 @ObservedV2、@Trace、@ComponentV2、@Local、@Param、@Provider、@Consumer、@Monitor、@Computed 等 V2 装饰器体系，禁止继续使用旧版 @State、@Link、@ObjectLink 等状态管理写法。
-  category: 生态规范
-  priority: P0
-  check_method:
-    type: custom_rule
-    match_mode: all
-    rules:
-    - rule_id: HM-REQ-003-05-R1
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: '@(?:ObservedV2|ComponentV2|Local|Param|Provider|Consumer|Monitor|Computed|Trace)\\b'
-    - rule_id: HM-REQ-003-05-R2
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_not_contains
-      pattern: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\\b'

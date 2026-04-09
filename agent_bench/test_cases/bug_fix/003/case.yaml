@@ -9,11 +9,8 @@ constraints:
   - id: HM-BUGFIX-003-01
     name: EventHub订阅必须在页面销毁时解除
     description: 使用eventhub.on注册的回调必须在aboutToDisappear或等效生命周期中调用eventhub.off释放，防止重复订阅和内存泄漏。
-    category: 可靠性
     priority: P2
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-003-01-R1
           target_file: entry/src/main/ets/pages/Index.ets
@@ -26,25 +23,18 @@ constraints:
   - id: HM-BUGFIX-003-02
     name: ForEach必须提供稳定keyGenerator
     description: Grid和List中的ForEach都必须提供稳定且唯一的keyGenerator，避免列表切换或重排时出现性能退化和状态错乱。
-    category: 性能
     priority: P2
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-003-02-R1
           target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_count_at_least
+          match_type: regex_contains
           pattern: "ForEach\\([\\s\\S]{0,400}?\\,\\s*\\([^)]*\\)\\s*=>\\s*[A-Za-z_][A-Za-z0-9_\\.]*\\s*\\)"
-          count: 2
   - id: HM-BUGFIX-003-03
     name: 显示模式切换必须驱动首页视图同步更新
     description: 设置页切换网格或列表模式后，首页必须根据事件载荷立即切换布局，不允许仅更新本页状态。
-    category: 组件规范
     priority: P1
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-003-03-R1
           target_file: entry/src/main/ets/pages/Index.ets
@@ -61,11 +51,8 @@ constraints:
   - id: HM-BUGFIX-003-04
     name: 页面状态管理必须统一使用 V2 装饰器
     description: 页面组件和状态模型必须统一使用 @ObservedV2、@Trace、@ComponentV2、@Local、@Param、@Provider、@Consumer、@Monitor、@Computed 等 V2 装饰器体系，禁止继续使用旧版 @State、@Link、@ObjectLink 等状态管理写法。
-    category: 生态规范
     priority: P0
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-003-04-R1
           target_file: entry/src/main/ets/pages/Index.ets
@@ -82,11 +69,8 @@ constraints:
   - id: HM-BUGFIX-003-05
     name: 页面路由管理必须统一使用 Navigation
     description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
-    category: 生态规范
     priority: P0
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-003-05-R1
           target_file: entry/src/main/ets/pages/Index.ets

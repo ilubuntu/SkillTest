@@ -6,13 +6,10 @@ case:
   output_requirements: 请直接在当前工程中修改代码并完成需求实现，页面需可编译，主入口保持在 entry/src/main/ets/pages/Index.ets，并在回复中说明订单模型、局部刷新和折叠逻辑实现。
 constraints:
 - id: HM-PERF-003-01
-  name: 订单模型必须使用 @ObservedV2 和 @Trace
-  description: 订单数据模型需要使用 @ObservedV2 定义，并用 @Trace 标注展开状态字段。
-  category: 性能
+  name: 订单项展开状态必须落在 V2 可追踪字段上
+  description: 订单数据模型需要使用 @ObservedV2 定义，并用 @Trace 标注展开状态字段，以便展开和折叠只触发当前项相关刷新。
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-PERF-003-01-R1
       target_file: entry/src/main/ets/pages/Index.ets
@@ -23,13 +20,10 @@ constraints:
       match_type: regex_contains
       pattern: '@Trace\s+(?:expanded|isExpanded)\s*:\s*boolean'
 - id: HM-PERF-003-02
-  name: 订单列表必须支持展开与折叠
-  description: 页面应通过列表渲染订单，并在点击订单头部后切换当前订单项的展开状态。
-  category: 交互
+  name: 展开折叠交互必须只切换当前订单项状态
+  description: 展开和折叠时应直接修改当前订单项的展开状态，避免通过整表重建或全量替换放大刷新范围。
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-PERF-003-02-R1
       target_file: entry/src/main/ets/pages/Index.ets
@@ -40,27 +34,24 @@ constraints:
       match_type: regex_contains
       pattern: (?:order|item)\.(?:expanded|isExpanded)\s*=\s*!\s*(?:order|item)\.(?:expanded|isExpanded)
 - id: HM-PERF-003-03
-  name: 展开后必须显示子商品列表
-  description: 订单展开后应渲染子商品列表，而不是仅切换一个布尔值。
-  category: 组件规范
+  name: 子商品列表必须按展开状态条件渲染
+  description: 子商品列表应仅在订单展开时参与渲染，折叠态不应继续保留子列表渲染开销。
   priority: P1
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-PERF-003-03-R1
       target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_count_at_least
-      pattern: ForEach\(
-      count: 2
+      match_type: regex_contains
+      pattern: (?:ForEach\([\s\S]*?){2,}
+    - rule_id: HM-PERF-003-03-R2
+      target_file: entry/src/main/ets/pages/Index.ets
+      match_type: regex_contains
+      pattern: (?:if\s*\(\s*(?:order|item)\.(?:expanded|isExpanded)\s*\)|\b(?:order|item)\.(?:expanded|isExpanded)\s*\?)
 - id: HM-PERF-003-04
   name: 页面路由管理必须统一使用 Navigation
   description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
-  category: 生态规范
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-PERF-003-04-R1
       target_file: entry/src/main/ets/pages/Index.ets
@@ -77,11 +68,8 @@ constraints:
 - id: HM-PERF-003-05
   name: 页面状态管理必须统一使用 V2 装饰器
   description: 页面组件和状态模型必须统一使用 @ObservedV2、@Trace、@ComponentV2、@Local、@Param、@Provider、@Consumer、@Monitor、@Computed 等 V2 装饰器体系，禁止继续使用旧版 @State、@Link、@ObjectLink 等状态管理写法。
-  category: 生态规范
   priority: P0
   check_method:
-    type: custom_rule
-    match_mode: all
     rules:
     - rule_id: HM-PERF-003-05-R1
       target_file: entry/src/main/ets/pages/Index.ets

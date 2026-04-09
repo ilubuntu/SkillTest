@@ -9,11 +9,8 @@ constraints:
   - id: HM-BUGFIX-001-01
     name: 新增或编辑后必须同步刷新商品列表
     description: 保存成功后必须将商品变更结果回传首页，并按商品ID执行新增或更新，避免列表展示旧数据或出现重复数据。
-    category: 可靠性
     priority: P0
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-001-01-R1
           target_file: entry/src/main/ets/pages/Index.ets
@@ -38,11 +35,8 @@ constraints:
   - id: HM-BUGFIX-001-02
     name: 商品表单必须进行有效性校验
     description: 保存前必须校验商品名称非空且价格为大于0的有效数值，非法输入应阻断提交并给出明确提示。
-    category: 组件规范
     priority: P2
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-001-02-R1
           target_file: entry/src/main/ets/pages/DetailPage.ets
@@ -67,11 +61,8 @@ constraints:
   - id: HM-BUGFIX-001-03
     name: 异步保存失败必须恢复交互状态并提示
     description: 数据更新失败时必须结束保存态、恢复按钮可点击状态，并向用户展示失败原因，避免页面卡死或无反馈。
-    category: 可靠性
     priority: P0
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-001-03-R1
           target_file: entry/src/main/ets/pages/DetailPage.ets
@@ -92,11 +83,8 @@ constraints:
   - id: HM-BUGFIX-001-04
     name: 编辑态必须正确回填商品详情
     description: 进入详情编辑页时必须依据商品ID加载已有数据并回填表单，避免编辑页展示默认值或覆盖原始数据。
-    category: 组件规范
     priority: P0
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-001-04-R1
           target_file: entry/src/main/ets/pages/DetailPage.ets
@@ -121,11 +109,8 @@ constraints:
   - id: HM-BUGFIX-001-05
     name: 页面状态管理必须统一使用 V2 装饰器
     description: 页面组件和状态模型必须统一使用 @ObservedV2、@Trace、@ComponentV2、@Local、@Param、@Provider、@Consumer、@Monitor、@Computed 等 V2 装饰器体系，禁止继续使用旧版 @State、@Link、@ObjectLink 等状态管理写法。
-    category: 生态规范
     priority: P0
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-001-05-R1
           target_file: entry/src/main/ets/pages/Index.ets
@@ -142,11 +127,8 @@ constraints:
   - id: HM-BUGFIX-001-06
     name: 页面路由管理必须统一使用 Navigation
     description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
-    category: 生态规范
     priority: P0
     check_method:
-      type: custom_rule
-      match_mode: all
       rules:
         - rule_id: HM-BUGFIX-001-06-R1
           target_file: entry/src/main/ets/pages/Index.ets

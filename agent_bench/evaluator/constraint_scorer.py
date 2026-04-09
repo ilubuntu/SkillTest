@@ -4,7 +4,7 @@
 import json
 import os
 import re
-from typing import Dict, Tuple
+from typing import Tuple
 
 from agent_bench.constraint_schema import normalize_constraint_item, normalize_constraints
 
@@ -19,10 +19,6 @@ PRIORITY_WEIGHTS = {
     "P0": 5.0,
     "P1": 3.0,
     "P2": 1.0,
-}
-TYPE_WEIGHTS = {
-    "custom_rule": 1.0,
-    "scenario_assert": 1.2,
 }
 TOTAL_CONSTRAINT_POINTS = 100.0
 
@@ -80,8 +76,6 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
     p0_weighted_score_total = 0.0
     quality_weighted_total = 0.0
     quality_weighted_score_total = 0.0
-    category_buckets: Dict[str, Dict[str, float]] = {}
-
     for item in constraints:
         item_result = _evaluate_constraint_item(item, project_root)
         item_results.append(item_result)
@@ -98,11 +92,6 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
         else:
             quality_weighted_total += weight
             quality_weighted_score_total += weight * score
-
-        category = item_result["category"] or "uncategorized"
-        bucket = category_buckets.setdefault(category, {"weight": 0.0, "score": 0.0})
-        bucket["weight"] += weight
-        bucket["score"] += weight * score
 
     total_points = TOTAL_CONSTRAINT_POINTS if item_results else 0.0
     for item in item_results:
@@ -125,10 +114,6 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
         else:
             unmet_constraint_ids.append(item.get("id") or "")
 
-    category_scores = {}
-    for category, bucket in category_buckets.items():
-        category_scores[category] = round(_safe_weighted_avg(bucket["score"], bucket["weight"]), 1)
-
     return {
         "skill_name": SKILL_NAME,
         "project_root": project_root,
@@ -140,7 +125,6 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
             "passed_constraints": passed_constraints,
             "unmet_constraint_ids": unmet_constraint_ids,
         },
-        "category_scores": category_scores,
         "items": item_results,
     }
 
@@ -182,13 +166,9 @@ def strip_constraint_review_report(output_text: str) -> str:
 def _evaluate_constraint_item(item: dict, project_root: str) -> dict:
     item = normalize_constraint_item(item)
     check_method = item.get("check_method") if isinstance(item, dict) else {}
-    method_type = _fmt(check_method.get("type")) or "custom_rule"
-    match_mode = (_fmt(check_method.get("match_mode")) or "all").lower()
     priority = (_fmt(item.get("priority")) or "P1").upper()
-    category = _fmt(item.get("category"))
     priority_weight = PRIORITY_WEIGHTS.get(priority, PRIORITY_WEIGHTS["P1"])
-    type_weight = TYPE_WEIGHTS.get(method_type, TYPE_WEIGHTS["custom_rule"])
-    weight = priority_weight * type_weight
+    weight = priority_weight
 
     rules = check_method.get("rules") if isinstance(check_method, dict) else []
     rule_results = [_evaluate_rule(rule, project_root) for rule in (rules or [])]
@@ -198,9 +178,6 @@ def _evaluate_constraint_item(item: dict, project_root: str) -> dict:
     if total_rules == 0:
         score = 100.0
         passed = True
-    elif match_mode == "any":
-        passed = matched_rules > 0
-        score = 100.0 if passed else 0.0
     else:
         score = round((matched_rules / total_rules) * 100.0, 1)
         passed = matched_rules == total_rules
@@ -209,12 +186,8 @@ def _evaluate_constraint_item(item: dict, project_root: str) -> dict:
         "id": _fmt(item.get("id")),
         "name": _fmt(item.get("name")),
         "description": _fmt(item.get("description")),
-        "category": category,
         "priority": priority,
-        "check_type": method_type,
-        "match_mode": match_mode,
         "priority_weight": priority_weight,
-        "type_weight": type_weight,
         "weight": weight,
         "score": score,
         "passed": passed,
@@ -230,7 +203,6 @@ def _evaluate_rule(rule: dict, project_root: str) -> dict:
     match_type = _fmt(rule.get("match_type")) or "contains"
     snippet = _fmt(rule.get("snippet"))
     pattern = _fmt(rule.get("pattern"))
-    expected_count = int(rule.get("count") or 1)
     abs_path = os.path.join(project_root, target_file) if target_file else ""
     file_exists = bool(abs_path) and os.path.isfile(abs_path)
     content = _read_text(abs_path) if file_exists else ""
@@ -240,7 +212,6 @@ def _evaluate_rule(rule: dict, project_root: str) -> dict:
         content,
         snippet=snippet,
         pattern=pattern,
-        expected_count=expected_count,
     )
     if not file_exists:
         passed = False
@@ -251,7 +222,6 @@ def _evaluate_rule(rule: dict, project_root: str) -> dict:
         "target_file": target_file,
         "match_type": match_type,
         "snippet": snippet or pattern,
-        "count": expected_count if match_type in ("count_at_least", "regex_count_at_least") else None,
         "passed": passed,
         "detail": detail,
         "score": 100.0 if passed else 0.0,
@@ -263,8 +233,7 @@ def _evaluate_rule(rule: dict, project_root: str) -> dict:
 def _match_rule(match_type: str,
                 content: str,
                 snippet: str = "",
-                pattern: str = "",
-                expected_count: int = 1) -> Tuple[bool, str]:
+                pattern: str = "") -> Tuple[bool, str]:
     if match_type == "contains":
         found = bool(snippet) and snippet in content
         return found, "snippet found" if found else "snippet not found"
@@ -273,10 +242,6 @@ def _match_rule(match_type: str,
         found = bool(snippet) and snippet in content
         return (not found), "snippet absent" if not found else "snippet unexpectedly found"
 
-    if match_type == "count_at_least":
-        actual_count = content.count(snippet) if snippet else 0
-        return actual_count >= expected_count, f"actual_count={actual_count}, expected_count>={expected_count}"
-
     if match_type == "regex_contains":
         matched = bool(pattern) and re.search(pattern, content, re.MULTILINE) is not None
         return matched, "regex matched" if matched else "regex not matched"
@@ -284,10 +249,6 @@ def _match_rule(match_type: str,
     if match_type == "regex_not_contains":
         matched = bool(pattern) and re.search(pattern, content, re.MULTILINE) is not None
         return (not matched), "regex absent" if not matched else "regex unexpectedly matched"
-
-    if match_type == "regex_count_at_least":
-        actual_count = len(re.findall(pattern, content, re.MULTILINE)) if pattern else 0
-        return actual_count >= expected_count, f"actual_count={actual_count}, expected_count>={expected_count}"
 
     return False, f"unsupported match_type: {match_type}"
 
@@ -299,19 +260,7 @@ def _attach_rule_scores(item: dict) -> None:
         return
 
     constraint_max_points = float(item.get("max_points", 0.0) or 0.0)
-    constraint_earned_points = float(item.get("earned_points", 0.0) or 0.0)
-    match_mode = item.get("match_mode") or "all"
     per_rule_max_points = round(constraint_max_points / total_rules, 2) if total_rules else 0.0
-
-    if match_mode == "any":
-        passed_rules = [rule for rule in rules if rule.get("passed")]
-        per_passed_earned_points = (
-            round(constraint_earned_points / len(passed_rules), 2) if passed_rules else 0.0
-        )
-        for rule in rules:
-            rule["max_points"] = per_rule_max_points
-            rule["earned_points"] = per_passed_earned_points if rule.get("passed") else 0.0
-        return
 
     for rule in rules:
         rule["max_points"] = per_rule_max_points
