@@ -59,7 +59,7 @@ AGC_PROJECT_CLIENT_CONFIG = {
 }
 
 STATUS_PUSH_INTERVAL_SECONDS = 2.0
-STATUS_PUSH_DETAIL_FLUSH_SECONDS = 6.0
+STATUS_PUSH_DETAIL_FLUSH_SECONDS = 3.0
 logger = logging.getLogger("agent_bench.executor")
 
 STAGE_PENDING = "pending"
@@ -145,7 +145,21 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
         if "任务已发送" in text:
             return "任务已发送"
         if "已收到任务" in text:
-            return "Agent已收到任务"
+            return "Agent已收到任务，会展示部分处理流程"
+        if any(token in text for token in (
+            "文件检查完成",
+            "代码修改完成",
+            "工具执行完成",
+            "已生成代码补丁",
+            "开始输出结果:",
+            "输出预览",
+        )):
+            return _truncate_message(text, 160)
+        if any(token in text for token in (
+            "约束规则打分结果:",
+            "静态代码打分结果:",
+        )):
+            return _truncate_message(text, 180)
         if any(token in text for token in (
             "开始处理任务",
             "模型开始思考",
@@ -155,6 +169,8 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
             "开始输出结果",
         )):
             return "正在处理"
+        if "Agent处理完成, output=" in text:
+            return _truncate_message(text, 180)
         if any(token in text for token in (
             "运行完成",
             "处理完成",
@@ -401,6 +417,10 @@ class CloudExecutionManager:
             return
         entry = self._ensure_stage_entry(state, stage)
         details = entry.setdefault("detail", [])
+        if normalized_message == "正在处理":
+            for item in details:
+                if str(item.get("message") or "").strip() == normalized_message:
+                    return
         if details and str(details[-1].get("message") or "").strip() == normalized_message:
             return
         details.append({
@@ -562,6 +582,17 @@ class CloudExecutionManager:
             "payload": payload,
         })
 
+    def _append_cloud_event(self, state: Dict[str, Any], event_type: str, payload: Dict[str, Any]):
+        run_dir = str(state.get("run_dir") or "").strip()
+        if not run_dir:
+            return
+        log_path = os.path.join(run_dir, "cloud_api_events.jsonl")
+        _append_jsonl(log_path, {
+            "timestamp": _now_iso(),
+            "event": event_type,
+            "payload": payload,
+        })
+
     def _report_remote_status(self, state: Dict[str, Any]):
         remote_status = map_internal_status_to_remote(state.get("local_status"))
         execution_log = self._build_execution_log_snapshot(state)
@@ -572,6 +603,12 @@ class CloudExecutionManager:
             execution_log=execution_log,
         )
         state["last_status_payload"] = payload
+        request_record = {
+            "url": f"{(state.get('cloud_base_url') or CLOUD_BASE_URL).rstrip('/')}/api/test-executions/{int(state.get('execution_id') or 0)}/report",
+            "payload": payload,
+            "has_token": bool((state.get("token") or "").strip()),
+        }
+        self._append_cloud_event(state, "status_report_request", request_record)
         response = report_status(
             cloud_base_url=state.get("cloud_base_url") or CLOUD_BASE_URL,
             execution_id=int(state.get("execution_id") or 0),
@@ -588,7 +625,7 @@ class CloudExecutionManager:
             upload_state["last_payload_signature"] = json.dumps(payload, ensure_ascii=False, sort_keys=True)
             upload_state["last_response_ok"] = bool(response.get("ok"))
             self._save_progress_upload_state(upload_state_path, upload_state)
-        self._append_local_event(state, "status_report", {
+        self._append_cloud_event(state, "status_report_response", {
             "payload": payload,
             "response": response,
         })
@@ -765,6 +802,11 @@ class CloudExecutionManager:
                 state["result"] = result
                 state["last_result_payload"] = result_payload
 
+            self._append_cloud_event(state, "result_report_request", {
+                "url": f"{(state.get('cloud_base_url') or CLOUD_BASE_URL).rstrip('/')}/api/execution-results",
+                "payload": result_payload,
+                "has_token": bool((state.get("token") or "").strip()),
+            })
             result_response = upload_execution_result(
                 cloud_base_url=state.get("cloud_base_url") or CLOUD_BASE_URL,
                 payload=result_payload,
@@ -772,7 +814,7 @@ class CloudExecutionManager:
             )
             with self._lock:
                 state["last_result_response"] = result_response
-                self._append_local_event(state, "result_report", {
+                self._append_cloud_event(state, "result_report_response", {
                     "payload": result_payload,
                     "response": result_response,
                 })

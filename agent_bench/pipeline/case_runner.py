@@ -73,6 +73,83 @@ def _clip_text(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "\n...<truncated>"
 
 
+def _coerce_int(value):
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except Exception:
+        return None
+
+
+def _format_usage_suffix(metrics: dict) -> str:
+    usage = (metrics or {}).get("usage") if isinstance(metrics, dict) else {}
+    if not isinstance(usage, dict):
+        return ""
+    input_tokens = _coerce_int(usage.get("input_tokens"))
+    output_tokens = _coerce_int(usage.get("output_tokens"))
+    reasoning_tokens = _coerce_int(usage.get("reasoning_tokens"))
+    values = [value for value in (input_tokens, output_tokens, reasoning_tokens) if value is not None]
+    if not values:
+        return ""
+    total_tokens = sum(values)
+    segments = [f"tokens={total_tokens}"]
+    if input_tokens is not None:
+        segments.append(f"in={input_tokens}")
+    if output_tokens is not None:
+        segments.append(f"out={output_tokens}")
+    if reasoning_tokens is not None:
+        segments.append(f"reasoning={reasoning_tokens}")
+    return ", " + ", ".join(segments)
+
+
+def _format_completion_message(prefix: str, output_text: str, elapsed: float, metrics: dict) -> str:
+    output_chars = len(output_text or "")
+    return f"{prefix}, output={output_chars} chars, elapsed={elapsed:.1f}s{_format_usage_suffix(metrics)}"
+
+
+def _format_constraint_score_message(summary: dict) -> str:
+    if not isinstance(summary, dict):
+        return "约束规则打分结果: 无"
+    overall = summary.get("overall_score")
+    passed = summary.get("constraints_passed")
+    total = summary.get("constraints_total")
+    segments = []
+    if overall is not None:
+        segments.append(f"overall_score={overall}")
+    if passed is not None:
+        if total is not None:
+            segments.append(f"constraints_passed={passed}/{total}")
+        else:
+            segments.append(f"constraints_passed={passed}")
+    return "约束规则打分结果: " + (", ".join(segments) if segments else "无")
+
+
+def _format_static_score_message(summary: dict, source: str = "") -> str:
+    if not isinstance(summary, dict):
+        return "静态代码打分结果: 无"
+    quality = summary.get("quality_score")
+    overall = summary.get("overall_score")
+    segments = []
+    if quality is not None:
+        segments.append(f"quality_score={quality}")
+    if overall is not None and overall != quality:
+        segments.append(f"overall_score={overall}")
+    if source:
+        segments.append(f"source={source}")
+    return "静态代码打分结果: " + (", ".join(segments) if segments else "无")
+
+
+def _ensure_review_stage_succeeded(result: dict, stage_label: str):
+    status = str((result or {}).get("status") or "").strip().lower()
+    if status in {"completed", "success", "skipped"}:
+        return
+    reason = str((result or {}).get("reason") or "").strip()
+    if reason:
+        raise RuntimeError(f"{stage_label}失败: {reason}")
+    raise RuntimeError(f"{stage_label}失败")
+
+
 def _get_case_upload_root(case: dict) -> str:
     cached = str((case or {}).get("_upload_root") or "").strip()
     if cached:
@@ -466,6 +543,14 @@ def _extract_static_review_summary(output_text: str) -> dict:
     if total_match:
         score = float(total_match.group(1))
         return {"quality_score": score, "overall_score": score}
+    markdown_total_match = re.search(
+        r"\|\s*\*{0,2}(?:总分|total score)\*{0,2}\s*\|\s*\*{0,2}([0-9]+(?:\.[0-9]+)?)\s*/\s*100\*{0,2}\s*\|",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if markdown_total_match:
+        score = float(markdown_total_match.group(1))
+        return {"quality_score": score, "overall_score": score}
     return {}
 
 
@@ -486,6 +571,36 @@ def _extract_static_review_summary_from_json_payload(payload) -> dict:
     if isinstance(quality, (int, float)):
         summary["quality_score"] = float(quality)
     return summary
+
+
+def _extract_static_review_summary_from_file(case_dir: str) -> tuple[dict, str]:
+    candidate_paths = [
+        os.path.join(case_dir, "bug_fix_score_result.json"),
+        os.path.join(static_dir(case_dir), "bug_fix_score_result.json"),
+    ]
+    for base_dir in [case_dir, static_dir(case_dir)]:
+        if not os.path.isdir(base_dir):
+            continue
+        for name in sorted(os.listdir(base_dir)):
+            if not name.endswith("_score_result.json"):
+                continue
+            candidate_paths.append(os.path.join(base_dir, name))
+
+    seen = set()
+    for score_path in candidate_paths:
+        normalized = os.path.abspath(score_path)
+        if normalized in seen or not os.path.exists(normalized):
+            continue
+        seen.add(normalized)
+        try:
+            with open(normalized, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            continue
+        summary = _extract_static_review_summary_from_json_payload(payload)
+        if summary:
+            return summary, normalized
+    return {}, ""
 
 
 def _build_deterministic_constraint_review_summary(case: dict,
@@ -701,7 +816,11 @@ def _legacy_run_constraint_review_agent_v2(case: dict,
             raise RuntimeError("constraint review summary extraction failed")
         _notify(on_progress, "log", {
             "level": "WARNING",
-            "message": f"{agent_spec.display_name} constraint review completed, output={len(output_text)} chars, elapsed={elapsed:.1f}s",
+            "message": _format_completion_message("Agent处理完成", output_text, elapsed, metrics),
+        })
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": _format_constraint_score_message(summary),
         })
         if output_text:
             _notify(on_progress, "log", {
@@ -902,18 +1021,23 @@ def _run_constraint_review_agent(case: dict,
                     agent_temperature=agent_temperature,
                     stage_label=stage_label,
                 )
+                metrics = result.pop("_metrics")
                 save_review_agent_artifacts(
                     case_dir,
                     "constraint_review",
                     output_text,
                     task_prompt=result.pop("_task_prompt"),
-                    metrics=result.pop("_metrics"),
+                    metrics=metrics,
                 )
                 elapsed = result.pop("_elapsed")
                 result.pop("_stage_label", None)
                 _notify(on_progress, "log", {
                     "level": "WARNING",
-                    "message": f"{agent_spec.display_name} constraint review completed, output={len(output_text)} chars, elapsed={elapsed:.1f}s",
+                    "message": _format_completion_message("Agent处理完成", output_text, elapsed, metrics),
+                })
+                _notify(on_progress, "log", {
+                    "level": "INFO",
+                    "message": _format_constraint_score_message(result.get("summary") or {}),
                 })
                 if output_text:
                     _notify(on_progress, "log", {
@@ -1007,14 +1131,30 @@ def _run_static_review_agent(case: dict,
             raise RuntimeError("static review produced empty output")
         _notify(on_progress, "log", {
             "level": "WARNING",
-            "message": f"{agent_spec.display_name} static review completed, output={len(output_text)} chars, elapsed={elapsed:.1f}s",
+            "message": _format_completion_message("Agent处理完成", output_text, elapsed, metrics),
         })
         if output_text:
             _notify(on_progress, "log", {
                 "level": "WARNING",
                 "message": f"{agent_spec.display_name} output preview:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}",
             })
-        summary = _extract_static_review_summary(output_text)
+        summary = {}
+        summary_source = "none"
+        summary, summary_file_path = _extract_static_review_summary_from_file(case_dir)
+        if summary:
+            summary_source = f"json_file:{summary_file_path}"
+        if not summary:
+            summary = _extract_static_review_summary(output_text)
+            if summary:
+                summary_source = "model_output"
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": _format_static_score_message(summary, summary_source),
+        })
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"{agent_spec.display_name} 分数来源: {summary_source}",
+        })
         _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "static_review", "elapsed": elapsed})
         return {
             "status": "completed",
@@ -1027,6 +1167,7 @@ def _run_static_review_agent(case: dict,
             "output_path": os.path.join(static_dir(case_dir), "static_review_output.txt"),
             "metrics_path": os.path.join(static_dir(case_dir), "static_review_interaction_metrics.json"),
             "summary": summary,
+            "summary_source": summary_source,
         }
     except Exception as exc:
         _notify(on_progress, "log", {"level": "ERROR", "message": f"static review failed: {exc}"})
@@ -1147,10 +1288,14 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 if not output_text and last_error_message:
                     raise RuntimeError(last_error_message)
             finally:
-                save_interaction_metrics(case_dir, "agent", runtime.get_last_interaction_metrics())
+                metrics = runtime.get_last_interaction_metrics()
+                save_interaction_metrics(case_dir, "agent", metrics)
                 runtime.teardown()
             save_runner_artifacts(case_dir, output_text, task_prompt=task_prompt)
-            _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 运行完成, 输出={len(output_text)}字符, 耗时={elapsed:.1f}s"})
+            _notify(on_progress, "log", {
+                "level": "WARNING",
+                "message": _format_completion_message("Agent处理完成", output_text, elapsed, metrics),
+            })
             if output_text:
                 _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 输出预览:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}"})
             post_compile_result = _run_compile_check(
@@ -1173,6 +1318,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 agent_timeout=agent_timeout,
                 agent_temperature=agent_temperature,
             )
+            _ensure_review_stage_succeeded(case["_constraint_review_result"], "约束规则打分")
             case["_static_review_result"] = _run_static_review_agent(
                 case=case,
                 case_dir=case_dir,
@@ -1183,6 +1329,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 agent_timeout=agent_timeout,
                 agent_temperature=agent_temperature,
             )
+            _ensure_review_stage_succeeded(case["_static_review_result"], "静态代码打分")
             _log_skill_call_detection(
                 case_id,
                 agent_spec.display_name,
