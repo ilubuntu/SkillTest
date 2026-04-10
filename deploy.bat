@@ -1,6 +1,8 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
@@ -107,6 +109,11 @@ if exist "%CURRENT_EXECUTOR_LOG_FILE%" (
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$f = Get-ChildItem -Path '%LOG_DIR%' -Filter 'agent_bench_*.log' -ErrorAction SilentlyContinue ^| Sort-Object LastWriteTime -Descending ^| Select-Object -First 1 -ExpandProperty FullName; if ($f) { Write-Output $f }"`) do set "BACKEND_LOG=%%I"
 exit /b 0
 
+:refresh_executor_log_file
+set "BACKEND_LOG="
+call :resolve_executor_log_file
+exit /b 0
+
 :is_opencode_healthy
 powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try { $content = (Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:%OPENCODE_PORT%/global/health' -TimeoutSec 2).Content; if ($content -match 'healthy') { exit 0 } } catch {}; exit 1" >nul 2>&1
 exit /b %errorlevel%
@@ -169,7 +176,7 @@ exit /b 0
 call :info "Starting executor service on port %BACKEND_PORT%..."
 call :is_backend_healthy
 if not errorlevel 1 (
-    call :resolve_executor_log_file
+    call :refresh_executor_log_file
     call :info "Executor service is already running."
     exit /b 0
 )
@@ -181,23 +188,25 @@ if not defined BACKEND_LOG (
 )
 if not exist "%BACKEND_LOG%" type nul > "%BACKEND_LOG%"
 
-start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && call %PYTHON_CMD% -m agent_bench.executor.main >> ""%BACKEND_LOG%"" 2>&1"
+start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && call %PYTHON_CMD% -X utf8 -u -m agent_bench.executor.main >> ""%BACKEND_LOG%"" 2>&1"
 
 for /L %%I in (1,1,10) do (
     call :is_backend_healthy
     if not errorlevel 1 (
+        call :refresh_executor_log_file
         call :info "Executor service started successfully."
         exit /b 0
     )
     timeout /t 1 /nobreak >nul
 )
 
+call :refresh_executor_log_file
 call :warn "Executor service may not be fully ready yet. Check %BACKEND_LOG%"
 exit /b 0
 
 :follow_executor_logs
 call :ensure_log_dir
-call :resolve_executor_log_file
+call :refresh_executor_log_file
 if not defined BACKEND_LOG (
     call :warn "No executor log file was found."
     exit /b 1
@@ -209,7 +218,7 @@ call :info "Following executor log: %BACKEND_LOG%"
 call :info "Press Ctrl+C to stop log viewing. To stop services, run: deploy.bat stop"
 echo.
 
-powershell -NoProfile -Command "$path='%BACKEND_LOG%'; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); if (-not (Test-Path $path)) { New-Item -ItemType File -Path $path -Force | Out-Null }; Get-Content -Encoding UTF8 -Path $path -Tail 80 -Wait | Where-Object { $_ -notmatch 'GET /api/health' -and $_ -notmatch 'GET /api/cloud-api/status' }"
+powershell -NoProfile -Command "$path='%BACKEND_LOG%'; [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false); [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); if (-not (Test-Path $path)) { New-Item -ItemType File -Path $path -Force | Out-Null }; Get-Content -Encoding UTF8 -LiteralPath $path -Tail 80 -Wait | Where-Object { $_ -notmatch 'GET /api/health' -and $_ -notmatch 'GET /api/cloud-api/status' }"
 exit /b %errorlevel%
 
 :start_executor
@@ -236,7 +245,7 @@ if errorlevel 1 (
     call :pause_if_needed
     exit /b 1
 )
-call :resolve_executor_log_file
+call :refresh_executor_log_file
 
 echo.
 call :info "Executor is ready."
@@ -290,7 +299,7 @@ call :info "Restarting executor service only..."
 call :check_deps
 if errorlevel 1 exit /b 1
 call :ensure_log_dir
-call :resolve_executor_log_file
+call :refresh_executor_log_file
 call :kill_port %BACKEND_PORT%
 timeout /t 1 /nobreak >nul
 call :install_python_deps
