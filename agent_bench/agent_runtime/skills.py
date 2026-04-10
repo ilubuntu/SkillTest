@@ -1,18 +1,13 @@
 # -*- coding: utf-8 -*-
 """Agent Skill 检查与日志。"""
 
-import json
 import hashlib
 import os
 import shutil
 import sys
 
 from agent_bench.agent_runtime.spec import AgentSpec
-from agent_bench.opencode_cli import resolve_opencode_config_root, run_opencode_command
-
-
-def _run_opencode_debug_command(*args: str) -> tuple[bool, str, str]:
-    return run_opencode_command("debug", *args, timeout=10)
+from agent_bench.opencode_cli import resolve_opencode_config_root
 
 
 def _resolve_opencode_config_root() -> str:
@@ -38,28 +33,12 @@ def log_agent_configuration(agent_spec: AgentSpec, on_progress):
         _notify(on_progress, "WARNING", f"检测 Agent 是否正确挂载 skill: {', '.join(agent_spec.mounted_skill_names)}")
 
 
-def _run_opencode_debug_skill() -> tuple[bool, list[dict], str]:
-    try:
-        ok, stdout, error_message = _run_opencode_debug_command("skill")
-        if not ok:
-            return False, [], error_message
-        payload = json.loads(stdout or "[]")
-        items = payload if isinstance(payload, list) else []
-        normalized = [item for item in items if isinstance(item, dict)]
-        return True, normalized, ""
-    except Exception as exc:
-        return False, [], str(exc)
-
-
 def _opencode_has_skill(skill_name: str) -> tuple[bool, str]:
-    ok, items, error_message = _run_opencode_debug_skill()
-    if not ok:
-        return False, error_message
-    found = any(
-        str(item.get("name") or "").strip() == skill_name
-        for item in items
-    )
-    return found, ""
+    target_dir = os.path.join(_resolve_opencode_skill_root(), skill_name)
+    target_skill_md = os.path.join(target_dir, "SKILL.md")
+    if os.path.isdir(target_dir) and os.path.isfile(target_skill_md):
+        return True, ""
+    return False, f"missing skill dir or SKILL.md: {target_dir}"
 
 
 def _runtime_root_dir() -> str:
@@ -187,27 +166,27 @@ def verify_runtime_skills(agent_spec: AgentSpec, on_progress) -> dict:
             continue
         if _sync_mounted_skill_if_needed(skill_name, skill_spec.path, on_progress):
             mounted_any = True
-        _notify(on_progress, "WARNING", f"{agent_spec.display_name} skill 检测开始: 正在通过 `opencode debug skill` 检查 OpenCode 是否正确配置 {skill_name}")
+        _notify(on_progress, "WARNING", f"{agent_spec.display_name} skill 检测开始: 正在检查 OpenCode 配置目录中是否存在 {skill_name}")
         found, error_message = _opencode_has_skill(skill_name)
         if found:
-            _notify(on_progress, "INFO", f"{agent_spec.display_name} skill 检测完成: 已通过 `opencode debug skill` 确认 OpenCode 已正确配置 {skill_name}")
+            _notify(on_progress, "INFO", f"{agent_spec.display_name} skill 检测完成: 已确认 OpenCode 配置目录中存在 {skill_name}")
             continue
         if error_message:
             _notify(on_progress, "ERROR", f"{agent_spec.display_name} skill 检测命令异常: {error_message}")
 
-        _notify(on_progress, "ERROR", f"{agent_spec.display_name} skill 初次检测结果: `opencode debug skill` 未检测到 {skill_name}")
+        _notify(on_progress, "ERROR", f"{agent_spec.display_name} skill 初次检测结果: OpenCode 配置目录中未检测到 {skill_name}")
         if _try_mount_opencode_skill(skill_name, skill_spec.path, on_progress):
             mounted_any = True
             if not _validate_mounted_skill_target(skill_name, skill_spec.path, on_progress):
                 all_ok = False
                 continue
-            _notify(on_progress, "WARNING", f"{agent_spec.display_name} skill 复检开始: 挂载完成后，再次执行 `opencode debug skill` 检查 {skill_name}")
+            _notify(on_progress, "WARNING", f"{agent_spec.display_name} skill 复检开始: 挂载完成后，再次检查 OpenCode 配置目录中的 {skill_name}")
             found, error_message = _opencode_has_skill(skill_name)
             if found:
-                _notify(on_progress, "INFO", f"{agent_spec.display_name} skill 检测完成: 已通过 `opencode debug skill` 确认尝试挂载后 OpenCode 已正确配置 {skill_name}")
+                _notify(on_progress, "INFO", f"{agent_spec.display_name} skill 检测完成: 已确认尝试挂载后 OpenCode 配置目录中存在 {skill_name}")
                 continue
             if error_message:
                 _notify(on_progress, "ERROR", f"{agent_spec.display_name} skill 复检命令异常: {error_message}")
-        _notify(on_progress, "ERROR", f"{agent_spec.display_name} skill 检测完成: 尝试挂载后再次执行 `opencode debug skill`，仍未检测到 {skill_name}")
+        _notify(on_progress, "ERROR", f"{agent_spec.display_name} skill 检测完成: 尝试挂载后再次检查 OpenCode 配置目录，仍未检测到 {skill_name}")
         all_ok = False
     return {"ok": all_ok, "mounted": mounted_any}
