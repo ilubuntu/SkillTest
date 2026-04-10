@@ -12,6 +12,7 @@ from typing import Callable
 
 from agent_bench.agent_runtime import AgentRuntime, build_agent_spec, build_agent_task_prompt
 from agent_bench.agent_runtime.prompts import build_constraint_review_prompt, build_static_review_prompt
+from agent_bench.constraint_schema import normalize_constraints
 from agent_bench.pipeline.artifacts import (
     agent_meta_dir,
     agent_workspace_dir,
@@ -516,6 +517,26 @@ def _extract_constraint_review_summary_from_json_payload(payload) -> dict:
             for item in payload.get("unmet_constraint_ids") or []
             if str(item).strip()
         ]
+    if isinstance(payload.get("public_constraint_results"), list):
+        normalized_public_results = []
+        for item in payload.get("public_constraint_results") or []:
+            if not isinstance(item, dict):
+                continue
+            constraint_id = str(item.get("constraint_id") or "").strip()
+            if not constraint_id:
+                continue
+            try:
+                score_value = float(item.get("score"))
+            except Exception:
+                score_value = 0.0
+            normalized_public_results.append({
+                "constraint_id": constraint_id,
+                "constraint_ref": str(item.get("constraint_ref") or "").strip(),
+                "name": str(item.get("name") or "").strip(),
+                "score": round(score_value, 1),
+                "passed": bool(item.get("passed")),
+            })
+        summary["public_constraint_results"] = normalized_public_results
     return summary
 
 
@@ -670,7 +691,7 @@ def _legacy_run_constraint_review_agent(case: dict,
                                  agent_timeout: int,
                                  agent_temperature):
     case_spec = case.get("case_spec") or {}
-    constraints = case_spec.get("constraints") or []
+    constraints = normalize_constraints(case_spec, project_root=workspace_dir)
     if not constraints:
         _notify(on_progress, "log", {"level": "INFO", "message": "当前用例无 constraints，跳过约束规则打分"})
         return {
@@ -761,7 +782,7 @@ def _legacy_run_constraint_review_agent_v2(case: dict,
                                  agent_timeout: int,
                                  agent_temperature):
     case_spec = case.get("case_spec") or {}
-    constraints = case_spec.get("constraints") or []
+    constraints = normalize_constraints(case_spec, project_root=workspace_dir)
     if not constraints:
         _notify(on_progress, "log", {"level": "INFO", "message": "current case has no constraints, skip constraint review"})
         return {
@@ -996,7 +1017,7 @@ def _run_constraint_review_agent(case: dict,
                                  agent_timeout: int,
                                  agent_temperature):
     case_spec = case.get("case_spec") or {}
-    constraints = case_spec.get("constraints") or []
+    constraints = normalize_constraints(case_spec, project_root=workspace_dir)
     if not constraints:
         _notify(on_progress, "log", {"level": "INFO", "message": "current case has no constraints, skip constraint review"})
         return {

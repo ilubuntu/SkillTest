@@ -4,6 +4,7 @@
 import json
 
 from agent_bench.agent_runtime.spec import AgentSpec
+from agent_bench.constraint_schema import normalize_constraints
 
 TASK_PROMPT = """{prompt}"""
 TASK_PROMPT_MULTI_PAGE = """{prompt}
@@ -45,7 +46,7 @@ def build_constraint_review_prompt(case: dict,
                                    agent_spec: AgentSpec) -> str:
     case_spec = case.get("case_spec") or {}
     case_prompt = str(case.get("prompt") or "").strip()
-    constraints = case_spec.get("constraints") or []
+    constraints = normalize_constraints(case_spec, project_root=repaired_project_root or original_project_root)
     patch_input = repair_patch_file or "(patch unavailable; score directly from repaired_project_root)"
     sections = [
         "请对当前修复结果执行约束规则评分，并严格按约束检查修复后的工程。",

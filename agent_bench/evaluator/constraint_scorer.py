@@ -30,7 +30,7 @@ def build_constraint_review_skill(case_spec: dict,
                                   case_prompt: str = "") -> dict:
     """Build runtime skill content from the static skill file plus case context."""
     case_meta = case_spec.get("case", {}) if isinstance(case_spec, dict) else {}
-    constraints = normalize_constraints(case_spec)
+    constraints = normalize_constraints(case_spec, project_root=repaired_project_root or original_project_root)
     skill_content = _read_text(SKILL_FILE_PATH).strip()
     if not skill_content:
         skill_content = (
@@ -67,7 +67,7 @@ def build_constraint_review_skill(case_spec: dict,
 
 def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
     """Evaluate repaired code against constraints."""
-    constraints = normalize_constraints(case_spec)
+    constraints = normalize_constraints(case_spec, project_root=project_root)
     item_results = []
     weighted_total = 0.0
     weighted_score_total = 0.0
@@ -104,8 +104,17 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
     overall_score = _safe_weighted_avg(weighted_score_total, weighted_total)
 
     passed_constraints = []
+    public_constraint_results = []
     unmet_constraint_ids = []
     for item in item_results:
+        if item.get("is_public"):
+            public_constraint_results.append({
+                "constraint_id": item.get("id") or "",
+                "constraint_ref": item.get("constraint_ref") or "",
+                "name": item.get("name") or "",
+                "score": round(float(item.get("earned_points", 0.0) or 0.0), 1),
+                "passed": bool(item.get("passed")),
+            })
         if item["passed"]:
             passed_constraints.append({
                 "constraint_id": item.get("id") or "",
@@ -123,6 +132,7 @@ def evaluate_constraints(case_spec: dict, project_root: str) -> dict:
             "earned_points": round(sum(item.get("earned_points", 0.0) for item in item_results), 1),
             "constraints_total": len(item_results),
             "passed_constraints": passed_constraints,
+            "public_constraint_results": public_constraint_results,
             "unmet_constraint_ids": unmet_constraint_ids,
         },
         "items": item_results,
@@ -135,6 +145,7 @@ def build_constraint_review_report(score_result: dict) -> str:
     payload = {
         "overall_score": round(float(summary.get("overall_score", 0.0) or 0.0), 1),
         "passed_constraints": list(summary.get("passed_constraints") or []),
+        "public_constraint_results": list(summary.get("public_constraint_results") or []),
         "unmet_constraint_ids": list(summary.get("unmet_constraint_ids") or []),
     }
     lines = [REPORT_MARKER, "", "```json", json.dumps(payload, ensure_ascii=False, indent=2), "```"]
@@ -186,6 +197,9 @@ def _evaluate_constraint_item(item: dict, project_root: str) -> dict:
         "id": _fmt(item.get("id")),
         "name": _fmt(item.get("name")),
         "description": _fmt(item.get("description")),
+        "source": _fmt(item.get("source")) or "case",
+        "constraint_ref": _fmt(item.get("constraint_ref")),
+        "is_public": bool(item.get("is_public")),
         "priority": priority,
         "priority_weight": priority_weight,
         "weight": weight,

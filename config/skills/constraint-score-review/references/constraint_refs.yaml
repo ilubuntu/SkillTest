@@ -1,0 +1,53 @@
+description: >-
+  公共约束规则库只覆盖任务产物层面的通用约束，用于补充 case.yaml 中重复出现的业务实现要求。
+  这里不重复承担 ArkTS 类型系统、命名、格式、平台语法限制等“工程质量评分”规则；
+  这些内容继续由 harmonyos-gen-code-evaluator 及其 internal rules 负责。
+  defaults 用于控制“默认在哪些场景自动生效”。
+
+imports:
+  - constraint_refs.component_interface.yaml
+  - constraint_refs.state_dataflow.yaml
+  - constraint_refs.layout_interaction.yaml
+
+categories:
+  component_interface:
+    name: 组件接口规范
+    description: 聚焦组件是否暴露清晰输入/输出契约，不评价命名、格式或类型细节。
+    refs:
+      - harmony_component_input_contract
+      - harmony_component_output_contract
+  state_dataflow:
+    name: 状态与数据流规范
+    description: 聚焦页面间或组件间状态承接方式，不覆盖 ArkTS 静态类型与平台级状态规则。
+    refs:
+      - harmony_v2_state_management
+      - harmony_shared_state_access
+  layout_interaction:
+    name: 布局与交互规范
+    description: 聚焦布局度量表达方式，鼓励使用设计 Token 或统一常量，避免在页面和组件中散落魔法数。
+    refs:
+      - harmony_navigation
+      - harmony_avoid_magic_numbers
+      - harmony_spacing_size_use_tokens
+
+defaults:
+  project_gen:
+    - harmony_v2_state_management
+    - harmony_shared_state_access
+    - harmony_navigation
+    - harmony_avoid_magic_numbers
+    - harmony_spacing_size_use_tokens
+    - harmony_component_input_contract
+    - harmony_component_output_contract
+  bug_fix:
+    - harmony_avoid_magic_numbers
+    - harmony_spacing_size_use_tokens
+  performance:
+    - harmony_avoid_magic_numbers
+    - harmony_spacing_size_use_tokens
+  requirement:
+    - harmony_v2_state_management
+    - harmony_avoid_magic_numbers
+    - harmony_spacing_size_use_tokens
+    - harmony_component_input_contract
+    - harmony_component_output_contract

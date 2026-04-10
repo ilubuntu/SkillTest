@@ -12,6 +12,7 @@ from agent_bench.cloud_api.models import (
     CloudStatusReportPayload,
     RemoteExecutionStatus,
 )
+from agent_bench.constraint_schema import iter_constraint_target_files
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir
 
 
@@ -55,12 +56,21 @@ def build_case(execution_id: int,
                project_dir: str,
                prompt: str,
                case_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    normalized_case_spec = dict(case_spec or {})
+    case_meta = normalized_case_spec.get("case")
+    if not isinstance(case_meta, dict):
+        case_meta = {}
+    case_meta.setdefault("id", f"cloud_execution_{execution_id}")
+    case_meta.setdefault("title", f"Cloud Execution {execution_id}")
+    case_meta.setdefault("scenario", "cloud_api")
+    case_meta.setdefault("prompt", prompt)
+    normalized_case_spec["case"] = case_meta
     return {
         "id": f"cloud_execution_{execution_id}",
         "title": f"Cloud Execution {execution_id}",
         "scenario": "cloud_api",
         "prompt": prompt,
-        "case_spec": case_spec or {},
+        "case_spec": normalized_case_spec,
         "original_project_dir": project_dir,
     }
 
@@ -125,7 +135,8 @@ def load_agent_output(case_dir: str) -> str:
 
 def _extract_constraint_target_files(case: Dict[str, Any]) -> List[str]:
     case_spec = case.get("case_spec") or {}
-    return iter_constraint_target_files(case_spec)
+    project_root = case.get("original_project_dir") or ""
+    return iter_constraint_target_files(case_spec, project_root=project_root)
 
 
 def load_agent_scoring_text(case_dir: str, case: Dict[str, Any], fallback_output: str = "") -> str:

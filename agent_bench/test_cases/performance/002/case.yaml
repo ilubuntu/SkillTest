@@ -47,35 +47,3 @@ constraints:
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_contains
       pattern: '@Local\s+\w+'
-- id: HM-PERF-002-04
-  name: 页面路由管理必须统一使用 Navigation
-  description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
-  priority: P0
-  check_method:
-    rules:
-    - rule_id: HM-PERF-002-04-R1
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: Navigation\s*\(
-    - rule_id: HM-PERF-002-04-R2
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: NavPathStack\s*=\s*new\s+NavPathStack\s*\(
-    - rule_id: HM-PERF-002-04-R3
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_not_contains
-      pattern: \brouter\.
-- id: HM-PERF-002-05
-  name: 页面状态管理必须统一使用 V2 装饰器
-  description: 页面组件和状态模型必须统一使用 @ObservedV2、@Trace、@ComponentV2、@Local、@Param、@Provider、@Consumer、@Monitor、@Computed 等 V2 装饰器体系，禁止继续使用旧版 @State、@Link、@ObjectLink 等状态管理写法。
-  priority: P0
-  check_method:
-    rules:
-    - rule_id: HM-PERF-002-05-R1
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: '@(?:ObservedV2|ComponentV2|Local|Param|Provider|Consumer|Monitor|Computed|Trace)\\b'
-    - rule_id: HM-PERF-002-05-R2
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_not_contains
-      pattern: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\\b'

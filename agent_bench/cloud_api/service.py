@@ -26,6 +26,7 @@ from agent_bench.cloud_api.converter import (
     map_internal_status_to_remote,
 )
 from agent_bench.cloud_api.models import CloudExecutionStartRequest, RemoteExecutionStatus
+from agent_bench.constraint_schema import normalize_constraints
 from agent_bench.pipeline.case_runner import run_single_case
 from agent_bench.pipeline.loader import load_agent, load_agent_defaults, load_agents
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir, review_dir, static_dir
@@ -306,17 +307,43 @@ def _parse_constraints_from_expected_output(expected_output: str) -> list[dict]:
     return []
 
 
+def _infer_scenario_from_constraints(constraints: list[dict]) -> str:
+    if not isinstance(constraints, list):
+        return ""
+
+    for item in constraints:
+        if not isinstance(item, dict):
+            continue
+        constraint_id = str(item.get("id") or "").strip().upper()
+        if constraint_id.startswith("HM-BUGFIX-"):
+            return "bug_fix"
+        if constraint_id.startswith("HM-PERF-"):
+            return "performance"
+        if constraint_id.startswith("HM-REQ-"):
+            return "requirement"
+    return ""
+
+
 def _log_constraints_summary(on_progress, constraints: list[dict]):
     if not constraints:
         return
-    _emit_prepare_log(on_progress, f"已解析约束规则，共 {len(constraints)} 条:")
+    public_count = sum(
+        1
+        for item in constraints
+        if isinstance(item, dict) and bool(item.get("is_public"))
+    )
+    if public_count > 0:
+        _emit_prepare_log(on_progress, f"已解析约束规则，共 {len(constraints)} 条，其中公共约束 {public_count} 条:")
+    else:
+        _emit_prepare_log(on_progress, f"已解析约束规则，共 {len(constraints)} 条:")
     for item in constraints:
         if not isinstance(item, dict):
             continue
         rule_id = str(item.get("id") or "").strip()
         name = str(item.get("name") or "").strip()
         description = str(item.get("description") or "").strip()
-        summary = f"- {rule_id} | {name}"
+        prefix = "[公共] " if bool(item.get("is_public")) else ""
+        summary = f"- {prefix}{rule_id} | {name}"
         if description:
             summary += f" | {description}"
         _emit_prepare_log(on_progress, summary)
@@ -801,12 +828,32 @@ class CloudExecutionManager:
                 raise ValueError("缺少真实的任务输入或期望结果，已终止执行")
             prompt = build_prompt(input_text, expected_output)
             constraints = _parse_constraints_from_expected_output(expected_output)
-            _log_constraints_summary(on_progress, constraints)
+            inferred_scenario = _infer_scenario_from_constraints(constraints) or "cloud_api"
+            case_spec = {
+                "case": {
+                    "id": f"cloud_execution_{execution_id}",
+                    "title": f"Cloud Execution {execution_id}",
+                    "scenario": inferred_scenario,
+                    "prompt": prompt,
+                },
+                "constraints": constraints,
+            } if constraints else {
+                "case": {
+                    "id": f"cloud_execution_{execution_id}",
+                    "title": f"Cloud Execution {execution_id}",
+                    "scenario": "cloud_api",
+                    "prompt": prompt,
+                },
+            }
             case = build_case(
                 execution_id,
                 original_dir,
                 prompt,
-                case_spec={"constraints": constraints} if constraints else {},
+                case_spec=case_spec,
+            )
+            _log_constraints_summary(
+                on_progress,
+                normalize_constraints(case.get("case_spec") or {}, project_root=original_dir),
             )
 
             with self._lock:

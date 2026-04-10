@@ -693,6 +693,10 @@ def _transform_case(case: dict) -> dict:
     project_dir = project_meta.get("project_dir", "")
     if case_dir and project_dir:
         original_project_dir = os.path.join(case_dir, project_dir)
+    elif case_dir:
+        default_project_dir = os.path.join(case_dir, "original_project")
+        if os.path.isdir(os.path.join(BASE_DIR, default_project_dir)):
+            original_project_dir = default_project_dir
 
     result = {
         "id": case_meta.get("id", case.get("case_id", case.get("id", ""))),
