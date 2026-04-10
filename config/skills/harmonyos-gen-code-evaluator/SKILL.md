@@ -32,7 +32,7 @@ description: >
 - **continuation**：在既有工程上继续写代码、接入页面/模块、做增量开发。
 - **bug_fix**：围绕某个缺陷做修复，重点看命中度、最小侵入和回归风险。
 
-如果用户没有明确说明任务类型，就根据输入形式和任务描述推断，并在报告中写明推断依据。
+如果用户没有明确说明任务类型，就根据输入形式和任务描述推断。
 
 ## 参考读取规则
 
@@ -115,19 +115,36 @@ description: >
 2. 确定：task_type、target_scope、reference_scope。
 3. 读取对应 rubric、YAML 评分定义与规则参考。
 4. 提取证据：结构证据、代码证据、风险证据、一致性证据。
-5. 读取并应用规则集 YAML，检查 must / should / forbidden 命中。
-6. 逐项评分，输出 score、confidence、rationale、evidence。
-7. 计算维度分与总分，必要时应用硬门槛上限。
-8. 输出优势项、问题项、风险项、人工复核项。
+5. 逐条读取并应用 `references/arkts_internal_rules.yaml` 中的全部规则，不能只检查命中项；对每一条规则都必须给出审查结论：`满足` / `不满足` / `不涉及`。
+6. 先汇总逐条规则审查结果，再据此提炼 must / should / forbidden 命中，写入 `rule_violations`、风险项、人工复核项与评分说明。
+7. 逐项评分，输出 score、confidence、rationale、evidence。
+8. 计算维度分与总分，必要时应用硬门槛上限。
+9. 输出优势项、问题项、风险项、人工复核项。
 
 ## 输出要求
 
-最终输出必须是严格遵循 `references/report_result_schema.json` 定义的统一固定 schema；不要为单次任务动态生成 schema 文件，也不要随任务临时增删顶层字段。
+最终输出必须是严格遵循 `references/report_result_schema.json` 定义的统一固定 schema；不要为单次任务动态生成 schema 文件。
+
+评审输出时不允许在 schema 中**新增字段**，不能破坏原有字段结构、字段含义与已有顶层字段。
+
+其中，`rule_audit_results` 的要求：
+
+- 覆盖 `references/arkts_internal_rules.yaml` 中全部 `must_rules`、`should_rules`、`forbidden_patterns`。
+- 顺序与 YAML 中规则出现顺序一致。
+- 每条规则只包含以下 4 个字段，不增加无关信息：
+  - `rule_id`
+  - `rule_source`
+  - `result`：只能是 `满足` / `不满足` / `不涉及`
+  - `conclusion`：一句话结论
+- `rule_source` 只能取：`must_rule`、`should_rule`、`forbidden_pattern`。
+- `conclusion` 必须简洁，只说明本条规则为什么被判为满足 / 不满足 / 不涉及，不要额外塞入长段解释。
+- 若某条规则判为 `不满足`，仍需按原有机制同步写入 `rule_violations`；`rule_audit_results` 是逐条审查台账，`rule_violations` 是违规摘要，二者不要互相替代。
+- 若当前输入不足以支撑判断，优先写 `不涉及`，并在一句话结论中写明“不涉及原因”。
 
 ## 评审时的注意点
 
 - continuation / bug_fix 若缺少参考工程上下文，要降低置信度，并加入人工复核项。
-- 要确保`references/rules_application.md`中每一条规则都被严格审查。
+- 要确保`references/arkts_internal_rules.yaml`中每一条规则都被严格审查。
 - 尽量减少人工复核项，不要为了凑满问题而过度挑刺。
 - 证据不足时明确写 `confidence: low`。
 - 不要把外部语言习惯强行盖过 HarmonyOS / ArkTS 平台约束。
