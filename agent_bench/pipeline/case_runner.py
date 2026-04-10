@@ -15,6 +15,7 @@ from agent_bench.agent_runtime.prompts import build_constraint_review_prompt, bu
 from agent_bench.pipeline.artifacts import (
     agent_meta_dir,
     agent_workspace_dir,
+    diff_dir,
     original_project_dir,
     review_dir,
     static_dir,
@@ -349,8 +350,8 @@ def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
 
 
 def _initialize_workspace_git(case_dir: str, workspace_dir: str, on_progress):
-    review_root = review_dir(case_dir)
-    os.makedirs(review_root, exist_ok=True)
+    patch_root = diff_dir(case_dir)
+    os.makedirs(patch_root, exist_ok=True)
     gitignore_path = os.path.join(workspace_dir, ".gitignore")
     with open(gitignore_path, "w", encoding="utf-8") as f:
         f.write(WORKSPACE_GITIGNORE)
@@ -379,7 +380,7 @@ def _initialize_workspace_git(case_dir: str, workspace_dir: str, on_progress):
     baseline_commit = str(rev_result.stdout or "").strip()
     if not baseline_commit:
         raise RuntimeError("未能读取 workspace 基线 commit")
-    baseline_commit_path = os.path.join(review_root, "baseline_commit.txt")
+    baseline_commit_path = os.path.join(patch_root, "commit.txt")
     with open(baseline_commit_path, "w", encoding="utf-8") as f:
         f.write(baseline_commit + "\n")
     _notify(on_progress, "log", {"level": "INFO", "message": f"工作区 Git 基线已建立: {baseline_commit}"})
@@ -387,9 +388,9 @@ def _initialize_workspace_git(case_dir: str, workspace_dir: str, on_progress):
 
 
 def _generate_review_patch(case_dir: str, workspace_dir: str, baseline_commit: str, on_progress):
-    review_root = review_dir(case_dir)
-    os.makedirs(review_root, exist_ok=True)
-    patch_path = os.path.join(review_root, "changes.patch")
+    patch_root = diff_dir(case_dir)
+    os.makedirs(patch_root, exist_ok=True)
+    patch_path = os.path.join(patch_root, "changes.patch")
     diff_result = subprocess.run(
         ["git", "diff", "--binary", baseline_commit],
         cwd=workspace_dir,
@@ -1103,6 +1104,7 @@ def _run_static_review_agent(case: dict,
         original_project_root=original_dir,
         repaired_project_root=workspace_dir,
         repair_patch_file=patch_path,
+        result_output_file=os.path.join(static_dir(case_dir), "harmonyos_evaluation_result.json"),
         agent_spec=agent_spec,
     )
     runtime = AgentRuntime(
@@ -1325,6 +1327,11 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
             )
             case["_post_compile_result"] = post_compile_result
             patch_path = _generate_review_patch(case_dir, workspace_dir, baseline_commit, on_progress)
+            _notify(on_progress, "artifacts_ready", {
+                "case_id": case_id,
+                "workspace_dir": workspace_dir,
+                "patch_path": patch_path,
+            })
             case["_constraint_review_result"] = _run_constraint_review_agent(
                 case=case,
                 case_dir=case_dir,

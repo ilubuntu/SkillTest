@@ -34,6 +34,10 @@ def review_dir(case_dir: str) -> str:
     return stage_dir(case_dir, "constraint")
 
 
+def diff_dir(case_dir: str) -> str:
+    return stage_dir(case_dir, "diff")
+
+
 def static_dir(case_dir: str) -> str:
     return stage_dir(case_dir, "static")
 

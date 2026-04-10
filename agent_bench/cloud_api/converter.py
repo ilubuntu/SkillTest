@@ -293,6 +293,7 @@ def build_execution_result_payload(execution_id: int,
                                    expected_output: str,
                                    execution_time_ms: int,
                                    output_code_url: str,
+                                   diff_file_url: str,
                                    code_quality_score: Optional[int] = None,
                                    expected_output_score: Optional[int] = None) -> Dict[str, Any]:
     metrics = load_agent_metrics(case_dir)
@@ -327,6 +328,7 @@ def build_execution_result_payload(execution_id: int,
             codeQualityScore=max(0, min(100, int(resolved_code_quality_score))),
             expectedOutputScore=_score_expected_output(expected_output, output_text) if resolved_expected_output_score is None else max(0, min(100, int(resolved_expected_output_score))),
             outputCodeUrl=output_code_url,
+            diffFileUrl=diff_file_url,
         ),
     )
     return payload.model_dump(by_alias=True, exclude_none=True)

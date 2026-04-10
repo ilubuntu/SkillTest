@@ -28,7 +28,7 @@ from agent_bench.cloud_api.converter import (
 from agent_bench.cloud_api.models import CloudExecutionStartRequest, RemoteExecutionStatus
 from agent_bench.pipeline.case_runner import run_single_case
 from agent_bench.pipeline.loader import load_agent, load_agent_defaults, load_agents
-from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, original_project_dir, review_dir, static_dir
+from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir, review_dir, static_dir
 try:
     from agent_bench.storage_uploader import AgcStorageUploader
     HAS_STORAGE_UPLOADER = True
@@ -246,6 +246,41 @@ def _upload_output_code_dir(side_dir: str, execution_id: int, on_progress=None) 
     except Exception as exc:
         if on_progress:
             on_progress("log", {"level": "ERROR", "message": f"[cloud_api] 输出代码上传失败: {exc}"})
+        return ""
+
+
+def _upload_diff_file(file_path: str, execution_id: int, on_progress=None) -> str:
+    if not HAS_STORAGE_UPLOADER:
+        return ""
+    if not file_path or not os.path.isfile(file_path):
+        return ""
+    try:
+        object_name = f"cloud_api/diff/execution_{execution_id}_changes.patch"
+        if on_progress:
+            on_progress("log", {"level": "WARN", "message": f"[cloud_api] 开始上传 diff 文件: {object_name}"})
+        uploader = AgcStorageUploader(
+            **{
+                "project_id": AGC_PROJECT_CLIENT_CONFIG["project_id"],
+                "client_id": AGC_PROJECT_CLIENT_CONFIG["client_id"],
+                "client_secret": AGC_PROJECT_CLIENT_CONFIG["client_secret"],
+                "developer_id": AGC_PROJECT_CLIENT_CONFIG["developer_id"],
+                "credential_type": AGC_PROJECT_CLIENT_CONFIG["type"],
+                "region": AGC_PROJECT_CLIENT_CONFIG["region"],
+                "bucket_name": AGC_BUCKET_NAME,
+            },
+        )
+        result = uploader.upload_file(
+            file_path=file_path,
+            object_name=object_name,
+            content_type="text/x-diff",
+        )
+        upload_url = result.get("download_url") or ""
+        if on_progress:
+            on_progress("log", {"level": "WARN", "message": f"[cloud_api] diff 文件上传完成: {upload_url}"})
+        return upload_url
+    except Exception as exc:
+        if on_progress:
+            on_progress("log", {"level": "ERROR", "message": f"[cloud_api] diff 文件上传失败: {exc}"})
         return ""
 
 
@@ -677,6 +712,8 @@ class CloudExecutionManager:
                 state["updated_at"] = _now_iso()
 
         def on_progress(event: str, data: Dict[str, Any]):
+            upload_workspace_dir = ""
+            upload_patch_path = ""
             with self._lock:
                 current = self._states[execution_id]
                 if event == "log":
@@ -703,6 +740,9 @@ class CloudExecutionManager:
                     self._append_conversation(current, "stage_start", data.get("stage", ""))
                 elif event == "stage_done":
                     self._append_conversation(current, "stage_done", f"{data.get('stage', '')}:{data.get('status', 'done')}")
+                elif event == "artifacts_ready":
+                    upload_workspace_dir = str(data.get("workspace_dir") or "").strip()
+                    upload_patch_path = str(data.get("patch_path") or "").strip()
                 elif event == "error":
                     current["error_message"] = data.get("message", "")
                     current["updated_at"] = _now_iso()
@@ -711,6 +751,22 @@ class CloudExecutionManager:
                     self._append_conversation(current, "error", data.get("message", ""), "ERROR")
                 elif event == "case_done":
                     self._append_conversation(current, "case_done", data.get("case_id", ""))
+            if event == "artifacts_ready":
+                output_code_url = _upload_output_code_dir(
+                    upload_workspace_dir,
+                    execution_id=execution_id,
+                    on_progress=on_progress,
+                )
+                diff_file_url = _upload_diff_file(
+                    upload_patch_path,
+                    execution_id=execution_id,
+                    on_progress=on_progress,
+                )
+                with self._lock:
+                    current = self._states.get(execution_id)
+                    if current is not None:
+                        current["output_code_url"] = output_code_url
+                        current["diff_file_url"] = diff_file_url
 
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -797,7 +853,20 @@ class CloudExecutionManager:
             if str(result.get("status") or "").lower() not in {"completed", "success"}:
                 raise RuntimeError(f"Agent 执行失败: {result.get('status') or 'unknown'}")
 
-            output_code_url = ""
+            output_code_url = str(state.get("output_code_url") or "").strip()
+            diff_file_url = str(state.get("diff_file_url") or "").strip()
+            if not output_code_url:
+                output_code_url = _upload_output_code_dir(
+                    agent_workspace_dir(case_dir),
+                    execution_id=execution_id,
+                    on_progress=on_progress,
+                )
+            if not diff_file_url:
+                diff_file_url = _upload_diff_file(
+                    os.path.join(diff_dir(case_dir), "changes.patch"),
+                    execution_id=execution_id,
+                    on_progress=on_progress,
+                )
             result_payload = build_execution_result_payload(
                 execution_id=execution_id,
                 case_dir=case_dir,
@@ -805,12 +874,14 @@ class CloudExecutionManager:
                 expected_output=expected_output,
                 execution_time_ms=int((time.time() - started_at) * 1000),
                 output_code_url=output_code_url,
+                diff_file_url=diff_file_url,
                 code_quality_score=None,
                 expected_output_score=None,
             )
 
             with self._lock:
                 state["output_code_url"] = output_code_url
+                state["diff_file_url"] = diff_file_url
                 state["result"] = result
                 state["last_result_payload"] = result_payload
 

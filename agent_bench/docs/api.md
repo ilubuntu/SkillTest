@@ -33,6 +33,7 @@ Post https://xxxxx/api/execution-results
      codeQualityScore: number;
      expectedOutputScore: number;
      outputCodeUrl: string;
+     diffFileUrl: string;
   }
 }
 

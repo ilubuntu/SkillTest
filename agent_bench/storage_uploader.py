@@ -365,7 +365,7 @@ def _should_exclude_from_package(rel_path: str) -> bool:
 
     if file_name == "oh-package-lock.json5":
         return True
-    if any(part in {"oh_modules", "build"} for part in parts):
+    if any(part in {"oh_modules", "build", ".hvigor"} for part in parts):
         return True
     return False
 

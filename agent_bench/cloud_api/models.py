@@ -43,6 +43,7 @@ class CloudExecutionResultData(BaseModel):
     codeQualityScore: int
     expectedOutputScore: int
     outputCodeUrl: str
+    diffFileUrl: str
 
 
 class CloudExecutionResultPayload(BaseModel):
