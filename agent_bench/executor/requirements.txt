@@ -1,3 +1,0 @@
-fastapi>=0.95.0
-uvicorn>=0.20.0
-PyYAML>=6.0

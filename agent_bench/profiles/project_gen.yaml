@@ -1,7 +1,0 @@
-id: profile_005
-name: "Project Gen"
-description: "工程生成Skill：确保Agent能正确生成完整的HarmonyOS项目结构"
-scenario_ids: [scenario_004]
-enhancement_ids:
-  - skill_004
-  - sp_004

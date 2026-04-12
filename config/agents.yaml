@@ -3,6 +3,7 @@ agents:
     name: "OpenCode"
     adapter: opencode
     api_base: "http://127.0.0.1:4096"
+    # opencode_agent: "harmonyos-plugin"
     opencode_agent: "build"
     opencode_proxy:
       http_proxy: "http://127.0.0.1:7890"
@@ -20,21 +21,6 @@ agents:
       - name: "build-harmony-project"
         path: "config/skills/build-harmony-project"
     extra_prompt: "你已挂载 build-harmony-project skill。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了 build-harmony-project、是否执行成功；如果失败，必须说明失败阶段和错误原因。"
-
-  - id: "codex_local"
-    name: "Codex Local"
-    adapter: codex_http
-    transport: "cli"
-    api_base: "http://127.0.0.1:8001"
-    cli_path: "codex"
-    model: "gpt-5.1-codex-mini"
-    timeout: 900
-    extra_prompt: "你有一个 HarmonyOS 工程编译验证 skill：build-harmony-project。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了 build-harmony-project、是否执行成功；如果失败，必须说明失败阶段和错误原因。"
-    env:
-      http_proxy: "http://127.0.0.1:7890"
-      https_proxy: "http://127.0.0.1:7890"
-      HTTP_PROXY: "http://127.0.0.1:7890"
-      HTTPS_PROXY: "http://127.0.0.1:7890"
 
   - id: "static_code_score_agent"
     name: "静态代码打分 Agent"

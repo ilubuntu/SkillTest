@@ -1,8 +1,0 @@
-id: profile_003
-name: "Code Compile"
-description: "可编译Skill：确保Agent生成的代码能通过ArkTS编译器检查"
-scenario_ids: [scenario_002]
-enhancement_ids:
-  - skill_005
-  - skill_002
-  - sp_002

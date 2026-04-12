@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """单 agent 用例执行。"""
 
-import concurrent.futures
 import json
 import os
 import re
@@ -10,8 +9,6 @@ import subprocess
 import time
 from typing import Callable
 
-from agent_bench.agent_runtime import AgentRuntime, build_agent_spec, build_agent_task_prompt
-from agent_bench.agent_runtime.prompts import build_constraint_review_prompt, build_static_review_prompt
 from agent_bench.pipeline.artifacts import (
     agent_meta_dir,
     agent_workspace_dir,
@@ -29,29 +26,14 @@ from agent_bench.pipeline.artifacts import (
 from agent_bench.pipeline.compile_checker import check_project_compilable, prepare_project_workspace
 from agent_bench.pipeline.loader import (
     load_agent_spec,
-    load_agent_defaults,
-    load_enhancements,
-    load_test_cases,
     resolve_case_original_project,
 )
-
-try:
-    from agent_bench.storage_uploader import AgcStorageUploader
-    HAS_STORAGE_UPLOADER = True
-except ImportError:
-    HAS_STORAGE_UPLOADER = False
-
-
-AGC_BUCKET_NAME = "agent-bench-lpgvk"
-AGC_PROJECT_CLIENT_CONFIG = {
-    "type": "project_client_id",
-    "developer_id": "900086000150224722",
-    "project_id": "101653523863785276",
-    "client_id": "1919775246739619200",
-    "client_secret": "D1A9970837E38AAB4B7D4AFBDCAEC1B0D6511662C7026DAE1808298342F9192C",
-    "configuration_version": "3.0",
-    "region": "CN",
-}
+from agent_bench.pipeline.prompts import (
+    build_agent_task_prompt,
+    build_constraint_review_prompt,
+    build_static_review_prompt,
+)
+from agent_bench.agent_runner import AgentRunner, build_agent_spec
 
 MAX_LOGGED_PROMPT_CHARS = 4000
 MAX_LOGGED_OUTPUT_CHARS = 1000
@@ -149,60 +131,6 @@ def _ensure_review_stage_succeeded(result: dict, stage_label: str):
     if reason:
         raise RuntimeError(f"{stage_label}失败: {reason}")
     raise RuntimeError(f"{stage_label}失败")
-
-
-def _get_case_upload_root(case: dict) -> str:
-    cached = str((case or {}).get("_upload_root") or "").strip()
-    if cached:
-        return cached
-    upload_root = "agent_execution"
-    case["_upload_root"] = upload_root
-    return upload_root
-
-
-def _build_case_stage_object_name(case: dict, stage_name: str) -> str:
-    upload_root = _get_case_upload_root(case)
-    case_id = str(case.get("id") or "case").strip()
-    safe_stage = str(stage_name or "").strip().lower()
-    return f"{upload_root}/{safe_stage}/{case_id}.zip"
-
-
-def _upload_original_project(case: dict, on_progress: Callable = None) -> str:
-    if not HAS_STORAGE_UPLOADER:
-        return ""
-    original_project_dir = case.get("original_project_dir")
-    if not original_project_dir or not os.path.exists(original_project_dir):
-        return ""
-    try:
-        object_name = _build_case_stage_object_name(case, "original")
-        _notify(on_progress, "log", {
-            "level": "INFO",
-            "message": f"[{case['id']}] 正在上传 original_project: {object_name}",
-        })
-        uploader = AgcStorageUploader(
-            **{
-                "project_id": AGC_PROJECT_CLIENT_CONFIG["project_id"],
-                "client_id": AGC_PROJECT_CLIENT_CONFIG["client_id"],
-                "client_secret": AGC_PROJECT_CLIENT_CONFIG["client_secret"],
-                "developer_id": AGC_PROJECT_CLIENT_CONFIG["developer_id"],
-                "credential_type": AGC_PROJECT_CLIENT_CONFIG["type"],
-                "region": AGC_PROJECT_CLIENT_CONFIG["region"],
-                "bucket_name": AGC_BUCKET_NAME,
-            },
-        )
-        result = uploader.upload_directory(original_project_dir, object_name=object_name)
-        upload_url = result.get("download_url") or result.get("url") or ""
-        _notify(on_progress, "log", {
-            "level": "INFO",
-            "message": f"[{case['id']}] original_project 上传成功: {upload_url}",
-        })
-        return upload_url
-    except Exception as exc:
-        _notify(on_progress, "log", {
-            "level": "ERROR",
-            "message": f"[{case['id']}] original_project 上传失败: {exc}",
-        })
-        return ""
 
 
 def _load_stage_interaction_metrics(case_dir: str, stage: str) -> dict:
@@ -362,7 +290,7 @@ def _initialize_workspace_git(case_dir: str, workspace_dir: str, on_progress):
     subprocess.run(["git", "config", "user.email", "agent-bench@example.local"], cwd=workspace_dir, capture_output=True, text=True, check=False)
     subprocess.run(["git", "add", "."], cwd=workspace_dir, capture_output=True, text=True, check=False)
     commit_result = subprocess.run(
-        ["git", "commit", "-m", "baseline"],
+        ["git", "commit", "-m", "workspace_base"],
         cwd=workspace_dir,
         capture_output=True,
         text=True,
@@ -377,22 +305,22 @@ def _initialize_workspace_git(case_dir: str, workspace_dir: str, on_progress):
         text=True,
         check=False,
     )
-    baseline_commit = str(rev_result.stdout or "").strip()
-    if not baseline_commit:
+    workspace_base_commit = str(rev_result.stdout or "").strip()
+    if not workspace_base_commit:
         raise RuntimeError("未能读取 workspace 基线 commit")
-    baseline_commit_path = os.path.join(patch_root, "commit.txt")
-    with open(baseline_commit_path, "w", encoding="utf-8") as f:
-        f.write(baseline_commit + "\n")
-    _notify(on_progress, "log", {"level": "INFO", "message": f"工作区 Git 基线已建立: {baseline_commit}"})
-    return baseline_commit
+    workspace_base_commit_path = os.path.join(patch_root, "commit.txt")
+    with open(workspace_base_commit_path, "w", encoding="utf-8") as f:
+        f.write(workspace_base_commit + "\n")
+    _notify(on_progress, "log", {"level": "INFO", "message": f"工作区 Git 基线已建立: {workspace_base_commit}"})
+    return workspace_base_commit
 
 
-def _generate_review_patch(case_dir: str, workspace_dir: str, baseline_commit: str, on_progress):
+def _generate_review_patch(case_dir: str, workspace_dir: str, workspace_base_commit: str, on_progress):
     patch_root = diff_dir(case_dir)
     os.makedirs(patch_root, exist_ok=True)
     patch_path = os.path.join(patch_root, "changes.patch")
     diff_result = subprocess.run(
-        ["git", "diff", "--binary", baseline_commit],
+        ["git", "diff", "--binary", workspace_base_commit],
         cwd=workspace_dir,
         capture_output=True,
         text=True,
@@ -621,19 +549,6 @@ def _extract_static_review_summary_from_file(case_dir: str) -> tuple[dict, str]:
     return {}, ""
 
 
-def _build_deterministic_constraint_review_summary(case: dict,
-                                                   workspace_dir: str) -> dict:
-    case_spec = case.get("case_spec") or {}
-    if not case_spec:
-        return {}
-    try:
-        from agent_bench.evaluator.constraint_scorer import evaluate_constraints
-        score_result = evaluate_constraints(case_spec, workspace_dir)
-        return (score_result.get("summary") or {}) if isinstance(score_result, dict) else {}
-    except Exception:
-        return {}
-
-
 def _build_constraint_review_failure_reason(output_text: str,
                                             metrics: dict | None,
                                             last_error_message: str) -> str:
@@ -694,9 +609,9 @@ def _legacy_run_constraint_review_agent(case: dict,
         agent_spec=agent_spec,
     )
 
-    runtime = AgentRuntime(
+    runtime = AgentRunner(
         agent_spec=agent_spec,
-        enhancements={},
+        runtime_options={},
         on_progress=on_progress,
         fallback_timeout=agent_timeout,
         temperature=agent_temperature,
@@ -785,9 +700,9 @@ def _legacy_run_constraint_review_agent_v2(case: dict,
         agent_spec=agent_spec,
     )
 
-    runtime = AgentRuntime(
+    runtime = AgentRunner(
         agent_spec=agent_spec,
-        enhancements={},
+        runtime_options={},
         on_progress=on_progress,
         fallback_timeout=agent_timeout,
         temperature=agent_temperature,
@@ -825,11 +740,6 @@ def _legacy_run_constraint_review_agent_v2(case: dict,
         if failure_reason:
             raise RuntimeError(failure_reason)
         summary = _extract_constraint_review_summary(output_text)
-        if not summary:
-            summary = _build_deterministic_constraint_review_summary(
-                case=case,
-                workspace_dir=workspace_dir,
-            )
         if not summary:
             raise RuntimeError("constraint review summary extraction failed")
         _notify(on_progress, "log", {
@@ -911,9 +821,9 @@ def _run_constraint_review_attempt(case: dict,
         repair_patch_file=repair_patch_file,
         agent_spec=agent_spec,
     )
-    runtime = AgentRuntime(
+    runtime = AgentRunner(
         agent_spec=agent_spec,
-        enhancements={},
+        runtime_options={},
         on_progress=on_progress,
         fallback_timeout=agent_timeout,
         temperature=agent_temperature,
@@ -959,11 +869,6 @@ def _run_constraint_review_attempt(case: dict,
         if failure_reason:
             raise RuntimeError(failure_reason)
         summary = _extract_constraint_review_summary(output_text)
-        if not summary:
-            summary = _build_deterministic_constraint_review_summary(
-                case=case,
-                workspace_dir=workspace_dir,
-            )
         if not summary:
             raise RuntimeError("constraint review summary extraction failed")
         result = {
@@ -1107,9 +1012,9 @@ def _run_static_review_agent(case: dict,
         result_output_file=os.path.join(static_dir(case_dir), "harmonyos_evaluation_result.json"),
         agent_spec=agent_spec,
     )
-    runtime = AgentRuntime(
+    runtime = AgentRunner(
         agent_spec=agent_spec,
-        enhancements={},
+        runtime_options={},
         on_progress=on_progress,
         fallback_timeout=agent_timeout,
         temperature=agent_temperature,
@@ -1241,17 +1146,14 @@ def _run_compile_check(case: dict,
     return compile_result
 
 
-def run_single_case(case: dict, scenario: str, enhancements: dict,
-                    llm_judge,
+def run_single_case(case: dict,
                     case_dir: str,
                     stages: list = None,
                     dry_run: bool = False,
                     on_progress: Callable = None,
-                    phase_weights: dict = None,
                     agent_config: dict = None,
                     agent_timeout: int = 180,
                     agent_temperature: float = None) -> dict:
-    _ = (llm_judge, phase_weights, scenario)
     stages = stages or ["runner"]
     case["_agent_config"] = agent_config or {}
     case_id = case["id"]
@@ -1276,7 +1178,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 raise FileNotFoundError(f"[{case_id}] 未找到 original_project 模板")
             workspace_dir = agent_workspace_dir(case_dir)
             prepare_project_workspace(template_project_path, workspace_dir)
-            baseline_commit = _initialize_workspace_git(case_dir, workspace_dir, on_progress)
+            workspace_base_commit = _initialize_workspace_git(case_dir, workspace_dir, on_progress)
             pre_compile_result = _run_compile_check(
                 case,
                 case_dir,
@@ -1286,9 +1188,9 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 on_progress,
             )
             case["_pre_compile_result"] = pre_compile_result
-            runtime = AgentRuntime(
+            runtime = AgentRunner(
                 agent_spec=agent_spec,
-                enhancements=enhancements,
+                runtime_options={},
                 on_progress=on_progress,
                 fallback_timeout=agent_timeout,
                 temperature=agent_temperature,
@@ -1326,7 +1228,7 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
                 on_progress,
             )
             case["_post_compile_result"] = post_compile_result
-            patch_path = _generate_review_patch(case_dir, workspace_dir, baseline_commit, on_progress)
+            patch_path = _generate_review_patch(case_dir, workspace_dir, workspace_base_commit, on_progress)
             _notify(on_progress, "artifacts_ready", {
                 "case_id": case_id,
                 "workspace_dir": workspace_dir,
@@ -1368,98 +1270,3 @@ def run_single_case(case: dict, scenario: str, enhancements: dict,
     result = _build_runner_only_result(case, case_dir, agent)
     save_case_result(case_dir, result)
     return result
-
-
-def run_scenario(scenario: str,
-                 llm_judge,
-                 output_dir: str,
-                 profile_name: str = None,
-                 stages: list = None,
-                 max_workers: int = 1,
-                 dry_run: bool = False,
-                 case_id_filter: str = None,
-                 case_ids: list = None,
-                 on_progress: Callable = None,
-                 phase_weights: dict = None,
-                 agent_config: dict = None,
-                 agent_compare_mode: bool = False) -> list:
-    _ = (llm_judge, phase_weights)
-    stages = stages or ["runner"]
-    enhancements = {} if agent_compare_mode else load_enhancements(scenario, profile_name=profile_name)
-    agent_defaults = load_agent_defaults()
-    agent_timeout = agent_defaults.get("timeout", 180)
-    agent_temperature = agent_defaults.get("temperature")
-    cases = load_test_cases(scenario)
-    selected_case_ids = case_ids or []
-    if not selected_case_ids and case_id_filter:
-        selected_case_ids = [item.strip() for item in str(case_id_filter).split(",") if item.strip()]
-    if selected_case_ids:
-        selected = set(selected_case_ids)
-        cases = [c for c in cases if c["id"] in selected]
-    _notify(on_progress, "scenario_start", {"scenario": scenario, "case_count": len(cases)})
-    if not cases:
-        _notify(on_progress, "scenario_done", {"scenario": scenario, "case_count": 0})
-        return []
-
-    if HAS_STORAGE_UPLOADER:
-        upload_root = os.path.basename(os.path.abspath(output_dir.rstrip(os.sep)))
-        for case in cases:
-            case["_upload_root"] = upload_root
-            _upload_original_project(case, on_progress=on_progress)
-
-    agent = agent_config
-    if not agent:
-        raise ValueError("缺少 agent 配置")
-
-    results = []
-    futures = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for i, case in enumerate(cases):
-            case_dir = os.path.join(output_dir, "cases", case["id"])
-            future = executor.submit(
-                run_single_case,
-                case,
-                scenario,
-                enhancements,
-                None,
-                case_dir,
-                stages=stages,
-                dry_run=dry_run,
-                agent_config=agent,
-                agent_timeout=agent_timeout,
-                agent_temperature=agent_temperature,
-                on_progress=on_progress,
-            )
-            futures[future] = (i, case)
-
-        for future in concurrent.futures.as_completed(futures):
-            i, case = futures[future]
-            try:
-                result = future.result()
-                _notify(on_progress, "case_done", {
-                    "case_id": result["case_id"],
-                    "title": result["title"],
-                    "index": i + 1,
-                    "total": len(cases),
-                    "scenario": scenario,
-                    "score": result.get("score"),
-                })
-                results.append(result)
-            except Exception as exc:
-                failed_result = {
-                    "case_id": case["id"],
-                    "title": case.get("title", case["id"]),
-                    "scenario": scenario,
-                    "status": "error",
-                    "error": str(exc),
-                    "score": None,
-                    "compile_results": {
-                        "compilable": None,
-                        "error": "",
-                    },
-                }
-                _notify(on_progress, "error", {"case_id": case["id"], "message": str(exc)})
-                results.append(failed_result)
-
-    _notify(on_progress, "scenario_done", {"scenario": scenario, "case_count": len(results)})
-    return results

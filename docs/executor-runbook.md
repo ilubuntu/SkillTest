@@ -1,0 +1,109 @@
+# 执行器运行手册
+
+## 组件
+
+本地运行只涉及两个组件：
+
+- OpenCode Server
+- Executor 服务
+
+## 启动
+
+```bash
+./deploy.sh restart
+```
+
+启动后默认地址：
+
+- OpenCode: `http://localhost:4096`
+- Executor: `http://localhost:8000`
+
+## 健康检查
+
+```bash
+curl -s http://localhost:4096/global/health
+curl -s http://localhost:8000/api/health
+```
+
+## 任务入口
+
+```text
+POST /api/cloud-api/start
+```
+
+## 本地日志
+
+执行器日志：
+
+- `logs/agent_bench_YYYYMMDD_HHMMSS.log`
+
+当前日志指针：
+
+- `logs/current_executor_log`
+
+每个任务目录下还会有：
+
+- `executor_events.jsonl`
+- `cloud_api_events.jsonl`
+- `generate/*`
+- `constraint/*`
+- `static/*`
+- `diff/*`
+
+## 进度阶段
+
+固定阶段：
+
+- `pending`
+- `preparing`
+- `generating`
+- `validating`
+- `constraint_scoring`
+- `static_scoring`
+- `completed`
+
+## 产物目录
+
+每次任务目录结构：
+
+```text
+results/execution_<id>_<timestamp>/
+├── original/
+├── workspace/
+├── generate/
+├── constraint/
+├── static/
+├── diff/
+├── checks/
+├── executor_events.jsonl
+└── cloud_api_events.jsonl
+```
+
+## SSE 文件
+
+每个 Agent 阶段都有三类文件：
+
+- `*_opencode_sse_full.jsonl`
+- `*_opencode_sse_events.jsonl`
+- `*_opencode_progress_events.jsonl`
+
+用途：
+
+- `full`：完整原始 SSE
+- `events`：裁剪后的原始事件
+- `progress`：本地展示与进度提炼
+
+## 代理
+
+OpenCode Server 是否走代理，由：
+
+- `config/agents.yaml` 中的 `opencode_proxy`
+- `deploy.sh`
+
+共同决定。
+
+本地回环地址通过：
+
+- `NO_PROXY=127.0.0.1,localhost`
+
+直连。

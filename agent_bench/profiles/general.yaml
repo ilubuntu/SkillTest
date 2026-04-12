@@ -1,7 +1,0 @@
-id: profile_006
-name: "General"
-description: "通用用例：验证Agent生成的代码可编译性"
-scenario_ids: [scenario_005]
-enhancement_ids:
-  - skill_005
-  - sp_005

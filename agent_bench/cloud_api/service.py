@@ -30,7 +30,7 @@ from agent_bench.pipeline.case_runner import run_single_case
 from agent_bench.pipeline.loader import load_agent, load_agent_defaults, load_agents
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir, review_dir, static_dir
 try:
-    from agent_bench.storage_uploader import AgcStorageUploader
+    from agent_bench.uploader import create_uploader
     HAS_STORAGE_UPLOADER = True
 except ImportError:
     HAS_STORAGE_UPLOADER = False
@@ -224,7 +224,8 @@ def _upload_output_code_dir(side_dir: str, execution_id: int, on_progress=None) 
         object_name = f"cloud_api/output_code/execution_{execution_id}_output.zip"
         if on_progress:
             on_progress("log", {"level": "WARN", "message": f"[cloud_api] 开始上传输出代码: {object_name}"})
-        uploader = AgcStorageUploader(
+        uploader = create_uploader(
+            provider="agcCloudStorage",
             **{
                 "project_id": AGC_PROJECT_CLIENT_CONFIG["project_id"],
                 "client_id": AGC_PROJECT_CLIENT_CONFIG["client_id"],
@@ -258,7 +259,8 @@ def _upload_diff_file(file_path: str, execution_id: int, on_progress=None) -> st
         object_name = f"cloud_api/diff/execution_{execution_id}_changes.patch"
         if on_progress:
             on_progress("log", {"level": "WARN", "message": f"[cloud_api] 开始上传 diff 文件: {object_name}"})
-        uploader = AgcStorageUploader(
+        uploader = create_uploader(
+            provider="agcCloudStorage",
             **{
                 "project_id": AGC_PROJECT_CLIENT_CONFIG["project_id"],
                 "client_id": AGC_PROJECT_CLIENT_CONFIG["client_id"],
@@ -838,9 +840,6 @@ class CloudExecutionManager:
 
             result = run_single_case(
                 case=case,
-                scenario="cloud_api",
-                enhancements={},
-                llm_judge=None,
                 case_dir=case_dir,
                 stages=["runner"],
                 dry_run=False,

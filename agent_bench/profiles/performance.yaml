@@ -1,8 +1,0 @@
-id: profile_004
-name: "Performance"
-description: "性能优化Skill：确保Agent能生成高性能的List和Swiper组件代码"
-scenario_ids: [scenario_003]
-enhancement_ids:
-  - skill_005
-  - skill_003
-  - sp_003

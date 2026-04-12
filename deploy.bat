@@ -16,6 +16,10 @@ set "CURRENT_EXECUTOR_LOG_FILE=%LOG_DIR%\current_executor_log"
 set "BACKEND_LOG="
 set "PYTHON_CMD="
 set "AUTO_PAUSE_ON_FAILURE=0"
+set "OPENCODE_HTTP_PROXY="
+set "OPENCODE_HTTPS_PROXY="
+set "OPENCODE_ALL_PROXY="
+set "OPENCODE_NO_PROXY="
 
 set "ACTION=%~1"
 if not defined ACTION (
@@ -109,6 +113,22 @@ if exist "%CURRENT_EXECUTOR_LOG_FILE%" (
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$f = Get-ChildItem -Path '%LOG_DIR%' -Filter 'agent_bench_*.log' -ErrorAction SilentlyContinue ^| Sort-Object LastWriteTime -Descending ^| Select-Object -First 1 -ExpandProperty FullName; if ($f) { Write-Output $f }"`) do set "BACKEND_LOG=%%I"
 exit /b 0
 
+:load_opencode_proxy_config
+set "OPENCODE_HTTP_PROXY="
+set "OPENCODE_HTTPS_PROXY="
+set "OPENCODE_ALL_PROXY="
+set "OPENCODE_NO_PROXY="
+set "AGENTS_CONFIG=%SCRIPT_DIR%\config\agents.yaml"
+if not exist "%AGENTS_CONFIG%" exit /b 0
+
+for /f "usebackq tokens=1,* delims==" %%A in (`call %PYTHON_CMD% -c "import sys,yaml; data=yaml.safe_load(open(sys.argv[1], encoding='utf-8')) or {}; agents=data.get('agents') or []; proxy=next(((agent.get('opencode_proxy') or {}) for agent in agents if isinstance(agent, dict) and str(agent.get('adapter') or '').strip()=='opencode' and isinstance(agent.get('opencode_proxy') or {}, dict) and (agent.get('opencode_proxy') or {})), {}); print('http_proxy=' + str(proxy.get('http_proxy') or '').strip()); print('https_proxy=' + str(proxy.get('https_proxy') or '').strip()); print('all_proxy=' + str(proxy.get('all_proxy') or '').strip()); print('no_proxy=' + str(proxy.get('no_proxy') or '').strip())" "%AGENTS_CONFIG%" 2^>nul`) do (
+    if /I "%%A"=="http_proxy" set "OPENCODE_HTTP_PROXY=%%B"
+    if /I "%%A"=="https_proxy" set "OPENCODE_HTTPS_PROXY=%%B"
+    if /I "%%A"=="all_proxy" set "OPENCODE_ALL_PROXY=%%B"
+    if /I "%%A"=="no_proxy" set "OPENCODE_NO_PROXY=%%B"
+)
+exit /b 0
+
 :refresh_executor_log_file
 set "BACKEND_LOG="
 call :resolve_executor_log_file
@@ -143,7 +163,13 @@ call :kill_port %OPENCODE_PORT%
 call :ensure_log_dir
 if not exist "%OPENCODE_LOG%" type nul > "%OPENCODE_LOG%"
 
-start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
+if defined OPENCODE_HTTP_PROXY (
+    call :info "OpenCode Server will use proxy environment (NO_PROXY=%OPENCODE_NO_PROXY%)"
+    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && set http_proxy=%OPENCODE_HTTP_PROXY% && set https_proxy=%OPENCODE_HTTPS_PROXY% && set HTTP_PROXY=%OPENCODE_HTTP_PROXY% && set HTTPS_PROXY=%OPENCODE_HTTPS_PROXY% && set all_proxy=%OPENCODE_ALL_PROXY% && set ALL_PROXY=%OPENCODE_ALL_PROXY% && set no_proxy=%OPENCODE_NO_PROXY% && set NO_PROXY=%OPENCODE_NO_PROXY% && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
+) else (
+    call :info "OpenCode Server will start without proxy environment"
+    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
+)
 
 call :info "Waiting for OpenCode Server..."
 for /L %%I in (1,1,30) do (
@@ -235,6 +261,7 @@ if errorlevel 1 (
 )
 
 call :ensure_log_dir
+call :load_opencode_proxy_config
 call :start_opencode
 call :install_python_deps
 call :start_backend
@@ -299,6 +326,7 @@ call :info "Restarting executor service only..."
 call :check_deps
 if errorlevel 1 exit /b 1
 call :ensure_log_dir
+call :load_opencode_proxy_config
 call :refresh_executor_log_file
 call :kill_port %BACKEND_PORT%
 timeout /t 1 /nobreak >nul
