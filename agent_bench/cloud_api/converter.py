@@ -55,12 +55,21 @@ def build_case(execution_id: int,
                project_dir: str,
                prompt: str,
                case_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    normalized_case_spec = dict(case_spec or {})
+    case_meta = normalized_case_spec.get("case")
+    if not isinstance(case_meta, dict):
+        case_meta = {}
+    case_meta.setdefault("id", f"cloud_execution_{execution_id}")
+    case_meta.setdefault("title", f"Cloud Execution {execution_id}")
+    case_meta.setdefault("scenario", "cloud_api")
+    case_meta.setdefault("prompt", prompt)
+    normalized_case_spec["case"] = case_meta
     return {
         "id": f"cloud_execution_{execution_id}",
         "title": f"Cloud Execution {execution_id}",
         "scenario": "cloud_api",
         "prompt": prompt,
-        "case_spec": case_spec or {},
+        "case_spec": normalized_case_spec,
         "original_project_dir": project_dir,
     }
 
@@ -123,11 +132,6 @@ def load_agent_output(case_dir: str) -> str:
     return _load_text_if_exists(os.path.join(agent_meta_dir(case_dir), "output.txt"))
 
 
-def _extract_constraint_target_files(case: Dict[str, Any]) -> List[str]:
-    case_spec = case.get("case_spec") or {}
-    return iter_constraint_target_files(case_spec)
-
-
 def load_agent_scoring_text(case_dir: str, case: Dict[str, Any], fallback_output: str = "") -> str:
     project_dir = agent_workspace_dir(case_dir)
     changed_files_path = os.path.join(agent_meta_dir(case_dir), "changed_files.json")
@@ -135,7 +139,7 @@ def load_agent_scoring_text(case_dir: str, case: Dict[str, Any], fallback_output
 
     paths: List[str] = []
     seen = set()
-    for rel_path in list(changed_files) + _extract_constraint_target_files(case):
+    for rel_path in list(changed_files):
         normalized = (rel_path or "").strip()
         if not normalized or normalized in seen:
             continue

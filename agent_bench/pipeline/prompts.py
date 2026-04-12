@@ -93,8 +93,15 @@ def build_static_review_prompt(case: dict,
         "请先理解原始问题，再结合 patch 理解 AI 修改了哪些文件和逻辑，必要时对照原始工程与修复后工程确认修改实际落地结果，"
         "然后基于修复后工程中的真实文件，对这次 AI 修改结果进行静态代码质量评分。"
         "原始工程只作为基线证据，patch 文件只用于帮助理解改动范围，最终评分对象是修复后工程。"
-        f"你必须将结构化 JSON 评分结果写入以下固定文件，不要写入其他目录：{result_output_file}。"
         "最终必须调用 harmonyos-gen-code-evaluator skill 输出评分结果，并明确说明是否调用了该 skill。"
+        f"你必须将评分结果写入以下固定文件，不要写入其他目录：{result_output_file}。"
+        "为提高执行效率，写入该文件时只允许输出最小 JSON，不要写完整审计台账、维度明细、规则逐条审查、"
+        "风险列表、优势项、问题项或其他扩展字段。"
+        "结果文件只保留最终分数字段，格式固定为："
+        '{'
+        '"overall_conclusion":{"total_score":85}'
+        '}' 
+        "其中 total_score 必须是 0 到 100 的数字。除上述最小 JSON 外，不要再向该文件写入任何其他内容。"
     )
     if agent_spec.extra_prompt:
         prompt = f"{prompt}\n\n## 额外执行要求\n{agent_spec.extra_prompt}"

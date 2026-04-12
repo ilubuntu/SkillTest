@@ -51,21 +51,3 @@ constraints:
       target_file: entry/src/main/ets/pages/Index.ets
       match_type: regex_contains
       pattern: '@Param\s+\w*(?:onSubmit|submitAction)\s*:\s*\([^)]*\)\s*=>'
-- id: HM-REQ-001-04
-  name: 页面路由管理必须统一使用 Navigation
-  description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
-  priority: P0
-  check_method:
-    rules:
-    - rule_id: HM-REQ-001-04-R1
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: Navigation\\s*\\(
-    - rule_id: HM-REQ-001-04-R2
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_contains
-      pattern: NavPathStack\\s*=\\s*new\\s+NavPathStack\\s*\\(
-    - rule_id: HM-REQ-001-04-R3
-      target_file: entry/src/main/ets/pages/Index.ets
-      match_type: regex_not_contains
-      pattern: \\brouter\\.

@@ -444,6 +444,26 @@ def _extract_constraint_review_summary_from_json_payload(payload) -> dict:
             for item in payload.get("unmet_constraint_ids") or []
             if str(item).strip()
         ]
+    if isinstance(payload.get("public_constraint_results"), list):
+        normalized_public_results = []
+        for item in payload.get("public_constraint_results") or []:
+            if not isinstance(item, dict):
+                continue
+            constraint_id = str(item.get("constraint_id") or "").strip()
+            if not constraint_id:
+                continue
+            try:
+                score_value = float(item.get("score"))
+            except Exception:
+                score_value = 0.0
+            normalized_public_results.append({
+                "constraint_id": constraint_id,
+                "constraint_ref": str(item.get("constraint_ref") or "").strip(),
+                "name": str(item.get("name") or "").strip(),
+                "score": round(score_value, 1),
+                "passed": bool(item.get("passed")),
+            })
+        summary["public_constraint_results"] = normalized_public_results
     return summary
 
 

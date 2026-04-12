@@ -1,0 +1,31 @@
+refs:
+  harmony_v2_state_management:
+    category: 状态与数据流规范
+    name: 页面状态管理必须统一使用 V2 装饰器
+    description: 页面组件和状态模型必须统一使用 @ObservedV2、@Trace、@ComponentV2、@Local、@Param、@Provider、@Consumer、@Monitor、@Computed 等 V2 装饰器体系，禁止继续使用旧版 @State、@Link、@ObjectLink 等状态管理写法。
+    priority: P0
+    rule_templates:
+      - target_group: state_candidate_files
+        fallback_targets:
+          - entry/src/main/ets/pages/Index.ets
+        per_target_rules:
+          - match_type: regex_contains
+            pattern: '@(?:ObservedV2|ComponentV2|Local|Param|Provider|Consumer|Monitor|Computed|Trace)\b'
+          - match_type: regex_not_contains
+            pattern: '@(?:State|Link|ObjectLink|Prop|Provide|Consume|StorageLink|StorageProp|Watch)\b'
+
+  harmony_shared_state_access:
+    category: 状态与数据流规范
+    name: 多页面共享状态必须通过共享模型或状态容器接入
+    description: 当工程同时存在多页面和共享状态目录时，页面应通过 model / store / viewmodel / common 等共享入口承接状态，避免每个页面各自复制一份同名状态。
+    priority: P0
+    activation:
+      required_groups:
+        - shared_state_files
+      min_group_sizes:
+        page_files: 2
+    rule_templates:
+      - target_group: page_files
+        per_target_rules:
+          - match_type: regex_contains
+            pattern: 'from\s+[''"][.]{2}/(?:model|store|viewmodel|common)/'

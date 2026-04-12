@@ -305,16 +305,8 @@ def load_agents_registry() -> dict:
     registry = _registry_cache["agents"] or {}
     agents = registry.get("agents")
     if isinstance(agents, list):
-        registry.setdefault("defaults", {})
         return registry
     raise ValueError(f"Agent 配置格式无效: {AGENTS_REGISTRY_PATH}")
-
-
-def load_agent_defaults() -> dict:
-    """返回 Agent 默认配置。"""
-    registry = load_agents_registry()
-    defaults = registry.get("defaults")
-    return defaults if isinstance(defaults, dict) else {}
 
 
 def load_agents() -> List[dict]:
@@ -324,12 +316,12 @@ def load_agents() -> List[dict]:
     return [agent for agent in agents if isinstance(agent, dict)]
 
 
-def _merge_mounted_skills(defaults: dict, agent: dict) -> List[dict]:
-    """合并默认与 Agent 自身声明的 mounted_skills，并按顺序去重。"""
-    merged = []
+def _normalize_mounted_skills(agent: dict) -> List[dict]:
+    """规格化 Agent 自身声明的 mounted_skills，并按顺序去重。"""
+    normalized = []
     seen = set()
 
-    for source in list(defaults.get("mounted_skills") or []) + list(agent.get("mounted_skills") or []):
+    for source in list(agent.get("mounted_skills") or []):
         if not isinstance(source, dict):
             continue
         name = str(source.get("name") or "").strip()
@@ -340,24 +332,22 @@ def _merge_mounted_skills(defaults: dict, agent: dict) -> List[dict]:
         if key in seen:
             continue
         seen.add(key)
-        merged.append({
+        normalized.append({
             "name": name,
             "path": path,
         })
 
-    return merged
+    return normalized
 
 
 def load_agent(agent_id: str) -> Optional[dict]:
     """根据 agent_id 获取 Agent 定义。"""
     if not agent_id:
         return None
-    defaults = load_agent_defaults()
     for agent in load_agents():
         if agent.get("id") == agent_id:
-            merged = dict(defaults)
-            merged.update(agent)
-            merged["mounted_skills"] = _merge_mounted_skills(defaults, agent)
+            merged = dict(agent)
+            merged["mounted_skills"] = _normalize_mounted_skills(agent)
             return merged
     return None
 
@@ -382,8 +372,7 @@ def validate_runtime_config() -> None:
 
     registry = load_agents_registry()
     for agent in registry.get("agents", []) or []:
-        merged = dict(load_agent_defaults())
-        merged.update(agent)
+        merged = dict(agent)
         for skill in merged.get("mounted_skills", []) or []:
             if not isinstance(skill, dict):
                 continue
@@ -413,6 +402,10 @@ def _transform_case(case: dict) -> dict:
     project_dir = project_meta.get("project_dir", "")
     if case_dir and project_dir:
         original_project_dir = os.path.join(case_dir, project_dir)
+    elif case_dir:
+        default_project_dir = os.path.join(case_dir, "original_project")
+        if os.path.isdir(os.path.join(BASE_DIR, default_project_dir)):
+            original_project_dir = default_project_dir
 
     result = {
         "id": case_meta.get("id", case.get("case_id", case.get("id", ""))),
