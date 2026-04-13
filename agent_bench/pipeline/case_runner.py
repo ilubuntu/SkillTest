@@ -65,8 +65,29 @@ def _coerce_int(value):
         return None
 
 
+def _metrics_derived(metrics: dict) -> dict:
+    if not isinstance(metrics, dict):
+        return {}
+    derived = metrics.get("derived")
+    return derived if isinstance(derived, dict) else {}
+
+
+def _metrics_http(metrics: dict) -> dict:
+    if not isinstance(metrics, dict):
+        return {}
+    http = metrics.get("http")
+    return http if isinstance(http, dict) else {}
+
+
+def _metrics_message_parts(metrics: dict) -> list[dict]:
+    http = _metrics_http(metrics)
+    message_info = http.get("message_info") if isinstance(http, dict) else {}
+    parts = message_info.get("parts") if isinstance(message_info, dict) else []
+    return parts if isinstance(parts, list) else []
+
+
 def _format_usage_suffix(metrics: dict) -> str:
-    usage = (metrics or {}).get("usage") if isinstance(metrics, dict) else {}
+    usage = _metrics_derived(metrics).get("usage") if isinstance(metrics, dict) else {}
     if not isinstance(usage, dict):
         return ""
     input_tokens = _coerce_int(usage.get("input_tokens"))
@@ -105,6 +126,16 @@ def _format_constraint_score_message(summary: dict) -> str:
             segments.append(f"constraints_passed={passed}/{total}")
         else:
             segments.append(f"constraints_passed={passed}")
+    failed_items = summary.get("failed_items")
+    if isinstance(failed_items, list) and failed_items:
+        first = failed_items[0] if isinstance(failed_items[0], dict) else {}
+        first_reason = str(first.get("reason") or "").strip()
+        first_id = str(first.get("constraint_id") or "").strip()
+        if first_id:
+            detail = first_id
+            if first_reason:
+                detail += f":{_clip_text(first_reason, 40)}"
+            segments.append(f"failed={detail}")
     return "约束规则打分结果: " + (", ".join(segments) if segments else "无")
 
 
@@ -118,6 +149,9 @@ def _format_static_score_message(summary: dict, source: str = "") -> str:
         segments.append(f"quality_score={quality}")
     if overall is not None and overall != quality:
         segments.append(f"overall_score={overall}")
+    main_issues = summary.get("main_issues")
+    if isinstance(main_issues, list) and main_issues:
+        segments.append(f"issue={_clip_text(str(main_issues[0]), 40)}")
     if source:
         segments.append(f"source={source}")
     return "静态代码打分结果: " + (", ".join(segments) if segments else "无")
@@ -198,9 +232,7 @@ def _log_skill_call_detection(case_id: str,
                               on_progress,
                               target_skills: list[str] | None = None):
     metrics = _load_stage_interaction_metrics(case_dir, stage)
-    raw = metrics.get("raw") or {}
-    message_info = raw.get("message_info") or {}
-    raw_parts = message_info.get("parts") if isinstance(message_info.get("parts"), list) else []
+    raw_parts = _metrics_message_parts(metrics)
     explicit_skill_matches = []
     compile_command_matches = []
     expected_skills = [
@@ -254,7 +286,6 @@ def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
         "agent": {
             "id": agent.get("id") or "",
             "name": agent.get("name") or "",
-            "adapter": agent.get("adapter") or "",
             "model": agent.get("model") or "",
         },
         "workspace_dir": agent_workspace_dir(case_dir),
@@ -438,12 +469,15 @@ def _extract_constraint_review_summary_from_json_payload(payload) -> dict:
                 "score": round(score_value, 1),
             })
         summary["passed_constraints"] = normalized_passed
+        summary["constraints_passed"] = len(normalized_passed)
     if isinstance(payload.get("unmet_constraint_ids"), list):
         summary["unmet_constraint_ids"] = [
             str(item).strip()
             for item in payload.get("unmet_constraint_ids") or []
             if str(item).strip()
         ]
+        if "constraints_passed" in summary:
+            summary["constraints_total"] = summary["constraints_passed"] + len(summary["unmet_constraint_ids"])
     if isinstance(payload.get("public_constraint_results"), list):
         normalized_public_results = []
         for item in payload.get("public_constraint_results") or []:
@@ -464,6 +498,34 @@ def _extract_constraint_review_summary_from_json_payload(payload) -> dict:
                 "passed": bool(item.get("passed")),
             })
         summary["public_constraint_results"] = normalized_public_results
+    scalar_passed = payload.get("constraints_passed")
+    scalar_total = payload.get("constraints_total")
+    if isinstance(scalar_passed, (int, float)):
+        summary["constraints_passed"] = int(scalar_passed)
+    if isinstance(scalar_total, (int, float)):
+        summary["constraints_total"] = int(scalar_total)
+    for key in ("passed_items", "failed_items"):
+        items = payload.get(key)
+        if not isinstance(items, list):
+            continue
+        normalized_items = []
+        for item in items[:5]:
+            if not isinstance(item, dict):
+                continue
+            constraint_id = str(item.get("constraint_id") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            score = item.get("score")
+            normalized = {}
+            if constraint_id:
+                normalized["constraint_id"] = constraint_id
+            if isinstance(score, (int, float)):
+                normalized["score"] = float(score)
+            if reason:
+                normalized["reason"] = reason
+            if normalized:
+                normalized_items.append(normalized)
+        if normalized_items:
+            summary[key] = normalized_items
     return summary
 
 
@@ -530,6 +592,37 @@ def _extract_static_review_summary_from_json_payload(payload) -> dict:
     quality = payload.get("quality_score")
     if isinstance(quality, (int, float)):
         summary["quality_score"] = float(quality)
+    for key in ("strengths", "main_issues"):
+        values = payload.get(key)
+        if isinstance(values, list):
+            summary[key] = [
+                str(item).strip()
+                for item in values[:3]
+                if str(item).strip()
+            ]
+    score_details = payload.get("score_details")
+    if isinstance(score_details, list):
+        normalized_details = []
+        for item in score_details[:5]:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("item") or "").strip()
+            impact = str(item.get("impact") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            score_delta = item.get("score_delta")
+            normalized = {}
+            if name:
+                normalized["item"] = name
+            if impact in {"+", "-"}:
+                normalized["impact"] = impact
+            if isinstance(score_delta, (int, float)):
+                normalized["score_delta"] = float(score_delta)
+            if reason:
+                normalized["reason"] = reason
+            if normalized:
+                normalized_details.append(normalized)
+        if normalized_details:
+            summary["score_details"] = normalized_details
     return summary
 
 
@@ -569,6 +662,42 @@ def _extract_static_review_summary_from_file(case_dir: str) -> tuple[dict, str]:
     return {}, ""
 
 
+def _write_json_file(path: str, payload: dict):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload or {}, f, ensure_ascii=False, indent=2)
+
+
+def _write_constraint_review_result_file(case_dir: str, summary: dict) -> str:
+    result_path = os.path.join(review_dir(case_dir), "constraint_review_result.json")
+    payload = {
+        "overall_score": summary.get("overall_score"),
+        "constraints_passed": summary.get("constraints_passed"),
+        "constraints_total": summary.get("constraints_total"),
+        "passed_items": summary.get("passed_items") or [],
+        "failed_items": summary.get("failed_items") or [],
+    }
+    _write_json_file(result_path, payload)
+    return result_path
+
+
+def _write_static_review_result_file(case_dir: str, summary: dict) -> str:
+    result_path = os.path.join(static_dir(case_dir), "harmonyos_evaluation_result.json")
+    score = summary.get("quality_score")
+    if score is None:
+        score = summary.get("overall_score")
+    payload = {
+        "overall_conclusion": {
+            "total_score": score,
+        },
+        "strengths": summary.get("strengths") or [],
+        "main_issues": summary.get("main_issues") or [],
+        "score_details": summary.get("score_details") or [],
+    }
+    _write_json_file(result_path, payload)
+    return result_path
+
+
 def _build_constraint_review_failure_reason(output_text: str,
                                             metrics: dict | None,
                                             last_error_message: str) -> str:
@@ -578,9 +707,7 @@ def _build_constraint_review_failure_reason(output_text: str,
         return ""
 
     reason = "constraint review agent returned empty output"
-    raw = (metrics or {}).get("raw") if isinstance(metrics, dict) else {}
-    message_info = raw.get("message_info") if isinstance(raw, dict) else {}
-    parts = message_info.get("parts") if isinstance(message_info, dict) else []
+    parts = _metrics_message_parts(metrics or {})
     if isinstance(parts, list) and parts:
         last_part = parts[-1] if isinstance(parts[-1], dict) else {}
         part_type = str(last_part.get("type") or "").strip()
@@ -602,8 +729,7 @@ def _legacy_run_constraint_review_agent(case: dict,
                                  workspace_dir: str,
                                  patch_path: str,
                                  on_progress,
-                                 agent_timeout: int,
-                                 agent_temperature):
+                                 agent_timeout: int):
     case_spec = case.get("case_spec") or {}
     constraints = case_spec.get("constraints") or []
     if not constraints:
@@ -634,7 +760,6 @@ def _legacy_run_constraint_review_agent(case: dict,
         runtime_options={},
         on_progress=on_progress,
         fallback_timeout=agent_timeout,
-        temperature=agent_temperature,
         artifact_prefix="constraint_review",
         artifact_base_dir="constraint",
     )
@@ -670,7 +795,6 @@ def _legacy_run_constraint_review_agent(case: dict,
             "agent": {
                 "id": agent_spec.id,
                 "name": agent_spec.display_name,
-                "adapter": agent_spec.adapter,
                 "model": agent_spec.model,
             },
             "output_path": os.path.join(review_dir(case_dir), "constraint_review_output.txt"),
@@ -693,8 +817,7 @@ def _legacy_run_constraint_review_agent_v2(case: dict,
                                  workspace_dir: str,
                                  patch_path: str,
                                  on_progress,
-                                 agent_timeout: int,
-                                 agent_temperature):
+                                 agent_timeout: int):
     case_spec = case.get("case_spec") or {}
     constraints = case_spec.get("constraints") or []
     if not constraints:
@@ -725,7 +848,6 @@ def _legacy_run_constraint_review_agent_v2(case: dict,
         runtime_options={},
         on_progress=on_progress,
         fallback_timeout=agent_timeout,
-        temperature=agent_temperature,
         artifact_prefix="constraint_review",
         artifact_base_dir="constraint",
     )
@@ -781,7 +903,6 @@ def _legacy_run_constraint_review_agent_v2(case: dict,
             "agent": {
                 "id": agent_spec.id,
                 "name": agent_spec.display_name,
-                "adapter": agent_spec.adapter,
                 "model": agent_spec.model,
             },
             "output_path": os.path.join(review_dir(case_dir), "constraint_review_output.txt"),
@@ -831,7 +952,6 @@ def _run_constraint_review_attempt(case: dict,
                                    repair_patch_file: str,
                                    on_progress,
                                    agent_timeout: int,
-                                   agent_temperature,
                                    stage_label: str) -> tuple[dict, str]:
     agent_spec = load_agent_spec("constraint_score_agent")
     review_prompt = build_constraint_review_prompt(
@@ -846,7 +966,6 @@ def _run_constraint_review_attempt(case: dict,
         runtime_options={},
         on_progress=on_progress,
         fallback_timeout=agent_timeout,
-        temperature=agent_temperature,
         artifact_prefix="constraint_review",
         artifact_base_dir="constraint",
     )
@@ -896,7 +1015,6 @@ def _run_constraint_review_attempt(case: dict,
             "agent": {
                 "id": agent_spec.id,
                 "name": agent_spec.display_name,
-                "adapter": agent_spec.adapter,
                 "model": agent_spec.model,
             },
             "output_path": os.path.join(review_dir(case_dir), "constraint_review_output.txt"),
@@ -918,8 +1036,7 @@ def _run_constraint_review_agent(case: dict,
                                  workspace_dir: str,
                                  patch_path: str,
                                  on_progress,
-                                 agent_timeout: int,
-                                 agent_temperature):
+                                 agent_timeout: int):
     case_spec = case.get("case_spec") or {}
     constraints = case_spec.get("constraints") or []
     if not constraints:
@@ -961,7 +1078,6 @@ def _run_constraint_review_agent(case: dict,
                     repair_patch_file=repair_patch_file,
                     on_progress=on_progress,
                     agent_timeout=agent_timeout,
-                    agent_temperature=agent_temperature,
                     stage_label=stage_label,
                 )
                 metrics = result.pop("_metrics")
@@ -982,6 +1098,12 @@ def _run_constraint_review_agent(case: dict,
                     "level": "INFO",
                     "message": _format_constraint_score_message(result.get("summary") or {}),
                 })
+                constraint_result_file = _write_constraint_review_result_file(case_dir, result.get("summary") or {})
+                _notify(on_progress, "log", {
+                    "level": "INFO",
+                    "message": f"约束规则打分结果文件已写入: {constraint_result_file}",
+                })
+                result["result_file"] = constraint_result_file
                 if output_text:
                     _notify(on_progress, "log", {
                         "level": "WARNING",
@@ -1014,8 +1136,7 @@ def _run_static_review_agent(case: dict,
                              workspace_dir: str,
                              patch_path: str,
                              on_progress,
-                             agent_timeout: int,
-                             agent_temperature):
+                             agent_timeout: int):
     agent_spec = load_agent_spec("static_code_score_agent")
     if not agent_spec:
         _notify(on_progress, "log", {"level": "ERROR", "message": "missing agent config: static_code_score_agent"})
@@ -1029,7 +1150,6 @@ def _run_static_review_agent(case: dict,
         original_project_root=original_dir,
         repaired_project_root=workspace_dir,
         repair_patch_file=patch_path,
-        result_output_file=os.path.join(static_dir(case_dir), "harmonyos_evaluation_result.json"),
         agent_spec=agent_spec,
     )
     runtime = AgentRunner(
@@ -1037,7 +1157,6 @@ def _run_static_review_agent(case: dict,
         runtime_options={},
         on_progress=on_progress,
         fallback_timeout=agent_timeout,
-        temperature=agent_temperature,
         artifact_prefix="static_review",
         artifact_base_dir="static",
     )
@@ -1091,6 +1210,9 @@ def _run_static_review_agent(case: dict,
             summary = _extract_static_review_summary(output_text)
             if summary:
                 summary_source = "model_output"
+        if not summary:
+            raise RuntimeError("static review summary extraction failed")
+        static_result_file = _write_static_review_result_file(case_dir, summary)
         _notify(on_progress, "log", {
             "level": "INFO",
             "message": _format_static_score_message(summary, summary_source),
@@ -1099,19 +1221,23 @@ def _run_static_review_agent(case: dict,
             "level": "INFO",
             "message": f"{agent_spec.display_name} 分数来源: {summary_source}",
         })
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"静态代码打分结果文件已写入: {static_result_file}",
+        })
         _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "static_review", "elapsed": elapsed})
         return {
             "status": "completed",
             "agent": {
                 "id": agent_spec.id,
                 "name": agent_spec.display_name,
-                "adapter": agent_spec.adapter,
                 "model": agent_spec.model,
             },
             "output_path": os.path.join(static_dir(case_dir), "static_review_output.txt"),
             "metrics_path": os.path.join(static_dir(case_dir), "static_review_interaction_metrics.json"),
             "summary": summary,
             "summary_source": summary_source,
+            "result_file": static_result_file,
         }
     except Exception as exc:
         _notify(on_progress, "log", {"level": "ERROR", "message": f"static review failed: {exc}"})
@@ -1172,8 +1298,7 @@ def run_single_case(case: dict,
                     dry_run: bool = False,
                     on_progress: Callable = None,
                     agent_config: dict = None,
-                    agent_timeout: int = 180,
-                    agent_temperature: float = None) -> dict:
+                    agent_timeout: int = 180) -> dict:
     stages = stages or ["runner"]
     case["_agent_config"] = agent_config or {}
     case_id = case["id"]
@@ -1213,7 +1338,6 @@ def run_single_case(case: dict,
                 runtime_options={},
                 on_progress=on_progress,
                 fallback_timeout=agent_timeout,
-                temperature=agent_temperature,
                 artifact_prefix="agent",
                 artifact_base_dir="generate",
             )
@@ -1262,7 +1386,6 @@ def run_single_case(case: dict,
                 patch_path=patch_path,
                 on_progress=on_progress,
                 agent_timeout=agent_timeout,
-                agent_temperature=agent_temperature,
             )
             _ensure_review_stage_succeeded(case["_constraint_review_result"], "约束规则打分")
             case["_static_review_result"] = _run_static_review_agent(
@@ -1273,7 +1396,6 @@ def run_single_case(case: dict,
                 patch_path=patch_path,
                 on_progress=on_progress,
                 agent_timeout=agent_timeout,
-                agent_temperature=agent_temperature,
             )
             _ensure_review_stage_succeeded(case["_static_review_result"], "静态代码打分")
             _log_skill_call_detection(

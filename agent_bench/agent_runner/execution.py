@@ -15,13 +15,11 @@ class AgentRunner:
                  runtime_options: dict | None = None,
                  on_progress=None,
                  fallback_timeout: int = 180,
-                 temperature=None,
                  artifact_prefix: str = "agent",
                  artifact_base_dir: str = "generate"):
         self.agent_spec = agent_spec
         self.on_progress = on_progress
         self.fallback_timeout = fallback_timeout
-        self.temperature = temperature
         self.artifact_prefix = artifact_prefix or "agent"
         self.artifact_base_dir = artifact_base_dir or "generate"
         self.runtime_options = merge_runtime_options(
@@ -44,15 +42,13 @@ class AgentRunner:
         skill_result = verify_runtime_skills(self.agent_spec, self.on_progress)
         if not skill_result.get("ok"):
             raise RuntimeError(f"{self.agent_spec.display_name} 运行前 skill 校验失败")
-        if self.agent_spec.adapter.lower() == "opencode" and skill_result.get("mounted"):
+        if skill_result.get("mounted"):
             self._notify("INFO", "本轮已完成 skill 挂载与复检，后续将基于挂载后的状态创建 OpenCode 会话并发起 HTTP 请求")
-        if self.agent_spec.adapter.lower() == "opencode":
-            self._notify("INFO", "已采用 CLI 对齐消息组织：skill 要求仅保留在用户消息中，工程目录通过 HTTP directory 传递")
+        self._notify("INFO", "已采用 CLI 对齐消息组织：skill 要求仅保留在用户消息中，工程目录通过 HTTP directory 传递")
         self.adapter = create_adapter(
             self.agent_spec.raw,
             timeout=self._resolve_timeout(),
             on_progress=self.on_progress,
-            temperature=self.temperature,
             artifact_prefix=self.artifact_prefix,
             artifact_base_dir=self.artifact_base_dir,
         )

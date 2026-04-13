@@ -21,3 +21,5 @@ deveco_path: null
   #   "doom_loop": "allow",
   #   "question": "allow"
   # }
+# 或者 全部允许
+# "permission": "allow"

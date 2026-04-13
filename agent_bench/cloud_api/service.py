@@ -871,7 +871,6 @@ class CloudExecutionManager:
             if not agent:
                 raise ValueError("必须选择一个可用 agent")
             default_timeout = int(agent.get("timeout") or 480)
-            default_temperature = agent.get("temperature")
             with self._lock:
                 self._append_conversation(
                     state,
@@ -887,7 +886,6 @@ class CloudExecutionManager:
                 on_progress=on_progress,
                 agent_config=agent,
                 agent_timeout=default_timeout,
-                agent_temperature=default_temperature,
             )
 
             if str(result.get("status") or "").lower() not in {"completed", "success"}:
@@ -939,6 +937,11 @@ class CloudExecutionManager:
                 payload=result_payload,
                 token=(state.get("token") or "").strip() or None,
             )
+            result_response_summary = {
+                "ok": bool(result_response.get("ok")),
+                "status_code": result_response.get("status_code"),
+                "message": _truncate_message(str(result_response.get("body") or ""), 200),
+            }
             with self._lock:
                 state["last_result_response"] = result_response
                 self._append_cloud_event(state, "result_report_response", {
@@ -948,7 +951,7 @@ class CloudExecutionManager:
                 self._append_local_event(state, "result_report_response", {
                     "response": result_response,
                 })
-                _log_local_only(f"上传任务报告响应:\n{_safe_json(result_response)}")
+                _log_local_only(f"上传任务报告响应: {_safe_json(result_response_summary)}")
 
             update_local_status("completed", STAGE_COMPLETED)
             with self._lock:
@@ -960,7 +963,7 @@ class CloudExecutionManager:
                 self._append_execution_detail(
                     state,
                     STAGE_COMPLETED,
-                    f"上传任务报告响应: {_truncate_message(_safe_json(result_response), 500)}",
+                    f"上传任务报告响应: {_safe_json(result_response_summary)}",
                 )
                 self._append_execution_detail(state, STAGE_COMPLETED, "任务执行完成")
                 self._append_conversation(state, "status", "任务执行完成")

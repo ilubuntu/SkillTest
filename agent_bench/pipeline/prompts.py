@@ -81,28 +81,27 @@ def build_static_review_prompt(case: dict,
                                original_project_root: str,
                                repaired_project_root: str,
                                repair_patch_file: str,
-                               result_output_file: str,
                                agent_spec: AgentSpec) -> str:
     case_prompt = str(case.get("prompt") or "").strip()
     patch_input = repair_patch_file or "(patch unavailable; score directly from repaired_project_root)"
-    prompt = (
-        "你是 ArkTS 代码专家和 HarmonyOS 静态代码质量评分专家。现在有一份由 AI 修改后的 "
-        "HarmonyOS/ArkTS 工程，需要你对这次 AI 修改结果进行静态代码质量评分。"
-        f"你需要基于以下材料完成本次评分：原始问题：{case_prompt}；原始工程目录：{original_project_root}；"
-        f"修复后的 patch 文件：{patch_input}；修复后工程目录：{repaired_project_root}。"
-        "请先理解原始问题，再结合 patch 理解 AI 修改了哪些文件和逻辑，必要时对照原始工程与修复后工程确认修改实际落地结果，"
-        "然后基于修复后工程中的真实文件，对这次 AI 修改结果进行静态代码质量评分。"
-        "原始工程只作为基线证据，patch 文件只用于帮助理解改动范围，最终评分对象是修复后工程。"
-        "最终必须调用 harmonyos-gen-code-evaluator skill 输出评分结果，并明确说明是否调用了该 skill。"
-        f"你必须将评分结果写入以下固定文件，不要写入其他目录：{result_output_file}。"
-        "为提高执行效率，写入该文件时只允许输出最小 JSON，不要写完整审计台账、维度明细、规则逐条审查、"
-        "风险列表、优势项、问题项或其他扩展字段。"
-        "结果文件只保留最终分数字段，格式固定为："
-        '{'
-        '"overall_conclusion":{"total_score":85}'
-        '}' 
-        "其中 total_score 必须是 0 到 100 的数字。除上述最小 JSON 外，不要再向该文件写入任何其他内容。"
-    )
+    sections = [
+        "请基于修复后的工程，对这次 AI 修改结果执行静态代码质量评分。",
+        "",
+        "## 输入 1：原始工程目录",
+        original_project_root,
+        "",
+        "## 输入 2：修复后的 patch 文件",
+        patch_input,
+        "",
+        "## 输入 3：修复后工程目录",
+        repaired_project_root,
+        "",
+        "## 输入 4：用例输入内容",
+        case_prompt,
+        "",
+        "原始工程只作为基线证据，patch 文件只用于帮助理解改动范围，最终评分对象是修复后工程。",
+    ]
+    prompt = "\n".join(sections).strip()
     if agent_spec.extra_prompt:
         prompt = f"{prompt}\n\n## 额外执行要求\n{agent_spec.extra_prompt}"
     return prompt

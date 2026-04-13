@@ -53,7 +53,6 @@ class OpenCodeAdapter(AgentAdapter):
                  model: str = None,
                  target_skills: Optional[list[str]] = None,
                  timeout: int = TIMEOUT,
-                 temperature: float = None,
                  on_progress=None,
                  artifact_prefix: str = "agent",
                  artifact_base_dir: str = "generate"):
@@ -62,7 +61,6 @@ class OpenCodeAdapter(AgentAdapter):
         self.model = model
         self.target_skills = [str(item).strip() for item in (target_skills or []) if str(item).strip()]
         self.timeout = timeout
-        self.temperature = temperature
         self.on_progress = on_progress
         self.artifact_prefix = artifact_prefix or "agent"
         self.artifact_base_dir = artifact_base_dir or "generate"
@@ -274,8 +272,6 @@ class OpenCodeAdapter(AgentAdapter):
                 message_payload["system"] = self._system_message
             if self._tools_config:
                 message_payload["tools"] = self._tools_config
-            if self.temperature is not None:
-                message_payload["temperature"] = self.temperature
 
             data = json.dumps(message_payload).encode("utf-8")
             prompt_kb = len(data) / 1024
@@ -413,7 +409,10 @@ class OpenCodeAdapter(AgentAdapter):
             )
             text = self._extract_best_text(parts, effective_prompt)
             if text:
-                self._last_interaction_metrics["message"]["output_chars"] = len(text)
+                derived = self._last_interaction_metrics.get("derived") if isinstance(self._last_interaction_metrics, dict) else {}
+                message_metrics = derived.get("message") if isinstance(derived, dict) else {}
+                if isinstance(message_metrics, dict):
+                    message_metrics["output_chars"] = len(text)
                 self._log("INFO",
                     f"收到响应: {len(text)}字符, 耗时={elapsed:.1f}s",
                     tag=tag)
@@ -493,7 +492,10 @@ class OpenCodeAdapter(AgentAdapter):
             )
             text = self._extract_best_text(parts, effective_prompt)
             if text:
-                self._last_interaction_metrics["message"]["output_chars"] = len(text)
+                derived = self._last_interaction_metrics.get("derived") if isinstance(self._last_interaction_metrics, dict) else {}
+                message_metrics = derived.get("message") if isinstance(derived, dict) else {}
+                if isinstance(message_metrics, dict):
+                    message_metrics["output_chars"] = len(text)
                 self._log("INFO",
                     f"收到响应: {len(text)}字符, 耗时={elapsed:.1f}s (prompt_async+sse)",
                     tag=tag)
@@ -1286,37 +1288,38 @@ class OpenCodeAdapter(AgentAdapter):
         model_elapsed_ms = completed - created if created is not None and completed is not None else api_elapsed_ms
 
         return {
-            "version": 1,
-            "source": source,
-            "adapter": "opencode",
-            "session_id": session_id,
-            "message_id": message_id,
-            "provider_id": provider.get("id") or provider.get("providerID") or info.get("providerID") or model.get("providerID") or payload.get("providerID"),
-            "model_id": model.get("id") or model.get("modelID") or info.get("modelID") or payload.get("modelID"),
-            "timing": {
-                "api_elapsed_ms": api_elapsed_ms,
-                "model_elapsed_ms": model_elapsed_ms,
-            },
-            "usage": {
-                "input_tokens": self._coerce_int(tokens.get("input") or tokens.get("inputTokens") or tokens.get("prompt")),
-                "output_tokens": self._coerce_int(tokens.get("output") or tokens.get("outputTokens") or tokens.get("completion")),
-                "reasoning_tokens": self._coerce_int(tokens.get("reasoning") or tokens.get("reasoningTokens")),
-                "cache_read_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "read")) or tokens.get("cacheRead") or tokens.get("cache_read")),
-                "cache_write_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "write")) or tokens.get("cacheWrite") or tokens.get("cache_write")),
-                "cost": payload.get("cost", info.get("cost")),
-            },
-            "message": {
-                "input_chars": len(prompt_text or ""),
-                "output_chars": 0,
-            },
-            "tools": {
-                "available": self._tools_config,
-                "observed_calls": self._extract_observed_tool_calls(parts),
-            },
-            "raw": {
+            "version": 2,
+            "http": {
+                "session_id": session_id,
+                "message_id": message_id,
+                "provider_id": provider.get("id") or provider.get("providerID") or info.get("providerID") or model.get("providerID") or payload.get("providerID"),
+                "model_id": model.get("id") or model.get("modelID") or info.get("modelID") or payload.get("modelID"),
                 "response": response,
                 "message_info": payload,
                 "message_history": history,
+            },
+            "derived": {
+                "source": source,
+                "timing": {
+                    "api_elapsed_ms": api_elapsed_ms,
+                    "model_elapsed_ms": model_elapsed_ms,
+                },
+                "usage": {
+                    "input_tokens": self._coerce_int(tokens.get("input") or tokens.get("inputTokens") or tokens.get("prompt")),
+                    "output_tokens": self._coerce_int(tokens.get("output") or tokens.get("outputTokens") or tokens.get("completion")),
+                    "reasoning_tokens": self._coerce_int(tokens.get("reasoning") or tokens.get("reasoningTokens")),
+                    "cache_read_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "read")) or tokens.get("cacheRead") or tokens.get("cache_read")),
+                    "cache_write_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "write")) or tokens.get("cacheWrite") or tokens.get("cache_write")),
+                    "cost": payload.get("cost", info.get("cost")),
+                },
+                "message": {
+                    "input_chars": len(prompt_text or ""),
+                    "output_chars": 0,
+                },
+                "tools": {
+                    "available": self._tools_config,
+                    "observed_calls": self._extract_observed_tool_calls(parts),
+                },
             },
         }
 

@@ -121,8 +121,6 @@ if isinstance(agents, list):
     for agent in agents:
         if not isinstance(agent, dict):
             continue
-        if str(agent.get("adapter") or "").strip() != "opencode":
-            continue
         candidate = agent.get("opencode_proxy") or {}
         if isinstance(candidate, dict) and candidate:
             proxy = candidate
@@ -180,7 +178,11 @@ start_opencode() {
     kill_port $OPENCODE_PORT
 
     if [ -n "$OPENCODE_HTTP_PROXY" ] || [ -n "$OPENCODE_HTTPS_PROXY" ] || [ -n "$OPENCODE_ALL_PROXY" ]; then
-        info "OpenCode Server 启动将使用代理环境 (NO_PROXY=$OPENCODE_NO_PROXY)"
+        info "OpenCode Server 启动将使用代理环境"
+        info "  http_proxy=${OPENCODE_HTTP_PROXY:-<empty>}"
+        info "  https_proxy=${OPENCODE_HTTPS_PROXY:-<empty>}"
+        info "  all_proxy=${OPENCODE_ALL_PROXY:-<empty>}"
+        info "  NO_PROXY=${OPENCODE_NO_PROXY:-<empty>}"
         env \
             http_proxy="$OPENCODE_HTTP_PROXY" \
             https_proxy="$OPENCODE_HTTPS_PROXY" \

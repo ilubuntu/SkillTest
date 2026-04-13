@@ -23,8 +23,7 @@ def log_agent_configuration(agent_spec: AgentSpec, on_progress):
     _notify(on_progress, "INFO", "，".join(
         part for part in [
             f"读取 Agent 配置: 名称={agent_spec.display_name}",
-            f"适配器={agent_spec.adapter}",
-            f"内部Agent={agent_spec.opencode_agent}" if agent_spec.adapter.lower() == "opencode" and agent_spec.opencode_agent else "",
+            f"内部Agent={agent_spec.opencode_agent}" if agent_spec.opencode_agent else "",
             f"模型={agent_spec.model}",
             f"skills={', '.join(agent_spec.mounted_skill_names)}" if agent_spec.mounted_skill_names else "",
         ] if part
@@ -156,8 +155,6 @@ def _try_mount_opencode_skill(skill_name: str, skill_path: str, on_progress) -> 
 
 
 def verify_runtime_skills(agent_spec: AgentSpec, on_progress) -> dict:
-    if agent_spec.adapter.lower() != "opencode":
-        return {"ok": True, "mounted": False}
     all_ok = True
     mounted_any = False
     for skill_spec in agent_spec.mounted_skills:

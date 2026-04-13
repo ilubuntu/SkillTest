@@ -15,12 +15,10 @@ class MountedSkillSpec:
 class AgentSpec:
     id: str = ""
     name: str = ""
-    adapter: str = ""
     api_base: str = ""
     opencode_agent: str = ""
     model: str = ""
     timeout: int = 180
-    temperature: Optional[float] = None
     tools: Any = None
     extra_prompt: str = ""
     transport: str = ""
@@ -59,12 +57,10 @@ def build_agent_spec(agent: Optional[dict]) -> AgentSpec:
     return AgentSpec(
         id=str(agent.get("id") or "").strip(),
         name=str(agent.get("name") or "").strip(),
-        adapter=str(agent.get("adapter") or "").strip(),
         api_base=str(agent.get("api_base") or "").strip(),
         opencode_agent=str(agent.get("opencode_agent") or "").strip(),
         model=str(agent.get("model") or "").strip(),
         timeout=int(agent.get("timeout") or 180),
-        temperature=agent.get("temperature"),
         tools=agent.get("tools"),
         extra_prompt=str(agent.get("extra_prompt") or "").strip(),
         transport=str(agent.get("transport") or "").strip(),

@@ -57,10 +57,6 @@ def _check_runtime_dependencies():
     if not opencode_path:
         raise RuntimeError("缺少依赖: opencode")
     logger.info(f"检测到 opencode: {opencode_path}")
-    logger.info("依赖检查通过")
-    logger.info("检查 Python 依赖...")
-    logger.info("Python 依赖检查通过")
-    logger.info("检查执行器配置...")
     validate_runtime_config()
     logger.info("执行器配置检查通过")
 

@@ -162,10 +162,12 @@ def load_agent_scoring_text(case_dir: str, case: Dict[str, Any], fallback_output
 
 
 def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
-    usage = metrics.get("usage") or {}
+    derived = metrics.get("derived") if isinstance(metrics.get("derived"), dict) else {}
+    http = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
+    usage = derived.get("usage") if isinstance(derived, dict) else {}
     for value in (
         usage.get("total_tokens"),
-        ((metrics.get("raw") or {}).get("message_info") or {}).get("info", {}).get("tokens", {}).get("total"),
+        ((http.get("message_info") or {}).get("info") or {}).get("tokens", {}).get("total"),
     ):
         if value is not None:
             try:
@@ -179,7 +181,7 @@ def _extract_build_skill_execution_count(metrics: Dict[str, Any]) -> int:
     if not isinstance(metrics, dict):
         return 0
 
-    raw = metrics.get("raw") or {}
+    raw = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
     parts = []
     if isinstance(raw, dict):
         message_info = raw.get("message_info") or {}
@@ -233,7 +235,7 @@ def _extract_iteration_count(metrics: Dict[str, Any], output_text: str = "") -> 
     if build_execution_count > 0:
         return build_execution_count
 
-    raw = metrics.get("raw") or {}
+    raw = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
     parts = []
     if isinstance(raw, dict):
         message_info = raw.get("message_info") or {}
@@ -248,11 +250,13 @@ def _extract_iteration_count(metrics: Dict[str, Any], output_text: str = "") -> 
     if step_count > 0:
         return step_count
 
-    observed_calls = (((metrics.get("tools") or {}).get("observed_calls")) or [])
+    derived = metrics.get("derived") if isinstance(metrics.get("derived"), dict) else {}
+    observed_calls = ((((derived.get("tools") or {}) if isinstance(derived, dict) else {}).get("observed_calls")) or [])
     if isinstance(observed_calls, list) and observed_calls:
         return len(observed_calls) + 1
 
-    if (metrics.get("session_id") or "").strip():
+    http = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
+    if (http.get("session_id") or "").strip():
         return 1
     if _extract_total_tokens(metrics) > 0:
         return 1

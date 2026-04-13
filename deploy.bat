@@ -121,7 +121,7 @@ set "OPENCODE_NO_PROXY="
 set "AGENTS_CONFIG=%SCRIPT_DIR%\config\agents.yaml"
 if not exist "%AGENTS_CONFIG%" exit /b 0
 
-for /f "usebackq tokens=1,* delims==" %%A in (`call %PYTHON_CMD% -c "import sys,yaml; data=yaml.safe_load(open(sys.argv[1], encoding='utf-8')) or {}; agents=data.get('agents') or []; proxy=next(((agent.get('opencode_proxy') or {}) for agent in agents if isinstance(agent, dict) and str(agent.get('adapter') or '').strip()=='opencode' and isinstance(agent.get('opencode_proxy') or {}, dict) and (agent.get('opencode_proxy') or {})), {}); print('http_proxy=' + str(proxy.get('http_proxy') or '').strip()); print('https_proxy=' + str(proxy.get('https_proxy') or '').strip()); print('all_proxy=' + str(proxy.get('all_proxy') or '').strip()); print('no_proxy=' + str(proxy.get('no_proxy') or '').strip())" "%AGENTS_CONFIG%" 2^>nul`) do (
+for /f "usebackq tokens=1,* delims==" %%A in (`call %PYTHON_CMD% -c "import sys,yaml; data=yaml.safe_load(open(sys.argv[1], encoding='utf-8')) or {}; agents=data.get('agents') or []; proxy=next(((agent.get('opencode_proxy') or {}) for agent in agents if isinstance(agent, dict) and isinstance(agent.get('opencode_proxy') or {}, dict) and (agent.get('opencode_proxy') or {})), {}); print('http_proxy=' + str(proxy.get('http_proxy') or '').strip()); print('https_proxy=' + str(proxy.get('https_proxy') or '').strip()); print('all_proxy=' + str(proxy.get('all_proxy') or '').strip()); print('no_proxy=' + str(proxy.get('no_proxy') or '').strip())" "%AGENTS_CONFIG%" 2^>nul`) do (
     if /I "%%A"=="http_proxy" set "OPENCODE_HTTP_PROXY=%%B"
     if /I "%%A"=="https_proxy" set "OPENCODE_HTTPS_PROXY=%%B"
     if /I "%%A"=="all_proxy" set "OPENCODE_ALL_PROXY=%%B"
@@ -163,13 +163,25 @@ call :kill_port %OPENCODE_PORT%
 call :ensure_log_dir
 if not exist "%OPENCODE_LOG%" type nul > "%OPENCODE_LOG%"
 
-if defined OPENCODE_HTTP_PROXY (
-    call :info "OpenCode Server will use proxy environment (NO_PROXY=%OPENCODE_NO_PROXY%)"
+if defined OPENCODE_HTTP_PROXY goto :start_opencode_with_proxy
+if defined OPENCODE_HTTPS_PROXY goto :start_opencode_with_proxy
+if defined OPENCODE_ALL_PROXY goto :start_opencode_with_proxy
+goto :start_opencode_without_proxy
+
+:start_opencode_with_proxy
+    call :info "OpenCode Server will use proxy environment"
+    call :info "  http_proxy=%OPENCODE_HTTP_PROXY%"
+    call :info "  https_proxy=%OPENCODE_HTTPS_PROXY%"
+    call :info "  all_proxy=%OPENCODE_ALL_PROXY%"
+    call :info "  NO_PROXY=%OPENCODE_NO_PROXY%"
     start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && set http_proxy=%OPENCODE_HTTP_PROXY% && set https_proxy=%OPENCODE_HTTPS_PROXY% && set HTTP_PROXY=%OPENCODE_HTTP_PROXY% && set HTTPS_PROXY=%OPENCODE_HTTPS_PROXY% && set all_proxy=%OPENCODE_ALL_PROXY% && set ALL_PROXY=%OPENCODE_ALL_PROXY% && set no_proxy=%OPENCODE_NO_PROXY% && set NO_PROXY=%OPENCODE_NO_PROXY% && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
-) else (
-    call :info "OpenCode Server will start without proxy environment"
-    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
-)
+goto :start_opencode_wait
+
+:start_opencode_without_proxy
+call :info "OpenCode Server will start without proxy environment"
+start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
+
+:start_opencode_wait
 
 call :info "Waiting for OpenCode Server..."
 for /L %%I in (1,1,30) do (
