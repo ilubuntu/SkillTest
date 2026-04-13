@@ -1,5 +1,8 @@
 deveco_path: null
 
+task_manager:
+  max_concurrency: 3
+
 # OpenCode 权限配置提醒：
 # 当前程序不会自动把下面的配置写入 ~/.opencode/opencode.json。
 # 如果需要放开 OpenCode 的外部目录/工具权限，请手动把对应 permission 节点加到 ~/.opencode/opencode.json。

@@ -381,6 +381,21 @@ def _legacy_extract_constraint_review_summary_old(output_text: str) -> dict:
     return summary
 
 
+def _extract_first_json_object(text: str):
+    if not text:
+        return None
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        start = match.start()
+        try:
+            payload, _ = decoder.raw_decode(text[start:])
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
 def _extract_constraint_review_summary(output_text: str) -> dict:
     text = output_text or ""
     summary = {}
@@ -400,6 +415,11 @@ def _extract_constraint_review_summary(output_text: str) -> dict:
     except Exception:
         direct_payload = None
     extracted = _extract_constraint_review_summary_from_json_payload(direct_payload)
+    if extracted:
+        return extracted
+
+    embedded_payload = _extract_first_json_object(text)
+    extracted = _extract_constraint_review_summary_from_json_payload(embedded_payload)
     if extracted:
         return extracted
 
@@ -550,7 +570,12 @@ def _extract_static_review_summary(output_text: str) -> dict:
     if extracted:
         return extracted
 
-    total_match = re.search(r"total_score\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)", text, flags=re.IGNORECASE)
+    embedded_payload = _extract_first_json_object(text)
+    extracted = _extract_static_review_summary_from_json_payload(embedded_payload)
+    if extracted:
+        return extracted
+
+    total_match = re.search(r"\"?total_score\"?\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)", text, flags=re.IGNORECASE)
     if total_match:
         score = float(total_match.group(1))
         return {"quality_score": score, "overall_score": score}

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from agent_bench.cloud_api.models import CloudExecutionStartRequest
-from agent_bench.cloud_api.service import cloud_execution_manager
+from agent_bench.task_manager import cloud_execution_manager
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, review_dir, static_dir
 
 router = APIRouter(prefix="/api/cloud-api", tags=["cloud_api"])

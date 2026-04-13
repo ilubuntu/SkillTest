@@ -4,7 +4,7 @@
 import logging
 import os
 import sys
-from datetime import datetime
+from logging.handlers import TimedRotatingFileHandler
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +33,8 @@ def _prepare_runtime_log_file() -> str:
     root_dir = _runtime_root_dir()
     log_dir = os.path.join(root_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, f"agent_bench_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    # 进程级总日志固定写入同一个基准文件，并按小时滚动归档。
+    log_path = os.path.join(log_dir, "agent_bench.log")
     current_path = os.path.join(log_dir, "current_executor_log")
     with open(current_path, "w", encoding="utf-8") as file_obj:
         file_obj.write(log_path)
@@ -45,7 +46,14 @@ def _attach_file_logger(log_path: str):
     for handler in root_logger.handlers:
         if isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", "") == log_path:
             return
-    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler = TimedRotatingFileHandler(
+        log_path,
+        when="H",
+        interval=1,
+        backupCount=72,
+        encoding="utf-8",
+    )
+    file_handler.suffix = "%Y%m%d_%H"
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     root_logger.addHandler(file_handler)
@@ -90,9 +98,8 @@ async def startup():
     else:
         logger.info("OpenCode Server 启动成功")
     logger.info("启动执行器服务 (端口 8000)...")
-    logger.info("执行器服务启动成功")
-    logger.info("执行器已就绪，等待任务下发...")
     logger.info("任务入口: http://localhost:8000/api/cloud-api/start")
+    logger.info("执行器已就绪，等待任务下发...")
     runtime_log_path = getattr(app.state, "runtime_log_path", "")
     if runtime_log_path:
         logger.info(f"执行器日志: {runtime_log_path}")
