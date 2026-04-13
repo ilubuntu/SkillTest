@@ -473,6 +473,9 @@ class CloudExecutionManager:
                 self._progress.append_conversation(state, "status", "任务开始执行")
                 self._progress.append_execution_detail(state, STAGE_PENDING, "任务已接收，等待执行")
                 self._progress.append_execution_detail(state, STAGE_PREPARING, f"本地产物目录: {run_dir}")
+                executor_log = os.path.join(run_dir, "execution.log")
+                if executor_log:
+                    self._progress.append_execution_detail(state, STAGE_PREPARING, f"可用 tail -f {executor_log} 查看实时执行日志")
             downloaded_project_root = _prepare_project_from_file_url(payload.testCase.fileUrl, source_dir, on_progress=on_progress)
             original_dir = original_project_dir(case_dir)
             if os.path.exists(original_dir):

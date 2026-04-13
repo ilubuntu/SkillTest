@@ -225,7 +225,9 @@ install_python_deps() {
 start_backend() {
     info "启动执行器服务 (端口 $BACKEND_PORT)..."
 
-    if curl -s "http://localhost:$BACKEND_PORT/api/health" &>/dev/null; then
+    local health_status
+    health_status="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$BACKEND_PORT/api/health" 2>/dev/null || true)"
+    if [ "$health_status" = "200" ]; then
         if [ -z "${BACKEND_LOG:-}" ]; then
             BACKEND_LOG="$(resolve_executor_log_file)"
         fi
@@ -243,7 +245,8 @@ start_backend() {
 
     # 等待启动
     for i in $(seq 1 10); do
-        if curl -s "http://localhost:$BACKEND_PORT/api/health" &>/dev/null; then
+        health_status="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$BACKEND_PORT/api/health" 2>/dev/null || true)"
+        if [ "$health_status" = "200" ]; then
             info "执行器服务启动成功"
             return
         fi

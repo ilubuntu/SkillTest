@@ -1,6 +1,0 @@
-# -*- coding: utf-8 -*-
-"""兼容导出：任务管理核心已迁移到 task_manager。"""
-
-from agent_bench.task_manager.manager import CloudExecutionManager, cloud_execution_manager
-
-__all__ = ["CloudExecutionManager", "cloud_execution_manager"]

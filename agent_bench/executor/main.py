@@ -9,7 +9,7 @@ from logging.handlers import TimedRotatingFileHandler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agent_bench.executor.cloud_api import local_router, router as cloud_api_router
+from agent_bench.executor.routes import router as cloud_api_router
 from agent_bench.pipeline.loader import validate_runtime_config
 from agent_bench.agent_runner.discovery import check_api_available, ensure_opencode_server
 from agent_bench.agent_runner.opencode_env import find_opencode_executable
@@ -84,7 +84,6 @@ app.add_middleware(
 )
 
 app.include_router(cloud_api_router)
-app.include_router(local_router)
 
 
 @app.on_event("startup")
