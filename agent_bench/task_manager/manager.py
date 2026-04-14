@@ -42,7 +42,6 @@ def _runtime_results_root() -> str:
 
 RESULTS_ROOT = _runtime_results_root()
 CACHE_ROOT = os.path.join(os.path.dirname(RESULTS_ROOT), "cache", "case_packages")
-CLOUD_BASE_URL = "http://47.100.28.161:3000"
 
 STATUS_PUSH_INTERVAL_SECONDS = 2.0
 STATUS_PUSH_DETAIL_FLUSH_SECONDS = 3.0
@@ -251,6 +250,10 @@ class CloudExecutionManager:
         if isinstance(task_manager_config, dict):
             configured_concurrency = int(task_manager_config.get("max_concurrency") or 3)
         self._max_concurrency = max(1, configured_concurrency)
+        cloud_base_url = task_manager_config.get("cloud_base_url") if isinstance(task_manager_config, dict) else None
+        if not cloud_base_url or not str(cloud_base_url).strip():
+            raise ValueError("配置缺失: task_manager.cloud_base_url 未在 config/config.yaml 中配置")
+        self._cloud_base_url = str(cloud_base_url).strip()
         # 超过并发上限的任务先进入等待队列，空出槽位后再启动。
         self._pending_queue: list[int] = []
 
@@ -310,7 +313,7 @@ class CloudExecutionManager:
                 return False, f"任务 {payload.executionId} 已存在，当前状态={existing_state.get('local_status')}"
             can_start, deny_message = self._can_start_new_execution()
 
-            state = create_task_state(payload, payload.cloudBaseUrl or CLOUD_BASE_URL)
+            state = create_task_state(payload, payload.cloudBaseUrl or self._cloud_base_url)
             self._registry.create(payload.executionId, state)
             logger.info(
                 "收到任务下发 taskId=%s 任务=%s 工程包=%s",
@@ -373,7 +376,7 @@ class CloudExecutionManager:
                     state = self._registry.get(execution_id)
                 if state:
                     try:
-                        self._progress.report_remote_status(state, CLOUD_BASE_URL)
+                        self._progress.report_remote_status(state, self._cloud_base_url)
                     except Exception as exc:
                         self._progress.append_local_event(state, "status_report_error", {"error": str(exc)})
             if should_stop:
@@ -587,7 +590,7 @@ class CloudExecutionManager:
             self._result_reporter.report(
                 state=state,
                 result_payload=result_payload,
-                cloud_base_url=CLOUD_BASE_URL,
+                cloud_base_url=self._cloud_base_url,
                 completed_stage=STAGE_COMPLETED,
             )
 

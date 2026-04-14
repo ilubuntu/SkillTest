@@ -2,6 +2,7 @@ deveco_path: null
 
 task_manager:
   max_concurrency: 3
+  cloud_base_url: "http://47.100.28.161:3000"
 
 # OpenCode 权限配置提醒：
 # 当前程序不会自动把下面的配置写入 ~/.opencode/opencode.json。

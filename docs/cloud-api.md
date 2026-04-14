@@ -4,9 +4,19 @@
 
 ## 1. 下发任务
 
-`POST /api/cloud-api/start`
+### baseline Agent
 
-最小请求体：
+`POST /api/cloud-api/baseline`
+
+使用 `baseline` agent（opencode-build 模式）执行任务。
+
+### harmonyos-plugin Agent
+
+`POST /api/cloud-api/harmonyos-plugin`
+
+使用 `harmonyos-plugin` agent 执行任务。
+
+### 请求体（两个接口相同）
 
 ```json
 {

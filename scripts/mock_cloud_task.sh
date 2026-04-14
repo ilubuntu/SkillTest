@@ -123,7 +123,7 @@ PY
 CURL_ARGS=(
   -sS
   -X POST
-  "$BASE_URL/api/cloud-api/start"
+  "$BASE_URL/api/cloud-api/baseline"
   -H "Content-Type: application/json"
   -d "$PAYLOAD"
 )

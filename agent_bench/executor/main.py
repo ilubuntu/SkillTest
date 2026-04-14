@@ -97,7 +97,6 @@ async def startup():
     else:
         logger.info("OpenCode Server 启动成功")
     logger.info("启动执行器服务 (端口 8000)...")
-    logger.info("任务入口: http://localhost:8000/api/cloud-api/start")
     logger.info("执行器已就绪，等待任务下发...")
     runtime_log_path = getattr(app.state, "runtime_log_path", "")
     if runtime_log_path:
@@ -117,7 +116,8 @@ async def root():
     return {
         "service": "cloud_executor",
         "health": "/api/health",
-        "start": "/api/cloud-api/start",
+        "baseline": "/api/cloud-api/baseline",
+        "harmonyos-plugin": "/api/cloud-api/harmonyos-plugin",
         "status": "/api/cloud-api/status",
     }
 

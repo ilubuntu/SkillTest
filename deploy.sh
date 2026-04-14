@@ -269,8 +269,6 @@ start_executor() {
     start_opencode
     start_backend
     echo ""
-    info "执行器已就绪，等待任务下发..."
-    info "任务入口: http://localhost:$BACKEND_PORT/api/cloud-api/start"
     info "执行器日志:  $BACKEND_LOG"
     echo ""
     info "进入执行器流程日志视图，日志同时写入本地文件: $BACKEND_LOG"
