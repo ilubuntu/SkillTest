@@ -132,9 +132,34 @@ def load_agent_output(case_dir: str) -> str:
 
 
 def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
-    """从 metrics 中提取总 token 数，优先 derived.usage.total_tokens，其次 http.message_info.info.tokens.total。"""
-    derived = metrics.get("derived") if isinstance(metrics.get("derived"), dict) else {}
+    """从 metrics 中提取总 token 数。
+
+    优先级：
+    1. message_history 中所有消息的 token 求和（覆盖多轮交互的真实消耗）
+    2. derived.usage.total_tokens
+    3. http.message_info.info.tokens.total（仅最后一条消息，作为兜底）
+    """
     http = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
+    message_history = http.get("message_history") if isinstance(http.get("message_history"), list) else []
+    if message_history:
+        total = 0
+        for msg in message_history:
+            if not isinstance(msg, dict):
+                continue
+            info = msg.get("info") if isinstance(msg.get("info"), dict) else {}
+            tokens = info.get("tokens") if isinstance(info.get("tokens"), dict) else {}
+            if not tokens:
+                continue
+            total += int(tokens.get("input", 0) or 0)
+            total += int(tokens.get("output", 0) or 0)
+            total += int(tokens.get("reasoning", 0) or 0)
+            cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+            total += int(cache.get("read", 0) or 0)
+            total += int(cache.get("write", 0) or 0)
+        if total > 0:
+            return total
+
+    derived = metrics.get("derived") if isinstance(metrics.get("derived"), dict) else {}
     usage = derived.get("usage") if isinstance(derived, dict) else {}
     for value in (
         usage.get("total_tokens"),
@@ -148,8 +173,12 @@ def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
     return 0
 
 
-def _extract_build_skill_execution_count(metrics: Dict[str, Any]) -> int:
-    """统计 build-harmony-project skill 的有效执行次数（去重），用于确定迭代次数。"""
+def _extract_build_execution_count(metrics: Dict[str, Any]) -> int:
+    """统计真实编译执行次数（去重）。
+
+    只统计 bash 命令中真正触发 HarmonyOS 编译的 assembleHap 调用次数。
+    不再使用额外的输出标记，避免统计口径与真实命令执行不一致。
+    """
     if not isinstance(metrics, dict):
         return 0
 
@@ -160,53 +189,42 @@ def _extract_build_skill_execution_count(metrics: Dict[str, Any]) -> int:
         if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
             parts = message_info.get("parts") or []
 
-    seen = set()
-    count = 0
+    assemble_hap_ids = set()
+    assemble_hap_count = 0
+
     for part in parts:
         if not isinstance(part, dict):
             continue
         part_type = str(part.get("type") or "").strip().lower()
-        if part_type not in {"tool", "skill"}:
+        if part_type != "tool":
             continue
 
-        serialized = json.dumps(part, ensure_ascii=False).lower()
         state = part.get("state") if isinstance(part.get("state"), dict) else {}
         status = str(state.get("status") or "").strip().lower()
-        command_input = state.get("input") if isinstance(state.get("input"), dict) else {}
-        skill_name = str(command_input.get("name") or "").strip().lower()
-
-        is_build_skill = (
-            skill_name == "build-harmony-project"
-            or "\"name\": \"build-harmony-project\"" in serialized
-            or "\"name\":\"build-harmony-project\"" in serialized
-        )
-        if not is_build_skill:
-            continue
-
         if status not in {"completed", "running"}:
             continue
 
-        # 用 callID/id/input 做去重
-        identity = (
-            str(part.get("callID") or "").strip()
-            or str(part.get("id") or "").strip()
-            or json.dumps(command_input, ensure_ascii=False, sort_keys=True)
-        )
-        if not identity or identity in seen:
-            continue
-        seen.add(identity)
-        count += 1
+        command_input = state.get("input") if isinstance(state.get("input"), dict) else {}
+        tool_name = str(part.get("tool") or "").strip().lower()
 
-    return count
+        if tool_name == "bash":
+            command_str = str(command_input.get("command") or "").strip().lower()
+            if "assemblehap" in command_str:
+                call_id = str(part.get("callID") or "").strip() or str(part.get("id") or "").strip()
+                if call_id and call_id not in assemble_hap_ids:
+                    assemble_hap_ids.add(call_id)
+                    assemble_hap_count += 1
+
+    return assemble_hap_count
 
 
 def _extract_iteration_count(metrics: Dict[str, Any], output_text: str = "") -> int:
-    """提取迭代次数，优先级：build skill 执行数 > step-start 数 > observed_calls 数 > session/token 存在 > 输出非空。"""
+    """提取迭代次数，优先级：编译执行数 > step-start 数 > observed_calls 数 > session/token 存在 > 输出非空。"""
     if not isinstance(metrics, dict):
         return 1 if (output_text or "").strip() else 0
 
-    # 优先使用 build-harmony-project 执行次数
-    build_execution_count = _extract_build_skill_execution_count(metrics)
+    # 优先使用编译执行次数
+    build_execution_count = _extract_build_execution_count(metrics)
     if build_execution_count > 0:
         return build_execution_count
 
@@ -286,7 +304,7 @@ def build_execution_result_payload(execution_id: int,
                                    case_dir: str,
                                    result: Dict[str, Any],
                                    expected_output: str,
-                                   execution_time_ms: int,
+                                   execution_time_s: int,
                                    output_code_url: str,
                                    diff_file_url: str,
                                    code_quality_score: Optional[int] = None,
@@ -327,7 +345,7 @@ def build_execution_result_payload(execution_id: int,
         testExecutionId=execution_id,
         data=CloudExecutionResultData(
             isBuildSuccess=is_build_success,
-            executionTime=max(0, int(execution_time_ms)),
+            executionTime=max(0, int(execution_time_s)),
             tokenConsumption=max(0, int(token_consumption)),
             iterationCount=max(0, int(iteration_count)),
             codeQualityScore=max(0, min(100, int(resolved_code_quality_score))),

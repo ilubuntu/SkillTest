@@ -385,7 +385,6 @@ class CloudExecutionManager:
     def _run_execution(self, payload: CloudExecutionStartRequest, local_base_url: str):
         # 每个 execution 在自己的线程里完整执行一条 pipeline，互不共享运行上下文。
         execution_id = payload.executionId
-        started_at = time.time()
         with self._lock:
             state = self._registry.require(execution_id)
 
@@ -474,7 +473,7 @@ class CloudExecutionManager:
             update_local_status("running", STAGE_PREPARING)
             with self._lock:
                 self._progress.append_conversation(state, "status", "任务开始执行")
-                self._progress.append_execution_detail(state, STAGE_PENDING, "任务已接收，等待执行")
+                self._progress.append_execution_detail(state, STAGE_PENDING, f"任务已接收，等待执行 (executor_id={state.get('execution_id')})")
                 self._progress.append_execution_detail(state, STAGE_PREPARING, f"本地产物目录: {run_dir}")
                 executor_log = os.path.join(run_dir, "execution.log")
                 if executor_log:
@@ -542,6 +541,7 @@ class CloudExecutionManager:
                     f"执行计划已确认: Agent={agent.get('name') or agent.get('id') or '未知'}，即将开始处理工程",
                 )
 
+            agent_started_at = time.time()
             result = run_single_case(
                 case=case,
                 case_dir=case_dir,
@@ -551,6 +551,7 @@ class CloudExecutionManager:
                 agent_config=agent,
                 agent_timeout=default_timeout,
             )
+            agent_elapsed_s = int(time.time() - agent_started_at)
 
             if str(result.get("status") or "").lower() not in {"completed", "success"}:
                 raise RuntimeError(f"Agent 执行失败: {result.get('status') or 'unknown'}")
@@ -574,7 +575,7 @@ class CloudExecutionManager:
                 case_dir=case_dir,
                 result=result,
                 expected_output=expected_output,
-                execution_time_ms=int((time.time() - started_at) * 1000),
+                execution_time_s=agent_elapsed_s,
                 output_code_url=output_code_url,
                 diff_file_url=diff_file_url,
                 code_quality_score=None,
