@@ -1283,6 +1283,23 @@ class OpenCodeAdapter(AgentAdapter):
             time_info = info.get("time") if isinstance(info.get("time"), dict) else {}
         parts = payload.get("parts") if isinstance(payload.get("parts"), list) else response.get("parts", [])
 
+        # 求和所有消息的 token（而非只取最后一条消息）
+        total_input = 0
+        total_output = 0
+        total_reasoning = 0
+        total_cache_read = 0
+        total_cache_write = 0
+        for item in history:
+            item_info = item.get("info") if isinstance(item.get("info"), dict) else {}
+            item_tokens = item_info.get("tokens") if isinstance(item_info.get("tokens"), dict) else {}
+            if item_tokens:
+                total_input += int(item_tokens.get("input", 0) or 0)
+                total_output += int(item_tokens.get("output", 0) or 0)
+                total_reasoning += int(item_tokens.get("reasoning", 0) or 0)
+                item_cache = item_tokens.get("cache") if isinstance(item_tokens.get("cache"), dict) else {}
+                total_cache_read += int(item_cache.get("read", 0) or 0)
+                total_cache_write += int(item_cache.get("write", 0) or 0)
+
         created = self._coerce_int(time_info.get("created"))
         completed = self._coerce_int(time_info.get("completed"))
         model_elapsed_ms = completed - created if created is not None and completed is not None else api_elapsed_ms
@@ -1305,11 +1322,11 @@ class OpenCodeAdapter(AgentAdapter):
                     "model_elapsed_ms": model_elapsed_ms,
                 },
                 "usage": {
-                    "input_tokens": self._coerce_int(tokens.get("input") or tokens.get("inputTokens") or tokens.get("prompt")),
-                    "output_tokens": self._coerce_int(tokens.get("output") or tokens.get("outputTokens") or tokens.get("completion")),
-                    "reasoning_tokens": self._coerce_int(tokens.get("reasoning") or tokens.get("reasoningTokens")),
-                    "cache_read_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "read")) or tokens.get("cacheRead") or tokens.get("cache_read")),
-                    "cache_write_tokens": self._coerce_int(self._pick_nested(tokens, ("cache", "write")) or tokens.get("cacheWrite") or tokens.get("cache_write")),
+                    "input_tokens": total_input or self._coerce_int(tokens.get("input") or tokens.get("inputTokens") or tokens.get("prompt")),
+                    "output_tokens": total_output or self._coerce_int(tokens.get("output") or tokens.get("outputTokens") or tokens.get("completion")),
+                    "reasoning_tokens": total_reasoning or self._coerce_int(tokens.get("reasoning") or tokens.get("reasoningTokens")),
+                    "cache_read_tokens": total_cache_read or self._coerce_int(self._pick_nested(tokens, ("cache", "read")) or tokens.get("cacheRead") or tokens.get("cache_read")),
+                    "cache_write_tokens": total_cache_write or self._coerce_int(self._pick_nested(tokens, ("cache", "write")) or tokens.get("cacheWrite") or tokens.get("cache_write")),
                     "cost": payload.get("cost", info.get("cost")),
                 },
                 "message": {

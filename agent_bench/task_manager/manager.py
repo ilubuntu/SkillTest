@@ -409,7 +409,7 @@ class CloudExecutionManager:
                 elif event == "stage_start":
                     stage_name = str(data.get("stage", "")).strip()
                     stage_map = {
-                        "Agent运行": STAGE_GENERATING,
+                        "Agent处理": STAGE_GENERATING,
                         "constraint_review": STAGE_CONSTRAINT_SCORING,
                         "约束规则打分": STAGE_CONSTRAINT_SCORING,
                         "post_compile_check": STAGE_VALIDATING,
@@ -551,7 +551,7 @@ class CloudExecutionManager:
                 agent_config=agent,
                 agent_timeout=default_timeout,
             )
-            agent_elapsed_s = int(time.time() - agent_started_at)
+            agent_elapsed_s = result.get("agent_elapsed_s") or int(time.time() - agent_started_at)
 
             if str(result.get("status") or "").lower() not in {"completed", "success"}:
                 raise RuntimeError(f"Agent 执行失败: {result.get('status') or 'unknown'}")

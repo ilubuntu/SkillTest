@@ -282,7 +282,7 @@ def _build_runner_only_result(case: dict, case_dir: str, agent: dict) -> dict:
         "title": case["title"],
         "scenario": case.get("scenario"),
         "status": "completed",
-        "score": None,
+        "agent_elapsed_s": case.get("_agent_elapsed_s"),
         "agent": {
             "id": agent.get("id") or "",
             "name": agent.get("name") or "",
@@ -1367,7 +1367,7 @@ def run_single_case(case: dict,
                 artifact_base_dir="generate",
             )
             try:
-                _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "Agent运行"})
+                _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "Agent处理"})
                 runtime.prepare()
                 output_text, elapsed = runtime.execute(
                     task_prompt,
@@ -1388,6 +1388,8 @@ def run_single_case(case: dict,
             })
             if output_text:
                 _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 输出预览:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}"})
+            case["_agent_elapsed_s"] = int(elapsed)
+            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "Agent处理", "elapsed": elapsed})
             post_compile_result = _run_compile_check(
                 case,
                 case_dir,
@@ -1432,7 +1434,6 @@ def run_single_case(case: dict,
                 on_progress,
                 [item.name for item in agent_spec.mounted_skills],
             )
-            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "Agent运行", "elapsed": elapsed})
 
     result = _build_runner_only_result(case, case_dir, agent)
     save_case_result(case_dir, result)
