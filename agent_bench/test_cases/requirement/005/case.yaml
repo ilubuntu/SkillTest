@@ -1,0 +1,49 @@
+case:
+  id: requirement_005
+  scenario: requirement
+  title: 在点餐首页基础上续写优惠券与订单详情链路
+  prompt: 这是一个增量开发需求。基于当前已有的点餐首页和个人中心，继续开发优惠券中心、订单详情和结算链路，不要重做现有的首页和购物车。，在个人中心新增优惠券快捷入口，并跳转到优惠券中心页面。、优惠券中心页至少要展示可用优惠券和即将过期优惠券，并支持基础切换或筛选。、新增订单详情页，支持查看已完成订单的详情信息。。
+  output_requirements: 请直接在当前工程中修改代码并完成需求实现，页面需可编译，保留现有首页，并在回复中说明新增页面、组件和导航链路。
+constraints:
+  - id: HM-REQ-005-01
+    name: 在个人中心新增优惠券入口，并跳转到优惠券中心页面
+    description: 在个人中心新增优惠券入口，并跳转到优惠券中心页面
+    priority: P0
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: navigation
+            target: MyCouponsPage
+        llm: 检查是否有入口跳转到优惠券中心页面
+  - id: HM-REQ-005-02
+    name: 优惠券中心页至少要展示可用优惠券和即将过期优惠券，并支持基础切换或筛选
+    description: 优惠券中心页至少要展示可用优惠券和即将过期优惠券，并支持基础切换或筛选
+    priority: P1
+    rules:
+      - target: '**/pages/MyCouponsPage.ets'
+        ast:
+          - type: call
+            name: Tabs
+          - type: call
+            name: ForEach
+        llm: 检查页面是否展示分组和筛选控件
+  - id: HM-REQ-005-03
+    name: 新增订单详情页，支持查看已完成订单的详情信息
+    description: 新增订单详情页，支持查看已完成订单的详情信息
+    priority: P1
+    rules:
+      - target: '**/pages/*Order*.ets'
+        ast:
+          - type: file_exists
+            name: '**/pages/*Order*.ets'
+        llm: 检查是否有订单详情页面展示订单信息
+  - id: HM-REQ-005-04
+    name: 必须复用现有点餐首页布局，不能整体推翻重做
+    description: 必须复用现有点餐首页布局，不能整体推翻重做
+    priority: P1
+    rules:
+      - target: '**/pages/Index.ets'
+        ast:
+          - type: rule_ref
+            name: must_keep_file
+        llm: 检查是否保留了现有首页结构

@@ -21,8 +21,10 @@ from agent_bench.cloud_api.converter import (
     build_execution_result_payload,
     build_prompt,
 )
-from agent_bench.cloud_api.models import CloudExecutionStartRequest
+from agent_bench.cloud_api.models import CloudExecutionStartRequest, LocalCaseRunRequest, LocalTextStartRequest
+from agent_bench.case_generation import generate_case_from_text
 from agent_bench.pipeline.case_runner import run_single_case
+from agent_bench.pipeline.constraint_adapter import sanitize_constraints_for_semantic_review
 from agent_bench.pipeline.loader import load_agent, load_agents, load_config
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir
 from agent_bench.task_manager.artifacts import TaskArtifactUploader
@@ -82,9 +84,9 @@ def _parse_constraints_from_expected_output(expected_output: str) -> list[dict]:
 
     if isinstance(parsed, dict):
         constraints = parsed.get("constraints")
-        return constraints if isinstance(constraints, list) else []
+        return sanitize_constraints_for_semantic_review(constraints) if isinstance(constraints, list) else []
     if isinstance(parsed, list):
-        return parsed
+        return sanitize_constraints_for_semantic_review(parsed)
     return []
 
 
@@ -96,7 +98,7 @@ def _infer_scenario_from_constraints(constraints: list[dict]) -> str:
         if not isinstance(item, dict):
             continue
         constraint_id = str(item.get("id") or "").strip().upper()
-        if constraint_id.startswith("HM-BUGFIX-"):
+        if constraint_id.startswith("HM-BUG_FIX-") or constraint_id.startswith("HM-BUGFIX-"):
             return "bug_fix"
         if constraint_id.startswith("HM-PERF-"):
             return "performance"
@@ -409,11 +411,15 @@ class CloudExecutionManager:
                 elif event == "stage_start":
                     stage_name = str(data.get("stage", "")).strip()
                     stage_map = {
-                        "Agent处理": STAGE_GENERATING,
+"Agent运行": STAGE_GENERATING,
+                        "generating": STAGE_GENERATING,
                         "constraint_review": STAGE_CONSTRAINT_SCORING,
                         "约束规则打分": STAGE_CONSTRAINT_SCORING,
+                        "pre_compile_check": STAGE_PREPARING,
+                        "preparing": STAGE_PREPARING,
                         "post_compile_check": STAGE_VALIDATING,
                         "结果验证": STAGE_VALIDATING,
+                        "validating": STAGE_VALIDATING,
                         "static_review": STAGE_STATIC_SCORING,
                         "静态代码打分": STAGE_STATIC_SCORING,
                     }

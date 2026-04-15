@@ -1,0 +1,39 @@
+case:
+  id: bug_fix_005
+  scenario: bug_fix
+  title: 修复点餐模板场景中的购物车列表刷新异常
+  prompt: 这是一个缺陷修复任务。修复点餐页面购物车数量更新后界面不刷新的问题。当前点餐页面购物车中修改商品数量后，购物车列表不会及时刷新，导致菜品数量和价格显示不一致。。请修复缺陷，保持现有业务结构稳定。
+  output_requirements: 请直接在当前工程中修改代码并修复缺陷，工程需可编译，并在回复中说明根因、修复点和修改文件。
+constraints:
+  - id: HM-BUGFIX-005-01
+    name: 购物车项更新需要通过可追踪的状态变更驱动
+    description: 购物车项更新需要通过可追踪的状态变更驱动
+    priority: P0
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: decorator
+            name: ObservedV2
+          - type: decorator
+            name: Trace
+        llm: 检查购物车数据是否使用可追踪的状态变更驱动
+  - id: HM-BUGFIX-005-02
+    name: 购物车列表渲染需要使用稳定key
+    description: 购物车列表渲染需要使用稳定key
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: ForEach
+        llm: 检查ForEach是否使用稳定属性作为key
+  - id: HM-BUGFIX-005-03
+    name: 数量变化后购物车列表展示和价格必须保持一致
+    description: 数量变化后购物车列表展示和价格必须保持一致
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: ForEach
+        llm: 检查数量调整后列表和价格是否同步刷新

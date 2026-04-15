@@ -1,0 +1,39 @@
+case:
+  id: performance_004
+  scenario: performance
+  title: 优化点餐模板场景中的菜品长列表性能
+  prompt: 这是一个性能优化需求。优化点餐页面菜品列表的滚动性能和首屏加载。当前点餐页面一次性构造大量菜品数据，使用普通 ForEach 全量渲染，滚动和首屏加载存在明显卡顿。，将菜品列表优化为 LazyForEach 懒加载渲染方式。、减少首屏渲染负担，控制缓存数量。、改善滚动流畅性，避免丢帧。。请优化性能瓶颈。
+  output_requirements: 请直接在当前工程中修改代码并完成优化，页面需可编译，并在回复中说明性能瓶颈和优化点。
+constraints:
+  - id: HM-PERF-004-01
+    name: 不能继续全量同步渲染大量菜品卡片
+    description: 不能继续全量同步渲染大量菜品卡片
+    priority: P0
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: LazyForEach
+        llm: 检查代码中是否去除了全量渲染的大长列表逻辑
+  - id: HM-PERF-004-02
+    name: 需要采用LazyForEach和IDataSource实现懒加载
+    description: 需要采用LazyForEach和IDataSource实现懒加载
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: LazyForEach
+          - type: class
+            name: IDataSource
+        llm: 检查是否正确实现了IDataSource并用于LazyForEach
+  - id: HM-PERF-004-03
+    name: 列表项key需要使用菜品ID，保持稳定
+    description: 列表项key需要使用菜品ID，保持稳定
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: LazyForEach
+        llm: 检查LazyForEach的键值生成器是否使用了稳定的ID

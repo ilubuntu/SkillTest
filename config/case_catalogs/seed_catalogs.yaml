@@ -1,0 +1,513 @@
+requirement:
+  - seed_id: req_catering_coupon_extension
+    title: 在点餐首页基础上续写优惠券与订单详情链路
+    input: 基于当前已有的点餐首页和个人中心，继续开发优惠券中心、订单详情和结算链路，不要重做现有的首页和购物车。
+    keywords:
+      - 点餐
+      - 餐饮
+      - 优惠券
+      - 订单详情
+      - 结算
+      - 购物车
+      - 提交订单
+      - 店铺选择
+      - 商品规格
+      - 钱包支付
+      - CateringOrders
+    template:
+      name: CateringOrders
+      industry: 美食
+      app_type: 元服务
+    existing_features:
+      - 首页城市选择、banner位、扫一扫、预约订座、排队取号
+      - 店铺选择/详情/位置导航/电话、商品列表/搜索/详情/规格、购物车/清空/修改数量/下单
+      - 个人中心、钱包充值/账单明细、优惠券列表、积分、帮助中心
+    new_requirement_scope:
+      - 在个人中心新增优惠券快捷入口，并跳转到优惠券中心页面。
+      - 优惠券中心页至少要展示可用优惠券和即将过期优惠券，并支持基础切换或筛选。
+      - 新增订单详情页，支持查看已完成订单的详情信息。
+    template_constraints:
+      - 必须复用现有点餐首页布局和信息层级，不能整体推翻重做。
+      - 新增能力应以增量扩展的方式接入，例如新增页面或新增组件。
+      - 保留现有首页内容，并确保新增导航链路可以端到端使用。
+    starter_kind: requirement_catering_coupon_extension
+    constraints:
+      - name: 在个人中心新增优惠券入口，并跳转到优惠券中心页面
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: navigation
+                target: MyCouponsPage
+            llm: 检查是否有入口跳转到优惠券中心页面
+      - name: 优惠券中心页至少要展示可用优惠券和即将过期优惠券，并支持基础切换或筛选
+        priority: P1
+        rules:
+          - target: "**/pages/MyCouponsPage.ets"
+            ast:
+              - type: call
+                name: Tabs
+              - type: call
+                name: ForEach
+            llm: 检查页面是否展示分组和筛选控件
+      - name: 新增订单详情页，支持查看已完成订单的详情信息
+        priority: P1
+        rules:
+          - target: "**/pages/*Order*.ets"
+            ast:
+              - type: file_exists
+                name: "**/pages/*Order*.ets"
+            llm: 检查是否有订单详情页面展示订单信息
+      - name: 必须复用现有点餐首页布局，不能整体推翻重做
+        priority: P1
+        rules:
+          - target: "**/pages/Index.ets"
+            ast:
+              - type: rule_ref
+                name: must_keep_file
+            llm: 检查是否保留了现有首页结构
+
+  - seed_id: req_news_detail_extension
+    title: 在新闻资讯流基础上续写新闻详情与相关推荐链路
+    input: 基于当前已有的新闻资讯流首页，继续开发新闻详情页、相关推荐区域和详情到详情的跳转链路，不要重做现有首页。
+    keywords:
+      - 新闻
+      - 资讯
+      - 资讯流
+      - 新闻详情
+      - 相关推荐
+      - 评论
+      - 收藏
+      - 分享
+      - 视频播放
+      - 字号设置
+      - News
+    template:
+      name: News
+      industry: 新闻
+      app_type: 元服务
+    existing_features:
+      - 首页新闻列表/卡片、视频播放、收藏、分享、评论
+      - 我的页面：浏览记录、我的收藏、我的评论、消息、字号设置、隐私协议
+    new_requirement_scope:
+      - 补齐新闻详情页，并支持从现有新闻卡片点击进入详情阅读。
+      - 详情页需要展示标题、来源、正文和相关推荐区域。
+      - 点击相关推荐后应继续进入另一条详情，形成可复用的详情链路。
+    template_constraints:
+      - 必须保留现有资讯首页，并在其基础上扩展阅读链路。
+      - 详情能力应落到新页面或独立组件中，不能把正文内容直接塞回首页。
+      - 首页与详情页之间需要使用清晰的数据传递方式，不能写死单条文章。
+    starter_kind: requirement_news_detail_extension
+    constraints:
+      - name: 补齐新闻详情页，并支持从现有新闻卡片点击进入详情阅读
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: file_exists
+                name: "**/NewsDetail*.ets"
+              - type: navigation
+                target: NewsDetail
+            llm: 检查是否有入口跳转到新闻详情页面
+      - name: 详情页需要展示标题、来源、正文和相关推荐区域
+        priority: P1
+        rules:
+          - target: "**/NewsDetail*.ets"
+            ast:
+              - type: call
+                name: Text
+            llm: 检查页面是否包含标题、来源、正文和相关推荐区域的渲染逻辑
+      - name: 点击相关推荐后应继续进入另一条详情，形成可复用的详情链路
+        priority: P1
+        rules:
+          - target: "**/NewsDetail*.ets"
+            ast:
+              - type: navigation
+                target: NewsDetail
+            llm: 检查点击相关推荐是否能跳转到新的详情页
+
+  - seed_id: req_shopping_cart_extension
+    title: 在商城首页基础上续写购物车与结算链路
+    input: 基于当前已有的商城首页和商品分类页，继续开发购物车页、数量调整和结算摘要链路，不要重做现有商品浏览能力。
+    keywords:
+      - 商城
+      - 购物车
+      - 结算
+      - 优惠券
+      - 商品详情
+      - 商品规格
+      - 秒杀
+      - 搜索
+      - 订单管理
+      - 会员中心
+      - ComprehensiveMall
+    template:
+      name: ComprehensiveMall
+      industry: 购物
+      app_type: 应用
+    existing_features:
+      - 首页搜索/扫码识别、图片轮播、分类项、秒杀活动、商品卡片瀑布流
+      - 分类页二级分类浏览、商品搜索
+      - 商品详情页、商品规格选择、优惠券选择、个人中心、设置、会员中心
+    new_requirement_scope:
+      - 新增购物车页面，并支持从现有首页进入购物车。
+      - 购物车页面至少支持数量调整、商品删除和总价汇总。
+      - 结算入口需要根据购物车状态联动可用性，形成完整的底部操作区。
+    template_constraints:
+      - 保留现有商城首页，新增交易链路时不能破坏当前浏览能力。
+      - 购物车能力应实现为独立页面或业务组件，不能把所有交易逻辑混入首页。
+      - 数量变化后需要实时刷新单项价格和底部结算摘要。
+    starter_kind: requirement_shopping_cart_extension
+    constraints:
+      - name: 新增购物车页面，并支持从现有首页进入购物车
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: file_exists
+                name: "**/CartPage.ets"
+              - type: navigation
+                target: CartPage
+            llm: 检查首页是否有入口跳转到购物车页面
+      - name: 购物车页面至少支持数量调整、商品删除和总价汇总
+        priority: P1
+        rules:
+          - target: "**/CartPage.ets"
+            ast:
+              - type: call
+                name: Text
+            llm: 检查页面是否实现了数量调整、商品删除和总价汇总的逻辑
+      - name: 总价和勾选汇总建议使用派生状态实现
+        priority: P1
+        rules:
+          - target: "**/CartPage.ets"
+            ast:
+              - type: decorator
+                name: Computed
+            llm: 检查是否使用 @Computed 或类似派生状态计算总价和勾选汇总
+
+bug_fix:
+  - seed_id: bug_fix_catering_list_refresh
+    title: 修复点餐模板场景中的购物车列表刷新异常
+    input: 修复点餐页面购物车数量更新后界面不刷新的问题
+    keywords:
+      - 点餐
+      - 餐饮
+      - 购物车
+      - 商品列表
+      - 列表刷新
+      - ForEach
+      - 状态同步
+      - 观测装饰器
+      - CateringOrders
+    template:
+      name: CateringOrders
+      industry: 美食
+      app_type: 元服务
+    faq_refs:
+      - FAQ/使用ForEach&LazyForEach循环渲染时，会出现更改数据源时，界面不刷新的情况。如何解决.md
+      - FAQ/ForEach键值生成规则是怎样的.md
+    problem_statement: 当前点餐页面购物车中修改商品数量后，购物车列表不会及时刷新，导致菜品数量和价格显示不一致。
+    fix_targets:
+      - 修复购物车数量变更后界面不刷新的问题。
+      - 避免 ForEach 使用索引作为 key 导致的条目错位。
+      - 保持加减操作后的列表展示一致。
+    constraints:
+      - name: 购物车项更新需要通过可追踪的状态变更驱动
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: decorator
+                name: ObservedV2
+              - type: decorator
+                name: Trace
+            llm: 检查购物车数据是否使用可追踪的状态变更驱动
+      - name: 购物车列表渲染需要使用稳定key
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: ForEach
+            llm: 检查ForEach是否使用稳定属性作为key
+      - name: 数量变化后购物车列表展示和价格必须保持一致
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: ForEach
+            llm: 检查数量调整后列表和价格是否同步刷新
+    starter_kind: bug_fix_catering_list_refresh
+
+  - seed_id: bug_fix_news_image_fallback
+    title: 修复新闻模板场景中的新闻图片加载失败问题
+    input: 修复新闻详情页中图片加载失败没有兜底的问题
+    keywords:
+      - 新闻
+      - 资讯
+      - 新闻详情
+      - 图片
+      - 图片加载
+      - 加载失败
+      - 占位图
+      - onError回调
+      - 网络异常
+      - News
+    template:
+      name: News
+      industry: 新闻
+      app_type: 元服务
+    faq_refs:
+      - FAQ/网络问题导致image组件加载在线图片失败.md
+    problem_statement: 当前新闻详情页中的图片直接依赖在线图片地址，当网络异常时出现空白区域，没有任何失败反馈。
+    fix_targets:
+      - 图片加载失败时提供明确的占位图或默认图。
+      - 保持新闻正文和标题在图片失败场景下仍可正常阅读。
+      - 提供点击重试或刷新图片的交互入口。
+    constraints:
+      - name: 需要处理图片加载失败回调，提供onError处理
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: Image
+              - type: property_access
+                name: onError
+            llm: 检查Image组件是否正确处理了onError回调
+      - name: 失败时仍应保留正文内容和其他交互元素
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: Text
+            llm: 检查图片加载失败时，正文内容和其他交互元素是否正常显示
+    starter_kind: bug_fix_news_image
+
+  - seed_id: bug_fix_shopping_cart_state
+    title: 修复商城模板场景中的购物车状态同步问题
+    input: 修复购物车商品数量修改后价格不更新的问题
+    keywords:
+      - 商城
+      - 购物车
+      - 商品规格
+      - 状态同步
+      - 价格刷新
+      - 数量修改
+      - 派生状态
+      - Computed
+      - ObservedV2
+      - ComprehensiveMall
+    template:
+      name: ComprehensiveMall
+      industry: 购物
+      app_type: 应用
+    faq_refs:
+      - FAQ/使用ForEach&LazyForEach循环渲染时，会出现更改数据源时，界面不刷新的情况。如何解决.md
+      - 指南/@ObservedV2装饰器.md
+    problem_statement: 当前商城购物车中商品数量修改后，单品价格和总价不实时更新，导致结算金额与实际不符。
+    fix_targets:
+      - 修复购物车数量变化后价格不刷新的问题。
+      - 确保总价计算实时响应勾选和数量变化。
+      - 保持购物车状态与结算入口同步。
+    constraints:
+      - name: 商品状态需要使用可追踪的状态管理
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: decorator
+                name: ObservedV2
+              - type: decorator
+                name: Trace
+            llm: 检查商品项是否使用 @ObservedV2 和 @Trace 追踪状态变化
+      - name: 总价计算需要使用派生状态实现
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: decorator
+                name: Computed
+            llm: 检查是否使用 @Computed 派生状态计算总价
+      - name: 数量变化后必须实时刷新价格展示
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: Text
+            llm: 检查数量调整逻辑是否能实时触发总价更新和展示
+    starter_kind: bug_fix_shopping_cart
+
+performance:
+  - seed_id: perf_catering_long_list
+    title: 优化点餐模板场景中的菜品长列表性能
+    input: 优化点餐页面菜品列表的滚动性能和首屏加载
+    keywords:
+      - 点餐
+      - 餐饮
+      - 菜品列表
+      - 商品列表
+      - 长列表
+      - 滚动
+      - 首屏加载
+      - LazyForEach
+      - IDataSource
+      - CateringOrders
+    template:
+      name: CateringOrders
+      industry: 美食
+      app_type: 元服务
+    best_practice_refs:
+      - 最佳实践/长列表加载丢帧优化.md
+      - 最佳实践/懒加载优化性能.md
+    problem_statement: 当前点餐页面一次性构造大量菜品数据，使用普通 ForEach 全量渲染，滚动和首屏加载存在明显卡顿。
+    optimization_goals:
+      - 将菜品列表优化为 LazyForEach 懒加载渲染方式。
+      - 减少首屏渲染负担，控制缓存数量。
+      - 改善滚动流畅性，避免丢帧。
+    constraints:
+      - name: 不能继续全量同步渲染大量菜品卡片
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: LazyForEach
+            llm: 检查代码中是否去除了全量渲染的大长列表逻辑
+      - name: 需要采用LazyForEach和IDataSource实现懒加载
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: LazyForEach
+              - type: class
+                name: IDataSource
+            llm: 检查是否正确实现了IDataSource并用于LazyForEach
+      - name: 列表项key需要使用菜品ID，保持稳定
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: LazyForEach
+            llm: 检查LazyForEach的键值生成器是否使用了稳定的ID
+    starter_kind: performance_catering_long_list
+
+  - seed_id: perf_news_feed_optimize
+    title: 优化新闻模板场景中的资讯流渲染性能
+    input: 优化新闻资讯流的滚动性能和图片加载
+    keywords:
+      - 新闻
+      - 资讯
+      - 资讯流
+      - 新闻列表
+      - 长列表
+      - 图片加载
+      - 图片缓存
+      - LazyForEach
+      - IDataSource
+      - News
+    template:
+      name: News
+      industry: 新闻
+      app_type: 元服务
+    best_practice_refs:
+      - 最佳实践/长列表加载丢帧优化.md
+      - 最佳实践/懒加载优化性能.md
+      - FAQ/网络问题导致image组件加载在线图片失败.md
+    problem_statement: 当前新闻资讯流页面使用普通 ForEach 全量渲染，图片加载阻塞主线程，滚动体验不佳。
+    optimization_goals:
+      - 将资讯流优化为 LazyForEach 懒加载渲染方式。
+      - 图片加载使用异步方式，避免阻塞主线程。
+      - 控制图片缓存，减少内存占用。
+    constraints:
+      - name: 不能继续全量同步渲染新闻卡片
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: LazyForEach
+            llm: 检查是否消除了全量的卡片同步渲染逻辑
+      - name: 需要采用LazyForEach实现懒加载
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: LazyForEach
+              - type: class
+                name: IDataSource
+            llm: 检查资讯流渲染是否已改为使用LazyForEach
+      - name: 图片加载失败需要提供占位图，不影响滚动体验
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: call
+                name: Image
+              - type: property_access
+                name: onError
+            llm: 检查图片组件是否处理失败回调并加载占位图
+    starter_kind: performance_news_feed
+
+  - seed_id: perf_shopping_cart_refresh
+    title: 优化商城模板场景中的购物车状态刷新性能
+    input: 优化购物车状态变化时的局部刷新性能
+    keywords:
+      - 商城
+      - 购物车
+      - 商品规格
+      - 状态刷新
+      - 局部刷新
+      - 整页重绘
+      - ObservedV2
+      - Trace
+      - Computed
+      - ComprehensiveMall
+    template:
+      name: ComprehensiveMall
+      industry: 购物
+      app_type: 应用
+    best_practice_refs:
+      - 最佳实践/状态刷新控制.md
+      - 指南/@ObservedV2装饰器.md
+      - 指南/@Computed装饰器.md
+    problem_statement: 当前购物车页面将商品列表、价格计算和结算入口全部绑定在粗粒度状态对象上，每次数量变化都会整页重新渲染。
+    optimization_goals:
+      - 缩小状态影响范围，只刷新变化的商品项。
+      - 使用 @ObservedV2 和 @Trace 实现最小刷新。
+      - 避免整页重绘，提升交互响应效率。
+    constraints:
+      - name: 不能继续让数量变化驱动整页重复渲染
+        priority: P0
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: decorator
+                name: ObservedV2
+            llm: 检查代码是否优化了状态作用域，避免因数量变化导致整页刷新
+      - name: 商品状态需要使用可追踪的状态管理
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: decorator
+                name: ObservedV2
+              - type: decorator
+                name: Trace
+            llm: 检查商品信息是否正确使用了细粒度状态追踪装饰器
+      - name: 总价计算需要使用派生状态实现
+        priority: P1
+        rules:
+          - target: "**/pages/*.ets"
+            ast:
+              - type: decorator
+                name: Computed
+            llm: 检查是否通过 @Computed 实现了总价和状态汇总计算
+    starter_kind: performance_shopping_cart

@@ -216,50 +216,6 @@ def _format_constraint_lines(item) -> List[str]:
     return [f"- {priority_prefix}{title}"]
 
 
-def _format_check_method_lines(check_method) -> List[str]:
-    if not check_method:
-        return []
-
-    if isinstance(check_method, str):
-        formatted = _format_prompt_value(check_method)
-        return [f"  检查方式: {formatted}"] if formatted else []
-
-    if not isinstance(check_method, dict):
-        formatted = _format_prompt_value(check_method)
-        return [f"  检查方式: {formatted}"] if formatted else []
-
-    lines = []
-
-    rules = check_method.get("rules") or []
-    for rule in rules:
-        if not isinstance(rule, dict):
-            formatted = _format_prompt_value(rule)
-            if formatted:
-                lines.append(f"  规则: {formatted}")
-            continue
-
-        rule_id = _format_prompt_value(rule.get("rule_id"))
-        target_file = _normalize_workspace_relative_path(rule.get("target_file"))
-        match_type = _format_prompt_value(rule.get("match_type"))
-        snippet = _compact_prompt_hint(
-            _format_prompt_value(rule.get("snippet")) or _format_prompt_value(rule.get("pattern"))
-        )
-        header_parts = [part for part in [rule_id, target_file, match_type] if part]
-        if header_parts:
-            lines.append(f"  规则: {' | '.join(header_parts)}")
-        if snippet:
-            lines.append(f"    hint: {snippet}")
-
-    return lines
-
-
-def _compact_prompt_hint(text: str, limit: int = 120) -> str:
-    compact = " ".join((text or "").split())
-    if len(compact) <= limit:
-        return compact
-    return compact[:limit] + "..."
-
-
 def resolve_case_original_project(case: dict) -> Optional[str]:
     """解析测试用例对应的 original_project 路径（绝对路径）"""
     explicit_dir = case.get("original_project_dir")

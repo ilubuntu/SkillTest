@@ -4,50 +4,40 @@ refs:
     name: 页面跳转必须统一使用 Navigation
     description: 页面路由必须统一使用 Navigation + NavPathStack / NavDestination 等声明式导航能力，禁止继续使用旧版 router。
     priority: P0
-    rule_templates:
-      - target_group: primary_page_file
-        fallback_targets:
-          - entry/src/main/ets/pages/Index.ets
-        per_target_rules:
-          - match_type: regex_contains
-            pattern: 'Navigation\s*\('
-          - match_type: regex_contains
-            pattern: 'NavPathStack\s*=\s*new\s+NavPathStack\s*\('
-      - target_group: secondary_page_files
-        per_target_rules:
-          - match_type: regex_contains
-            pattern: 'NavDestination\s*\('
-      - target_group: page_files
-        fallback_targets:
-          - entry/src/main/ets/pages/Index.ets
-        per_target_rules:
-          - match_type: regex_not_contains
-            pattern: '\brouter\.'
+    rules:
+      - target: "**/pages/Index.ets"
+        ast:
+          - type: variable
+            name: navPathStack
+          - type: call
+            name: NavPathStack
+          - type: no_import
+            name: router
 
   harmony_avoid_magic_numbers:
     category: 布局与交互规范
     name: 布局与交互实现应尽量避免魔法数
     description: 页面和组件中的间距、尺寸、字号、圆角、位移等度量值应尽量避免直接散落字面量，降低后续调整样式时的维护成本。
     priority: P1
-    activation:
-      required_groups:
-        - layout_code_files
-    rule_templates:
-      - target_group: layout_code_files
-        per_target_rules:
-          - match_type: regex_not_contains
-            pattern: '\.(?:padding|paddingTop|paddingBottom|paddingLeft|paddingRight|margin|marginTop|marginBottom|marginLeft|marginRight|width|height|minWidth|minHeight|maxWidth|maxHeight|fontSize|lineHeight|letterSpacing|borderRadius|gap|rowGap|columnGap|size|constraintSize|translate|offset|position)\s*\(\s*(?:-?(?:[2-9]|\d{2,})(?:\.\d+)?(?:\s*\*\s*vp|\s*\*\s*fp|\s*\*\s*px|\s*\*\s*lpx)?|-?0?\.\d+)\b'
+    rules:
+      - target: "**/*.ets"
+        ast:
+          - type: no_literal_number
+            context: style_property
 
   harmony_spacing_size_use_tokens:
     category: 布局与交互规范
     name: 间距与尺寸应使用设计 Token 或统一常量
     description: 当页面或组件设置间距、尺寸、字号、圆角等度量值时，应优先通过设计 Token、资源值或统一常量承接，避免样式数值分散在各个视图文件中。
     priority: P1
-    activation:
-      required_groups:
-        - metric_usage_files
-    rule_templates:
-      - target_group: metric_usage_files
-        per_target_rules:
-          - match_type: regex_contains
-            pattern: '(?:\$r\(\s*[''"]app\.(?:float|integer)\.|(?:\b[A-Z][A-Z0-9_]{2,}\b)|(?:\b\w*(?:Token|Tokens|Spacing|Space|Size|Sizes|Metric|Metrics|Dimen|Dimens|Layout)\w*\b))'
+    rules:
+      - target: "**/*.ets"
+        ast:
+          - type: property_access
+            name: Metrics
+          - type: property_access
+            name: Spacing
+          - type: property_access
+            name: Sizes
+          - type: call
+            name: $r

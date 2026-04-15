@@ -1,0 +1,39 @@
+case:
+  id: requirement_007
+  scenario: requirement
+  title: 在商城首页基础上续写购物车与结算链路
+  prompt: 这是一个增量开发需求。基于当前已有的商城首页和商品分类页，继续开发购物车页、数量调整和结算摘要链路，不要重做现有商品浏览能力。，新增购物车页面，并支持从现有首页进入购物车。、购物车页面至少支持数量调整、商品删除和总价汇总。、结算入口需要根据购物车状态联动可用性，形成完整的底部操作区。。
+  output_requirements: 请直接在当前工程中修改代码并完成需求实现，页面需可编译，保留现有首页，并在回复中说明新增页面、组件和导航链路。
+constraints:
+  - id: HM-REQ-007-01
+    name: 新增购物车页面，并支持从现有首页进入购物车
+    description: 新增购物车页面，并支持从现有首页进入购物车
+    priority: P0
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: file_exists
+            name: '**/CartPage.ets'
+          - type: navigation
+            target: CartPage
+        llm: 检查首页是否有入口跳转到购物车页面
+  - id: HM-REQ-007-02
+    name: 购物车页面至少支持数量调整、商品删除和总价汇总
+    description: 购物车页面至少支持数量调整、商品删除和总价汇总
+    priority: P1
+    rules:
+      - target: '**/CartPage.ets'
+        ast:
+          - type: call
+            name: Text
+        llm: 检查页面是否实现了数量调整、商品删除和总价汇总的逻辑
+  - id: HM-REQ-007-03
+    name: 总价和勾选汇总建议使用派生状态实现
+    description: 总价和勾选汇总建议使用派生状态实现
+    priority: P1
+    rules:
+      - target: '**/CartPage.ets'
+        ast:
+          - type: decorator
+            name: Computed
+        llm: 检查是否使用 @Computed 或类似派生状态计算总价和勾选汇总

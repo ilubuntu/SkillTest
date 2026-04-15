@@ -1,0 +1,39 @@
+case:
+  id: bug_fix_007
+  scenario: bug_fix
+  title: 修复商城模板场景中的购物车状态同步问题
+  prompt: 这是一个缺陷修复任务。修复购物车商品数量修改后价格不更新的问题。当前商城购物车中商品数量修改后，单品价格和总价不实时更新，导致结算金额与实际不符。。请修复缺陷，保持现有业务结构稳定。
+  output_requirements: 请直接在当前工程中修改代码并修复缺陷，工程需可编译，并在回复中说明根因、修复点和修改文件。
+constraints:
+  - id: HM-BUGFIX-007-01
+    name: 商品状态需要使用可追踪的状态管理
+    description: 商品状态需要使用可追踪的状态管理
+    priority: P0
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: decorator
+            name: ObservedV2
+          - type: decorator
+            name: Trace
+        llm: 检查商品项是否使用 @ObservedV2 和 @Trace 追踪状态变化
+  - id: HM-BUGFIX-007-02
+    name: 总价计算需要使用派生状态实现
+    description: 总价计算需要使用派生状态实现
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: decorator
+            name: Computed
+        llm: 检查是否使用 @Computed 派生状态计算总价
+  - id: HM-BUGFIX-007-03
+    name: 数量变化后必须实时刷新价格展示
+    description: 数量变化后必须实时刷新价格展示
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: Text
+        llm: 检查数量调整逻辑是否能实时触发总价更新和展示

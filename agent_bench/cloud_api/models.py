@@ -41,6 +41,26 @@ class CloudExecutionStartRequest(CloudDispatchPayload):
     token: str = ""
 
 
+class LocalTextStartRequest(BaseModel):
+    input: str = ""
+    expectedOutput: str = ""
+    originalProjectDir: str = ""
+    agentId: str = ""
+    title: str = ""
+    scenario: str = ""
+    reportExecutionId: int = 0
+    cloudBaseUrl: str = ""
+    token: str = ""
+
+
+class LocalCaseRunRequest(BaseModel):
+    caseDir: str
+    agentId: str = "agent_default"
+    reportExecutionId: int = 0
+    cloudBaseUrl: str = ""
+    token: str = ""
+
+
 class CloudStatusReportPayload(BaseModel):
     """进度上报载荷，包含当前状态、错误信息、会话记录和执行日志。"""
     status: RemoteExecutionStatus

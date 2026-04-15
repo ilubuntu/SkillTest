@@ -10,23 +10,21 @@ constraints:
     name: EventHub订阅必须在页面销毁时解除
     description: 使用eventhub.on注册的回调必须在aboutToDisappear或等效生命周期中调用eventhub.off释放，防止重复订阅和内存泄漏。
     priority: P2
-    check_method:
-      rules:
-        - rule_id: HM-BUGFIX-003-01-R1
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "aboutToDisappear\\s*\\(\\)\\s*\\{"
-        - rule_id: HM-BUGFIX-003-01-R2
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "getEventHub\\(\\)\\?\\.off\\(\\s*\\w+\\s*,\\s*this\\.\\w+\\s*\\)"
+    rules:
+      - rule_id: HM-BUGFIX-003-01-R1
+        target_file: entry/src/main/ets/pages/Index.ets
+        match_type: regex_contains
+        pattern: "aboutToDisappear\\s*\\(\\)\\s*\\{"
+      - rule_id: HM-BUGFIX-003-01-R2
+        target_file: entry/src/main/ets/pages/Index.ets
+        match_type: regex_contains
+        pattern: "getEventHub\\(\\)\\?\\.off\\(\\s*\\w+\\s*,\\s*this\\.\\w+\\s*\\)"
   - id: HM-BUGFIX-003-02
     name: ForEach必须提供稳定keyGenerator
     description: Grid和List中的ForEach都必须提供稳定且唯一的keyGenerator，避免列表切换或重排时出现性能退化和状态错乱。
     priority: P2
-    check_method:
-      rules:
-        - rule_id: HM-BUGFIX-003-02-R1
-          target_file: entry/src/main/ets/pages/Index.ets
-          match_type: regex_contains
-          pattern: "ForEach\\([\\s\\S]{0,400}?\\,\\s*\\([^)]*\\)\\s*=>\\s*[A-Za-z_][A-Za-z0-9_\\.]*\\s*\\)"
+    rules:
+      - rule_id: HM-BUGFIX-003-02-R1
+        target_file: entry/src/main/ets/pages/Index.ets
+        match_type: regex_contains
+        pattern: "ForEach\\([\\s\\S]{0,400}?\\,\\s*\\([^)]*\\)\\s*=>\\s*[A-Za-z_][A-Za-z0-9_\\.]*\\s*\\)"

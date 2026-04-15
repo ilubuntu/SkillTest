@@ -1,0 +1,39 @@
+case:
+  id: performance_006
+  scenario: performance
+  title: 优化商城模板场景中的购物车状态刷新性能
+  prompt: 这是一个性能优化需求。优化购物车状态变化时的局部刷新性能。当前购物车页面将商品列表、价格计算和结算入口全部绑定在粗粒度状态对象上，每次数量变化都会整页重新渲染。，缩小状态影响范围，只刷新变化的商品项。、使用 @ObservedV2 和 @Trace 实现最小刷新。、避免整页重绘，提升交互响应效率。。请优化性能瓶颈。
+  output_requirements: 请直接在当前工程中修改代码并完成优化，页面需可编译，并在回复中说明性能瓶颈和优化点。
+constraints:
+  - id: HM-PERF-006-01
+    name: 不能继续让数量变化驱动整页重复渲染
+    description: 不能继续让数量变化驱动整页重复渲染
+    priority: P0
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: decorator
+            name: ObservedV2
+        llm: 检查代码是否优化了状态作用域，避免因数量变化导致整页刷新
+  - id: HM-PERF-006-02
+    name: 商品状态需要使用可追踪的状态管理
+    description: 商品状态需要使用可追踪的状态管理
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: decorator
+            name: ObservedV2
+          - type: decorator
+            name: Trace
+        llm: 检查商品信息是否正确使用了细粒度状态追踪装饰器
+  - id: HM-PERF-006-03
+    name: 总价计算需要使用派生状态实现
+    description: 总价计算需要使用派生状态实现
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: decorator
+            name: Computed
+        llm: 检查是否通过 @Computed 实现了总价和状态汇总计算

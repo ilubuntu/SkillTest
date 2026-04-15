@@ -20,6 +20,7 @@ set "OPENCODE_HTTP_PROXY="
 set "OPENCODE_HTTPS_PROXY="
 set "OPENCODE_ALL_PROXY="
 set "OPENCODE_NO_PROXY="
+set "OPENCODE_USE_PROXY=0"
 
 set "ACTION=%~1"
 if not defined ACTION (
@@ -110,7 +111,7 @@ if exist "%CURRENT_EXECUTOR_LOG_FILE%" (
     for /f "usebackq delims=" %%I in ("%CURRENT_EXECUTOR_LOG_FILE%") do set "BACKEND_LOG=%%I"
     if defined BACKEND_LOG exit /b 0
 )
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$f = Get-ChildItem -Path '%LOG_DIR%' -Filter 'agent_bench_*.log' -ErrorAction SilentlyContinue ^| Sort-Object LastWriteTime -Descending ^| Select-Object -First 1 -ExpandProperty FullName; if ($f) { Write-Output $f }"`) do set "BACKEND_LOG=%%I"
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$f = Get-ChildItem -Path '%LOG_DIR%' -Filter 'agent_bench_*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName; if ($f) { Write-Output $f }"`) do set "BACKEND_LOG=%%I"
 exit /b 0
 
 :load_opencode_proxy_config
@@ -118,6 +119,7 @@ set "OPENCODE_HTTP_PROXY="
 set "OPENCODE_HTTPS_PROXY="
 set "OPENCODE_ALL_PROXY="
 set "OPENCODE_NO_PROXY="
+set "OPENCODE_USE_PROXY=0"
 set "AGENTS_CONFIG=%SCRIPT_DIR%\config\agents.yaml"
 if not exist "%AGENTS_CONFIG%" exit /b 0
 
@@ -127,6 +129,27 @@ for /f "usebackq tokens=1,* delims==" %%A in (`call %PYTHON_CMD% -c "import sys,
     if /I "%%A"=="all_proxy" set "OPENCODE_ALL_PROXY=%%B"
     if /I "%%A"=="no_proxy" set "OPENCODE_NO_PROXY=%%B"
 )
+exit /b 0
+
+:select_opencode_network_mode
+set "OPENCODE_USE_PROXY=0"
+call :info "Checking OpenCode network path..."
+powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -UseBasicParsing -Uri 'https://models.dev' -TimeoutSec 6 > $null; exit 0 } catch { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    call :info "OpenCode will use direct network access."
+    exit /b 0
+)
+
+if defined OPENCODE_HTTP_PROXY (
+    powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try { $proxy = New-Object System.Net.WebProxy('http://127.0.0.1:7890'); $req = [System.Net.WebRequest]::Create('https://models.dev'); $req.Proxy = $proxy; $req.Timeout = 6000; $resp = $req.GetResponse(); $resp.Close(); exit 0 } catch { exit 1 }" >nul 2>&1
+    if not errorlevel 1 (
+        set "OPENCODE_USE_PROXY=1"
+        call :info "OpenCode will use proxy network access."
+        exit /b 0
+    )
+)
+
+call :warn "Direct network and proxy preflight both failed; OpenCode will start with direct network as fallback."
 exit /b 0
 
 :refresh_executor_log_file
@@ -151,6 +174,13 @@ if not errorlevel 1 (
 )
 exit /b 0
 
+:cleanup_opencode_snapshot_locks
+powershell -NoProfile -Command "$root = Join-Path $env:USERPROFILE '.local\\share\\opencode\\snapshot'; if (-not (Test-Path $root)) { exit 0 }; $threshold = (Get-Date).AddMinutes(-5); $locks = Get-ChildItem -Path $root -Recurse -Filter 'gc.pid.lock' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $threshold }; foreach ($lock in $locks) { try { Remove-Item -LiteralPath $lock.FullName -Force -ErrorAction Stop } catch {} }; if ($locks) { exit 0 } else { exit 1 }" >nul 2>&1
+if not errorlevel 1 (
+    call :warn "Removed stale OpenCode snapshot lock files."
+)
+exit /b 0
+
 :start_opencode
 call :info "Starting OpenCode Server on port %OPENCODE_PORT%..."
 call :is_opencode_healthy
@@ -160,31 +190,21 @@ if not errorlevel 1 (
 )
 
 call :kill_port %OPENCODE_PORT%
+call :cleanup_opencode_snapshot_locks
 call :ensure_log_dir
 if not exist "%OPENCODE_LOG%" type nul > "%OPENCODE_LOG%"
+call :select_opencode_network_mode
 
-if defined OPENCODE_HTTP_PROXY goto :start_opencode_with_proxy
-if defined OPENCODE_HTTPS_PROXY goto :start_opencode_with_proxy
-if defined OPENCODE_ALL_PROXY goto :start_opencode_with_proxy
-goto :start_opencode_without_proxy
-
-:start_opencode_with_proxy
-    call :info "OpenCode Server will use proxy environment"
-    call :info "  http_proxy=%OPENCODE_HTTP_PROXY%"
-    call :info "  https_proxy=%OPENCODE_HTTPS_PROXY%"
-    call :info "  all_proxy=%OPENCODE_ALL_PROXY%"
-    call :info "  NO_PROXY=%OPENCODE_NO_PROXY%"
+if "%OPENCODE_USE_PROXY%"=="1" (
+    call :info "OpenCode Server will use proxy environment (NO_PROXY=%OPENCODE_NO_PROXY%)"
     start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && set http_proxy=%OPENCODE_HTTP_PROXY% && set https_proxy=%OPENCODE_HTTPS_PROXY% && set HTTP_PROXY=%OPENCODE_HTTP_PROXY% && set HTTPS_PROXY=%OPENCODE_HTTPS_PROXY% && set all_proxy=%OPENCODE_ALL_PROXY% && set ALL_PROXY=%OPENCODE_ALL_PROXY% && set no_proxy=%OPENCODE_NO_PROXY% && set NO_PROXY=%OPENCODE_NO_PROXY% && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
-goto :start_opencode_wait
-
-:start_opencode_without_proxy
-call :info "OpenCode Server will start without proxy environment"
-start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
-
-:start_opencode_wait
+ ) else (
+    call :info "OpenCode Server will start without proxy environment"
+    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
+ )
 
 call :info "Waiting for OpenCode Server..."
-for /L %%I in (1,1,30) do (
+for /L %%I in (1,1,90) do (
     call :is_opencode_healthy
     if not errorlevel 1 (
         call :info "OpenCode Server started successfully."
@@ -247,6 +267,8 @@ call :ensure_log_dir
 call :refresh_executor_log_file
 if not defined BACKEND_LOG (
     call :warn "No executor log file was found."
+    call :warn "If the executor was started outside deploy.bat, restart it with deploy.bat restart-executor to create a managed log."
+    call :pause_if_needed
     exit /b 1
 )
 if not exist "%BACKEND_LOG%" type nul > "%BACKEND_LOG%"
@@ -259,18 +281,9 @@ echo.
 powershell -NoProfile -Command "$path='%BACKEND_LOG%'; [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false); [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); if (-not (Test-Path $path)) { New-Item -ItemType File -Path $path -Force | Out-Null }; Get-Content -Encoding UTF8 -LiteralPath $path -Tail 80 -Wait | Where-Object { $_ -notmatch 'GET /api/health' -and $_ -notmatch 'GET /api/cloud-api/status' }"
 exit /b %errorlevel%
 
-:start_executor
-echo.
-echo ==========================================
-echo   Agent Bench Executor
-echo ==========================================
-echo.
-
+:ensure_executor_ready
 call :check_deps
-if errorlevel 1 (
-    call :pause_if_needed
-    exit /b 1
-)
+if errorlevel 1 exit /b 1
 
 call :ensure_log_dir
 call :load_opencode_proxy_config
@@ -281,16 +294,37 @@ call :is_backend_healthy
 if errorlevel 1 (
     call :error "Executor failed to start. Check logs and try again."
     if defined BACKEND_LOG call :error "Executor log: %BACKEND_LOG%"
-    call :pause_if_needed
     exit /b 1
 )
 call :refresh_executor_log_file
+exit /b 0
+
+:start_executor
+echo.
+echo ==========================================
+echo   Agent Bench Executor
+echo ==========================================
+echo.
+
+call :ensure_executor_ready
+if errorlevel 1 (
+    call :pause_if_needed
+    exit /b 1
+)
 
 echo.
 call :info "Executor is ready."
 call :info "Task entry: http://localhost:%BACKEND_PORT%/api/cloud-api/start"
+call :info "Local text entry: http://localhost:%BACKEND_PORT%/api/local/start-text"
 if defined BACKEND_LOG call :info "Executor log: %BACKEND_LOG%"
 echo.
+
+if not defined BACKEND_LOG (
+    call :warn "Executor is already running, but no managed log file is available for live viewing."
+    call :warn "If you want deploy.bat to manage the log, run: deploy.bat restart-executor"
+    if "%AUTO_PAUSE_ON_FAILURE%"=="1" pause
+    exit /b 0
+)
 
 call :follow_executor_logs
 exit /b %errorlevel%
@@ -350,7 +384,7 @@ exit /b %errorlevel%
 :usage
 echo Usage: %~nx0 ^<start^|stop^|restart^|restart-executor^|logs^|status^>
 echo.
-echo   start             Start executor ^(default when double-clicked^)
+echo   start             Start executor and wait for cloud-dispatched tasks ^(default when double-clicked^)
 echo   stop              Stop OpenCode and executor
 echo   restart           Restart OpenCode and executor
 echo   restart-executor  Restart executor only

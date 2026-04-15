@@ -20,6 +20,7 @@ from agent_bench.cloud_api.models import (
     RemoteExecutionStatus,
 )
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir
+from agent_bench.pipeline.constraint_adapter import sanitize_constraints_for_semantic_review
 
 
 # ── 任务数据转换 ──────────────────────────────────────────────
@@ -37,6 +38,9 @@ def build_case(execution_id: int,
                case_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """将云测任务数据转换为本地 case 字典，供 pipeline 消费。"""
     normalized_case_spec = dict(case_spec or {})
+    constraints = normalized_case_spec.get("constraints")
+    if isinstance(constraints, list):
+        normalized_case_spec["constraints"] = sanitize_constraints_for_semantic_review(constraints)
     case_meta = normalized_case_spec.get("case")
     if not isinstance(case_meta, dict):
         case_meta = {}
@@ -46,9 +50,9 @@ def build_case(execution_id: int,
     case_meta.setdefault("prompt", prompt)
     normalized_case_spec["case"] = case_meta
     return {
-        "id": f"cloud_execution_{execution_id}",
-        "title": f"Cloud Execution {execution_id}",
-        "scenario": "cloud_api",
+        "id": case_meta.get("id", f"cloud_execution_{execution_id}"),
+        "title": case_meta.get("title", f"Cloud Execution {execution_id}"),
+        "scenario": case_meta.get("scenario", "cloud_api"),
         "prompt": prompt,
         "case_spec": normalized_case_spec,
         "original_project_dir": project_dir,

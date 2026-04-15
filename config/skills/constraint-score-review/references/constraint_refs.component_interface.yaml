@@ -4,25 +4,19 @@ refs:
     name: 可复用组件必须声明明确输入接口
     description: 当工程存在独立可复用组件时，组件应通过 @Param / @Require / @BuilderParam 等显式输入接口承接外部数据，避免把父层数据直接硬编码进组件内部。
     priority: P1
-    activation:
-      required_groups:
-        - component_files
-    rule_templates:
-      - target_group: component_files
-        per_target_rules:
-          - match_type: regex_contains
-            pattern: '@(?:Param|Require|BuilderParam)\b'
+    rules:
+      - target: "**/components/*.ets"
+        ast:
+          - type: decorator
+            name: Param
 
   harmony_component_output_contract:
     category: 组件接口规范
     name: 可复用组件的交互能力必须通过显式输出契约暴露
     description: 当可复用组件内部承载按钮、输入、切换等交互时，应通过 @Event、回调型 @Param 或插槽能力向外暴露交互出口，避免把业务动作写死在组件内部。
     priority: P1
-    activation:
-      required_groups:
-        - interactive_components
-    rule_templates:
-      - target_group: interactive_components
-        per_target_rules:
-          - match_type: regex_contains
-            pattern: '(?:@Event\b|@BuilderParam\b|@Param\s+\w*(?:on|action|submit|change|click)\w*\s*:\s*\([^)]*\)\s*=>)'
+    rules:
+      - target: "**/components/*.ets"
+        ast:
+          - type: decorator
+            name: Event

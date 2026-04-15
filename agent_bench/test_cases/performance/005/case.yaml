@@ -1,0 +1,41 @@
+case:
+  id: performance_005
+  scenario: performance
+  title: 优化新闻模板场景中的资讯流渲染性能
+  prompt: 这是一个性能优化需求。优化新闻资讯流的滚动性能和图片加载。当前新闻资讯流页面使用普通 ForEach 全量渲染，图片加载阻塞主线程，滚动体验不佳。，将资讯流优化为 LazyForEach 懒加载渲染方式。、图片加载使用异步方式，避免阻塞主线程。、控制图片缓存，减少内存占用。。请优化性能瓶颈。
+  output_requirements: 请直接在当前工程中修改代码并完成优化，页面需可编译，并在回复中说明性能瓶颈和优化点。
+constraints:
+  - id: HM-PERF-005-01
+    name: 不能继续全量同步渲染新闻卡片
+    description: 不能继续全量同步渲染新闻卡片
+    priority: P0
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: LazyForEach
+        llm: 检查是否消除了全量的卡片同步渲染逻辑
+  - id: HM-PERF-005-02
+    name: 需要采用LazyForEach实现懒加载
+    description: 需要采用LazyForEach实现懒加载
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: LazyForEach
+          - type: class
+            name: IDataSource
+        llm: 检查资讯流渲染是否已改为使用LazyForEach
+  - id: HM-PERF-005-03
+    name: 图片加载失败需要提供占位图，不影响滚动体验
+    description: 图片加载失败需要提供占位图，不影响滚动体验
+    priority: P1
+    rules:
+      - target: '**/pages/*.ets'
+        ast:
+          - type: call
+            name: Image
+          - type: property_access
+            name: onError
+        llm: 检查图片组件是否处理失败回调并加载占位图

@@ -71,3 +71,18 @@ agents:
       - name: "constraint-score-review"
         path: "config/skills/constraint-score-review"
     extra_prompt: "你有一个约束规则打分 skill：constraint-score-review。完成代码分析后，必须调用这个 skill 根据核心规则对当前修复后的工程进行评分。最终回答必须是一个标准 JSON 对象，首字符必须是 {，末字符必须是 }；不要输出说明文字，不要写文件，不要输出 Markdown 代码块，不要输出第二个 JSON 对象。最终回答中只允许出现以下顶层字段：overall_score、constraints_passed、constraints_total、passed_items、failed_items。JSON 中必须包含 overall_score、constraints_passed、constraints_total；同时补充少量有价值的评分细节：passed_items（最多 5 条）和 failed_items（最多 5 条）。每项格式固定为 {\"constraint_id\":\"HM-XXX-01\",\"score\":25,\"reason\":\"命中真实代码证据\"}，reason 必须是单句短说明。overall_score 必须是 0 到 100 的数字，constraints_passed 和 constraints_total 必须是整数。最终回答必须严格符合以下结构：{\"overall_score\":88,\"constraints_passed\":3,\"constraints_total\":4,\"passed_items\":[{\"constraint_id\":\"HM-001\",\"score\":25,\"reason\":\"命中真实代码证据\"}],\"failed_items\":[{\"constraint_id\":\"HM-004\",\"score\":0,\"reason\":\"未满足目标约束\"}]}"
+  - id: "case_generation_agent"
+    name: "用例生成 Agent"
+    api_base: "http://127.0.0.1:4096"
+    opencode_agent: "plan"
+    opencode_proxy:
+      http_proxy: "http://127.0.0.1:7890"
+      https_proxy: "http://127.0.0.1:7890"
+      all_proxy: "http://127.0.0.1:7890"
+      no_proxy: "127.0.0.1,localhost"
+    model: "bailian-coding-plan/glm-5"
+    tools:
+      skill: false
+    timeout: 300
+    mounted_skills: []
+    extra_prompt: "你是测试用例生成专家，负责根据模板仓库和官方文档生成 HarmonyOS 测试用例。"
