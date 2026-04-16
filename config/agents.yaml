@@ -11,7 +11,7 @@ agents:
     tools:
       skill: true
     timeout: 480
-    model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    model: "opencode-go/glm-5"
     # model: "openai/gpt-5.4"
     # model: "bailian-coding-plan/glm-5"
     mounted_skills:
@@ -26,7 +26,7 @@ agents:
     tools:
       skill: true
     timeout: 480
-    model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    model: "opencode-go/glm-5"
     mounted_skills:
       - name: "build-harmony-project"
         path: "config/skills/build-harmony-project"
@@ -41,7 +41,7 @@ agents:
       # https_proxy: "http://127.0.0.1:7890"
       # all_proxy: "http://127.0.0.1:7890"
       # no_proxy: "127.0.0.1,localhost"
-    model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    model: "opencode-go/glm-5"
     # model: "bailian-coding-plan/glm-5"
     # model: "openai/gpt-5.4"
     tools:
@@ -61,7 +61,7 @@ agents:
       # https_proxy: "http://127.0.0.1:7890"
       # all_proxy: "http://127.0.0.1:7890"
       # no_proxy: "127.0.0.1,localhost"
-    model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    model: "opencode-go/glm-5"
     # model: "bailian-coding-plan/glm-5"
     # model: "openai/gpt-5.4"
     tools:
@@ -75,11 +75,11 @@ agents:
     name: "用例生成 Agent"
     api_base: "http://127.0.0.1:4096"
     opencode_agent: "plan"
-    opencode_proxy:
-      http_proxy: "http://127.0.0.1:7890"
-      https_proxy: "http://127.0.0.1:7890"
-      all_proxy: "http://127.0.0.1:7890"
-      no_proxy: "127.0.0.1,localhost"
+    # opencode_proxy:
+      # http_proxy: "http://127.0.0.1:7890"
+      # https_proxy: "http://127.0.0.1:7890"
+      # all_proxy: "http://127.0.0.1:7890"
+      # no_proxy: "127.0.0.1,localhost"
     model: "bailian-coding-plan/glm-5"
     tools:
       skill: false

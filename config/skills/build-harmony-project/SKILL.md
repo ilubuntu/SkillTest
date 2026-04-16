@@ -24,18 +24,27 @@ Check for root files such as `build-profile.json5`, `hvigorfile.ts`, `oh-package
 
 ### 2. Resolve the DevEco Studio installation
 
-- Default to `/Applications/DevEco-Studio.app`.
-- If that path does not exist, search common install locations.
-- If the path still cannot be found, ask the user for the DevEco Studio installation path.
+Detect the platform and locate the toolchain accordingly:
+
+**macOS:**
+- Default to `/Applications/DevEco-Studio.app/Contents`.
 - Ensure these paths exist before building:
-  - `Contents/tools/node/bin/node`
-  - `Contents/tools/hvigor/bin/hvigorw.js`
-  - `Contents/sdk/default`
-  - `Contents/jbr/Contents/Home`
+  - `tools/node/bin/node`
+  - `tools/hvigor/bin/hvigorw.js`
+  - `sdk/default`
+  - `jbr/Contents/Home`
+
+**Linux (command-line-tools):**
+- Default to `/home/work/hmsdk/command-line-tools`.
+- Ensure these paths exist before building:
+  - `tool/node/bin/node`
+  - `hvigor/bin/hvigorw.js`
+  - `sdk/default`
+- Java is NOT bundled; use system JDK. Set `JAVA_HOME` to `/usr/lib/jvm/java-11-openjdk-amd64` (or wherever JDK 11+ is installed).
 
 ### 3. Build with the bundled toolchain
 
-Run the build from the project root with environment derived from DevEco Studio:
+**macOS build command:**
 
 ```bash
 export DEVECO_SDK_HOME="$DEVECO_PATH/Contents/sdk"
@@ -52,15 +61,40 @@ export PATH="$JAVA_HOME/bin:$PATH"
   --daemon
 ```
 
+**Linux build command:**
+
+```bash
+export DEVECO_SDK_HOME="$DEVECO_PATH/sdk"
+export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
+export PATH="$JAVA_HOME/bin:$DEVECO_PATH/tool/node/bin:$PATH"
+"$DEVECO_PATH/tool/node/bin/node" \
+  "$DEVECO_PATH/hvigor/bin/hvigorw.js" \
+  --mode module \
+  -p product=default \
+  assembleHap \
+  --analyze=normal \
+  --parallel \
+  --incremental \
+  --daemon
+```
+
 If the build command fails because sandbox access is blocked, rerun it with escalation and explain that DevEco Studio toolchain access is required.
 
 ### 4. Stop the daemon after the build
 
 Stop the hvigor daemon after the build attempt to reduce cross-session conflicts:
 
+**macOS:**
 ```bash
 "$DEVECO_PATH/Contents/tools/node/bin/node" \
   "$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js" \
+  --stop-daemon
+```
+
+**Linux:**
+```bash
+"$DEVECO_PATH/tool/node/bin/node" \
+  "$DEVECO_PATH/hvigor/bin/hvigorw.js" \
   --stop-daemon
 ```
 
@@ -81,8 +115,7 @@ For detailed entry-module detection and result checks, read [references/build-wo
 Only continue to deployment when the user explicitly asks to install or run the app on a device.
 
 Before deployment:
-
-- Check whether `hdc` exists under `Contents/sdk/default/openharmony/toolchains/hdc`.
+- Check whether `hdc` exists under `sdk/default/openharmony/toolchains/hdc` (relative to DEVECO_PATH on Linux, or `Contents/sdk/default/openharmony/toolchains/hdc` on macOS).
 - Detect connected devices.
 - Inspect whether signing config exists, but do not modify it.
 - If there is no signed HAP, report that deployment cannot proceed yet.

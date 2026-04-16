@@ -191,6 +191,11 @@ def _find_deveco_base() -> str:
         candidates = [
             "/Applications/DevEco-Studio.app/Contents",
         ]
+    elif system == "Linux":
+        candidates = [
+            "/home/work/hmsdk/command-line-tools",
+            "/usr/local/hmsdk/command-line-tools",
+        ]
     else:
         candidates = [
             os.path.join(os.environ.get("LOCALAPPDATA", ""), "Huawei", "DevEco Studio"),
@@ -206,6 +211,8 @@ def _find_deveco_base() -> str:
 
     if system == "Darwin":
         return "/Applications/DevEco-Studio.app/Contents"
+    elif system == "Linux":
+        return "/home/work/hmsdk/command-line-tools"
     return r"C:\Program Files\Huawei\DevEco Studio"
 
 
@@ -217,16 +224,26 @@ def _find_deveco_paths() -> Dict[str, str]:
 
     if system == "Darwin":
         node = os.path.join(deveco_base, "tools", "node", "bin", "node")
+        hvigor = os.path.join(deveco_base, "tools", "hvigor", "bin", "hvigorw.js")
         java = os.path.join(deveco_base, "jbr", "Contents", "Home")
+        sdk = os.path.join(deveco_base, "sdk")
+    elif system == "Linux":
+        node = os.path.join(deveco_base, "tool", "node", "bin", "node")
+        hvigor = os.path.join(deveco_base, "hvigor", "bin", "hvigorw.js")
+        java_home = os.environ.get("JAVA_HOME") or "/usr/lib/jvm/java-11-openjdk-amd64"
+        java = java_home
+        sdk = os.path.join(deveco_base, "sdk")
     else:
         node = os.path.join(deveco_base, "tools", "node", "node.exe")
+        hvigor = os.path.join(deveco_base, "tools", "hvigor", "bin", "hvigorw.js")
         java = os.path.join(deveco_base, "jbr")
+        sdk = os.path.join(deveco_base, "sdk")
 
     return {
         "node": node,
-        "hvigor": os.path.join(deveco_base, "tools", "hvigor", "bin", "hvigorw.js"),
+        "hvigor": hvigor,
         "java": java,
-        "sdk": os.path.join(deveco_base, "sdk"),
+        "sdk": sdk,
     }
 
 

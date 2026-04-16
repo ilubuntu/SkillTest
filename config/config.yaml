@@ -1,4 +1,4 @@
-deveco_path: null
+deveco_path: "/home/work/hmsdk/command-line-tools"
 
 task_manager:
   max_concurrency: 3

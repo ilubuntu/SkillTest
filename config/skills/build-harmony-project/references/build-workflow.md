@@ -12,12 +12,31 @@ Use this when the project is not a simple single-module layout.
 
 ## Standard Build Command
 
+### macOS
+
 ```bash
 export DEVECO_SDK_HOME="$DEVECO_PATH/Contents/sdk"
 export JAVA_HOME="$DEVECO_PATH/Contents/jbr/Contents/Home"
 export PATH="$JAVA_HOME/bin:$PATH"
 "$DEVECO_PATH/Contents/tools/node/bin/node" \
   "$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js" \
+  --mode module \
+  -p product=default \
+  assembleHap \
+  --analyze=normal \
+  --parallel \
+  --incremental \
+  --daemon
+```
+
+### Linux
+
+```bash
+export DEVECO_SDK_HOME="$DEVECO_PATH/sdk"
+export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
+export PATH="$JAVA_HOME/bin:$DEVECO_PATH/tool/node/bin:$PATH"
+"$DEVECO_PATH/tool/node/bin/node" \
+  "$DEVECO_PATH/hvigor/bin/hvigorw.js" \
   --mode module \
   -p product=default \
   assembleHap \
@@ -38,7 +57,7 @@ If the exact file name differs, inspect `<entry-module>/build/default/outputs/de
 
 ## Daemon Shutdown
 
-Run after build:
+### macOS
 
 ```bash
 "$DEVECO_PATH/Contents/tools/node/bin/node" \
@@ -46,13 +65,20 @@ Run after build:
   --stop-daemon
 ```
 
+### Linux
+
+```bash
+"$DEVECO_PATH/tool/node/bin/node" \
+  "$DEVECO_PATH/hvigor/bin/hvigorw.js" \
+  --stop-daemon
+```
+
 ## Device Checks
 
 `hdc` is typically located at:
 
-```bash
-"$DEVECO_PATH/Contents/sdk/default/openharmony/toolchains/hdc"
-```
+- macOS: `$DEVECO_PATH/Contents/sdk/default/openharmony/toolchains/hdc`
+- Linux: `$DEVECO_PATH/sdk/default/openharmony/toolchains/hdc`
 
 Useful checks:
 
