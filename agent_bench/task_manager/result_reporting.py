@@ -32,9 +32,6 @@ class TaskResultReporter:
             "payload": result_payload,
             "has_token": bool((state.get("token") or "").strip()),
         })
-        self._progress.append_local_event(state, "result_report_request", {
-            "payload": result_payload,
-        })
         self._progress.write_execution_log(state, "INFO", f"上传任务报告请求: {_truncate_message(_safe_json(result_payload), 500)}")
 
         result_response = upload_execution_result(
@@ -51,9 +48,6 @@ class TaskResultReporter:
         state["last_result_response"] = result_response
         self._progress.append_cloud_event(state, "result_report_response", {
             "payload": result_payload,
-            "response": result_response,
-        })
-        self._progress.append_local_event(state, "result_report_response", {
             "response": result_response,
         })
         self._progress.write_execution_log(state, "INFO", f"上传任务报告响应: {_safe_json(result_response_summary)}")

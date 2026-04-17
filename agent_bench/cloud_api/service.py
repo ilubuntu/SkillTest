@@ -159,7 +159,7 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
         if "任务已发送" in text:
             return "任务已发送"
         if "已收到任务" in text:
-            return "Agent已收到任务，会展示部分处理流程"
+            return "Agent已收到任务，仅展示部分处理流程"
         if any(token in text for token in (
             "文件检查完成",
             "代码修改完成",
@@ -175,7 +175,6 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
         )):
             return _truncate_message(text, 180)
         if any(token in text for token in (
-            "开始处理任务",
             "模型开始思考",
             "开始分析",
             "开始检查工程和读取文件",

@@ -59,7 +59,15 @@ def _write_json(path: str, payload: Dict[str, Any]):
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
+def _update_json_snapshot(path: str, key: str, payload: Dict[str, Any]):
+    current = _load_json_if_exists(path)
+    current[key] = payload
+    _write_json(path, current)
+
+
 def _normalize_execution_detail_message(stage: str, message: str) -> Optional[str]:
+    # executionLog 面向云测展示，不适合直接塞入原始高频日志。
+    # 这里把 agent 阶段的大量细碎输出压缩成少量稳定短语，降低上报体积和噪声。
     text = str(message or "").strip()
     if not text:
         return None
@@ -116,9 +124,10 @@ class TaskProgressTracker:
         run_dir = str(state.get("run_dir") or "").strip()
         if not run_dir:
             return ""
-        return os.path.join(run_dir, "execution.log")
+        return os.path.join(run_dir, "local_execution.log")
 
     def write_execution_log(self, state: Dict[str, Any], level: str, message: str):
+        # 每个 execution 都维护一份独立文本日志，方便并发任务单独排查。
         log_path = self._execution_log_path(state)
         if not log_path:
             return
@@ -158,6 +167,8 @@ class TaskProgressTracker:
         return mapping.get(local_stage, "任务处理中")
 
     def ensure_stage_entry(self, state: Dict[str, Any], stage: str, message: Optional[str] = None):
+        # execution_log 是按阶段组织的结构化摘要；同一阶段只保留一个 entry，
+        # 后续 detail 都挂到这个阶段节点下。
         logs = state.setdefault("execution_log", [])
         for entry in logs:
             if str(entry.get("stage") or "") != stage:
@@ -175,6 +186,7 @@ class TaskProgressTracker:
         return entry
 
     def append_execution_detail(self, state: Dict[str, Any], stage: str, message: str):
+        # 只把适合展示的摘要写进 executionLog，避免把原始日志整段同步到云端。
         normalized_message = _normalize_execution_detail_message(stage, message)
         if not normalized_message:
             return
@@ -201,6 +213,7 @@ class TaskProgressTracker:
         return json.loads(json.dumps(state.get("execution_log") or []))
 
     def should_report_status(self, state: Dict[str, Any], should_stop: bool) -> bool:
+        # 状态变化立即上报；纯 detail 变化做短时间节流，避免高频 agent 日志把 /report 打爆。
         upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
         upload_state = self.load_progress_upload_state(upload_state_path) if upload_state_path else self.default_progress_upload_state()
         current_status = str(state.get("local_status") or "")
@@ -241,34 +254,29 @@ class TaskProgressTracker:
             "ERROR": logger.error,
         }.get(level_name, logger.info)
         self.write_execution_log(state, level_name, f"{prefix}{message}".strip())
-        # 详细过程日志只写到 execution.log，避免并发时全局日志和控制台混杂。
+        # 详细过程日志只写到 local_execution.log；控制台和总日志只保留主状态，
+        # 否则并发执行时全局输出会被多个任务打散。
         if item_type == "log":
             return
         log_fn("[execution=%s] %s%s", execution_id, prefix, message)
-
-    def append_local_event(self, state: Dict[str, Any], event_type: str, payload: Dict[str, Any]):
-        run_dir = str(state.get("run_dir") or "").strip()
-        if not run_dir:
-            return
-        log_path = os.path.join(run_dir, "executor_events.jsonl")
-        _append_jsonl(log_path, {
-            "timestamp": now_iso(),
-            "event": event_type,
-            "payload": payload,
-        })
 
     def append_cloud_event(self, state: Dict[str, Any], event_type: str, payload: Dict[str, Any]):
         run_dir = str(state.get("run_dir") or "").strip()
         if not run_dir:
             return
-        log_path = os.path.join(run_dir, "cloud_api_events.jsonl")
-        _append_jsonl(log_path, {
+        log_path = os.path.join(run_dir, "cloud_api_events.json")
+        # 只保留每类云端交互的最近一次快照：
+        # - status_report_request / status_report_response
+        # - result_report_request / result_report_response
+        # 这样既能看到完整云测交互面，又不会因为反复上报进度把文件无限刷大。
+        _update_json_snapshot(log_path, event_type, {
             "timestamp": now_iso(),
             "event": event_type,
             "payload": payload,
         })
 
     def append_conversation(self, state: Dict[str, Any], item_type: str, message: str, level: str = "INFO"):
+        # conversation 保存原始事件时间线，用于本地回放和排障；executionLog 则是它的摘要视图。
         record = {
             "timestamp": now_iso(),
             "type": item_type,
@@ -278,9 +286,9 @@ class TaskProgressTracker:
         state["conversation"].append(record)
         state["conversation"] = state["conversation"][-200:]
         self.log_runtime_event(state, record)
-        self.append_local_event(state, "conversation", record)
 
     def report_remote_status(self, state: Dict[str, Any], cloud_base_url: str):
+        # 云端进度上报只带结构化状态和 executionLog 摘要，不直接上传 local_execution.log 原文。
         remote_status = map_internal_status_to_remote(state.get("local_status"))
         execution_log = self.build_execution_log_snapshot(state)
         payload = build_status_payload(

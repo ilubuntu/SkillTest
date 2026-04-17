@@ -380,7 +380,7 @@ class CloudExecutionManager:
                     try:
                         self._progress.report_remote_status(state, self._cloud_base_url)
                     except Exception as exc:
-                        self._progress.append_local_event(state, "status_report_error", {"error": str(exc)})
+                        self._progress.write_execution_log(state, "WARNING", f"状态上报异常: {exc}")
             if should_stop:
                 return
 
@@ -411,17 +411,13 @@ class CloudExecutionManager:
                 elif event == "stage_start":
                     stage_name = str(data.get("stage", "")).strip()
                     stage_map = {
-"Agent运行": STAGE_GENERATING,
                         "generating": STAGE_GENERATING,
-                        "constraint_review": STAGE_CONSTRAINT_SCORING,
-                        "约束规则打分": STAGE_CONSTRAINT_SCORING,
                         "pre_compile_check": STAGE_PREPARING,
                         "preparing": STAGE_PREPARING,
                         "post_compile_check": STAGE_VALIDATING,
-                        "结果验证": STAGE_VALIDATING,
                         "validating": STAGE_VALIDATING,
-                        "static_review": STAGE_STATIC_SCORING,
-                        "静态代码打分": STAGE_STATIC_SCORING,
+                        "constraint_scoring": STAGE_CONSTRAINT_SCORING,
+                        "static_scoring": STAGE_STATIC_SCORING,
                     }
                     mapped_stage = stage_map.get(stage_name)
                     if mapped_stage:
@@ -481,7 +477,7 @@ class CloudExecutionManager:
                 self._progress.append_conversation(state, "status", "任务开始执行")
                 self._progress.append_execution_detail(state, STAGE_PENDING, f"任务已接收，等待执行 (executor_id={state.get('execution_id')})")
                 self._progress.append_execution_detail(state, STAGE_PREPARING, f"本地产物目录: {run_dir}")
-                executor_log = os.path.join(run_dir, "execution.log")
+                executor_log = os.path.join(run_dir, "local_execution.log")
                 if executor_log:
                     self._progress.append_execution_detail(state, STAGE_PREPARING, f"可用 tail -f {executor_log} 查看实时执行日志")
             downloaded_project_root = _prepare_project_from_file_url(payload.testCase.fileUrl, source_dir, on_progress=on_progress)

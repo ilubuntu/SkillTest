@@ -877,7 +877,7 @@ def _run_constraint_review_agent(case: dict,
     if workspace_patch_path or patch_path:
         attempt_specs.append(("workspace_only_fallback", ""))
 
-    _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "constraint_review"})
+    _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "constraint_scoring"})
     try:
         for stage_label, repair_patch_file in attempt_specs:
             try:
@@ -920,7 +920,7 @@ def _run_constraint_review_agent(case: dict,
                         "level": "WARNING",
                         "message": f"{agent_spec.display_name} output preview:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}",
                     })
-                _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "constraint_review", "elapsed": elapsed})
+                _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "constraint_scoring", "elapsed": elapsed})
                 return result
             except Exception as exc:
                 last_exc = exc
@@ -973,7 +973,7 @@ def _run_static_review_agent(case: dict,
     )
     output_text = ""
     elapsed = 0.0
-    _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "static_review"})
+    _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "static_scoring"})
     try:
         runtime.prepare()
         output_text, elapsed = runtime.execute(
@@ -1036,7 +1036,7 @@ def _run_static_review_agent(case: dict,
             "level": "INFO",
             "message": f"静态代码打分结果文件已写入: {static_result_file}",
         })
-        _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "static_review", "elapsed": elapsed})
+        _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": "static_scoring", "elapsed": elapsed})
         return {
             "status": "completed",
             "agent": {
@@ -1072,7 +1072,7 @@ def _run_compile_check(case: dict,
     _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": stage_name})
     _notify(on_progress, "log", {
         "level": "INFO",
-        "message": f"{stage_label} 已开始，过程可能较长，请稍候...",
+        "message": f"{stage_label} 已开始",
     })
     _notify(on_progress, "log", {"level": "WARNING", "message": f"[开始] {stage_label}"})
     t0 = time.time()
@@ -1154,7 +1154,7 @@ def run_single_case(case: dict,
                 artifact_base_dir="generate",
             )
             try:
-                _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "Agent处理"})
+                _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "generating"})
                 runtime.prepare()
                 output_text, elapsed = runtime.execute(
                     task_prompt,
@@ -1176,7 +1176,7 @@ def run_single_case(case: dict,
             if output_text:
                 _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 输出预览:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}"})
             case["_agent_elapsed_s"] = int(elapsed)
-            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "Agent处理", "elapsed": elapsed})
+            _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "generating", "elapsed": elapsed})
             post_compile_result = _run_compile_check(
                 case,
                 case_dir,
