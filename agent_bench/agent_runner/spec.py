@@ -4,6 +4,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
+
 
 @dataclass
 class MountedSkillSpec:
@@ -18,7 +20,7 @@ class AgentSpec:
     api_base: str = ""
     opencode_agent: str = ""
     model: str = ""
-    timeout: int = 180
+    timeout: int = DEFAULT_TIMEOUT_SECONDS
     tools: Any = None
     extra_prompt: str = ""
     transport: str = ""
@@ -60,7 +62,7 @@ def build_agent_spec(agent: Optional[dict]) -> AgentSpec:
         api_base=str(agent.get("api_base") or "").strip(),
         opencode_agent=str(agent.get("opencode_agent") or "").strip(),
         model=str(agent.get("model") or "").strip(),
-        timeout=int(agent.get("timeout") or 180),
+        timeout=int(agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS),
         tools=agent.get("tools"),
         extra_prompt=str(agent.get("extra_prompt") or "").strip(),
         transport=str(agent.get("transport") or "").strip(),

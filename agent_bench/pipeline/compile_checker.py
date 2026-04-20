@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 from typing import Dict, Tuple, Any
 
+from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
+
 INDEX_ETS_REL = os.path.join("entry", "src", "main", "ets", "pages", "Index.ets")
 META_DIR_NAME = ".agent_bench"
 IGNORED_COMPARE_DIRS = {"build", ".hvigor", "node_modules", "oh_modules", ".opencode", META_DIR_NAME}
@@ -99,7 +101,7 @@ def prepare_project_workspace(template_project_path: str, workspace_dir: str):
 
 
 def check_project_compilable(project_path: str,
-                             timeout: int = 300,
+                             timeout: int = DEFAULT_TIMEOUT_SECONDS,
                              template_project_path: str = None) -> Dict[str, Any]:
     """直接编译 side 工程目录。"""
     if not os.path.isdir(project_path):
@@ -442,7 +444,7 @@ def build_agent_workspace_env(project_path: str) -> Dict[str, str]:
     return env
 
 
-def _compile_project(project_path: str, timeout: int = 300) -> Tuple[bool, str]:
+def _compile_project(project_path: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> Tuple[bool, str]:
     """在指定项目目录下执行 hvigor 编译"""
     paths = resolve_harmony_toolchain()
 
@@ -518,7 +520,7 @@ def _compile_project(project_path: str, timeout: int = 300) -> Tuple[bool, str]:
         _cleanup_external_stage_cache_dir(project_path)
 
 
-def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
+def check_compilable(code: str, timeout: int = DEFAULT_TIMEOUT_SECONDS, case_dir: str = None,
                      is_general_check: bool = False,
                      template_project_path: str = None) -> Dict[str, Any]:
     """检查代码是否可编译

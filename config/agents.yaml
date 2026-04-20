@@ -5,7 +5,7 @@ agents:
     opencode_agent: "build"
     tools:
       skill: true
-    timeout: 480
+    timeout: 300
     model: "opencode-go/glm-5"
     # model: "openai/gpt-5.4"
     # model: "bailian-coding-plan/glm-5"
@@ -21,7 +21,7 @@ agents:
     opencode_agent: "harmonyos-dev"
     tools:
       skill: true
-    timeout: 480
+    timeout: 300
     model: "opencode-go/glm-5"
     mounted_skills:
       - name: "build-harmony-project"
@@ -43,7 +43,7 @@ agents:
     # model: "openai/gpt-5.4"
     tools:
       skill: true
-    timeout: 480
+    timeout: 300
     mounted_skills:
       - name: "harmonyos-gen-code-evaluator"
         path: "config/skills/harmonyos-gen-code-evaluator"
@@ -58,7 +58,7 @@ agents:
     # model: "openai/gpt-5.4"
     tools:
       skill: true
-    timeout: 480
+    timeout: 300
     mounted_skills:
       - name: "constraint-score-review"
         path: "config/skills/constraint-score-review"

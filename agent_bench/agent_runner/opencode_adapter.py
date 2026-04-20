@@ -24,10 +24,12 @@ from typing import Optional
 
 from agent_bench.pipeline.artifacts import agent_meta_dir, review_dir, static_dir
 from agent_bench.agent_runner.adapter import AgentAdapter
+from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
 DEFAULT_API_BASE = "http://localhost:4096"
-TIMEOUT = 480
+TIMEOUT = DEFAULT_TIMEOUT_SECONDS
 MAX_RAW_SSE_LINE_CHARS = 2000
+DELTA_PROGRESS_THROTTLE_SECONDS = 10.0
 
 
 def parse_model(model_str: str) -> dict:
@@ -73,6 +75,10 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_error_message = ""
         self._prefer_async_sse = True
         self._seen_runtime_events = set()
+        self._last_delta_progress_at = 0.0
+        self._last_delta_progress_text = ""
+        self._last_non_delta_progress_at = 0.0
+        self._last_runtime_activity_at = 0.0
 
     def _log(self, level: str, message: str, tag: str = ""):
         if self.on_progress:
@@ -125,6 +131,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_interaction_metrics = None
         self._last_error_message = ""
         self._seen_runtime_events = set()
+        self._last_runtime_activity_at = 0.0
 
         if not runtime_options:
             self._log("DEBUG", "无额外运行时配置")
@@ -442,6 +449,7 @@ class OpenCodeAdapter(AgentAdapter):
                 open(progress_log_path, "a", encoding="utf-8").close()
             if full_sse_log_path:
                 open(full_sse_log_path, "a", encoding="utf-8").close()
+            self._mark_runtime_activity()
             sse_thread = threading.Thread(
                 target=self._capture_sse_events,
                 args=(session_id, sse_log_path, stop_event, connected_event, tag),
@@ -463,7 +471,12 @@ class OpenCodeAdapter(AgentAdapter):
                 response.read()
             self._log("WARNING", f"任务已发送，等待 Agent 与大模型返回结果；SSE 事件写入: {sse_log_path or '未启用'}", tag=tag)
 
-            payload = self._wait_for_completed_message(session_id, effective_prompt, tag=tag)
+            payload = self._wait_for_completed_message(
+                session_id,
+                effective_prompt,
+                tag=tag,
+                full_sse_log_path=full_sse_log_path,
+            )
             if not payload:
                 raise TimeoutError("OpenCode prompt_async 未在超时内返回完整消息")
 
@@ -512,10 +525,28 @@ class OpenCodeAdapter(AgentAdapter):
             if sse_thread:
                 sse_thread.join(timeout=2)
 
-    def _wait_for_completed_message(self, session_id: str, prompt_text: str, tag: str = "") -> Optional[dict]:
-        deadline = time.time() + self.timeout
+    def _wait_for_completed_message(self,
+                                    session_id: str,
+                                    prompt_text: str,
+                                    tag: str = "",
+                                    full_sse_log_path: Optional[str] = None) -> Optional[dict]:
         last_seen = None
-        while time.time() < deadline:
+        if self._last_runtime_activity_at <= 0:
+            self._mark_runtime_activity()
+        while True:
+            idle_seconds = time.monotonic() - self._last_runtime_activity_at
+            if idle_seconds >= self.timeout:
+                # 保险兜底：如果 full SSE 文件在超时窗口内仍有刷新，说明会话实际上还在持续输出，
+                # 本地活动时间戳可能漏记了。这种情况下继续等待，并打 error 日志留痕便于排查。
+                if self._has_recent_full_sse_activity(full_sse_log_path, self.timeout):
+                    self._log(
+                        "ERROR",
+                        f"检测到本地超时判断与 full SSE 活动不一致：最近{self.timeout}s内 full SSE 仍在刷新，自动延长等待窗口，请检查超时逻辑",
+                        tag=tag,
+                    )
+                    self._mark_runtime_activity()
+                    continue
+                break
             payload = self._fetch_latest_message(session_id, prompt_text)
             if payload:
                 last_seen = payload
@@ -532,7 +563,7 @@ class OpenCodeAdapter(AgentAdapter):
                     return payload
             time.sleep(1)
         if last_seen:
-            self._log("WARN", "等待完整 step-finish 超时，返回最近一次 assistant 消息", tag=tag)
+            self._log("WARN", f"连续{self.timeout}s无 OpenCode SSE 活动，返回最近一次 assistant 消息", tag=tag)
         return last_seen
 
     def _resolve_sse_log_path(self, workspace_dir: Optional[str]) -> Optional[str]:
@@ -588,6 +619,7 @@ class OpenCodeAdapter(AgentAdapter):
                                 elif line == "":
                                     payload = self._parse_sse_event_payload(event_name, data_lines)
                                     if payload is not None and self._event_matches_session(payload, session_id):
+                                        self._mark_runtime_activity()
                                         self._append_jsonl(output_path, payload, progress_output_path, full_output_path)
                                         self._emit_runtime_progress_log(payload, tag=tag)
                                     event_name = None
@@ -866,6 +898,15 @@ class OpenCodeAdapter(AgentAdapter):
             return None
         return mapped
 
+    @staticmethod
+    def _summarize_delta_progress_text(text: str, limit: int = 50) -> str:
+        normalized = " ".join(str(text or "").strip().split())
+        if not normalized:
+            return ""
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[:limit] + "..."
+
     def _event_matches_session(self, payload: dict, session_id: str) -> bool:
         data = self._extract_sse_event_data(payload)
         if not session_id:
@@ -918,6 +959,21 @@ class OpenCodeAdapter(AgentAdapter):
             if payload:
                 self._emit_runtime_progress_log(payload, tag=tag)
 
+    def _mark_runtime_activity(self):
+        # 以“收到当前 session 的真实 SSE 事件”为活动信号。
+        # 只要还有 delta / tool / text / step-finish 持续到达，就不应被判定为超时。
+        self._last_runtime_activity_at = time.monotonic()
+
+    @staticmethod
+    def _has_recent_full_sse_activity(full_sse_log_path: Optional[str], within_seconds: int) -> bool:
+        if not full_sse_log_path:
+            return False
+        try:
+            last_mtime = os.path.getmtime(full_sse_log_path)
+        except OSError:
+            return False
+        return (time.time() - last_mtime) < max(int(within_seconds or 0), 1)
+
     def _backfill_sse_logs_from_messages(self,
                                         all_messages: list,
                                         output_path: str,
@@ -946,6 +1002,20 @@ class OpenCodeAdapter(AgentAdapter):
             self._log("INFO", f"[OpenCode] 原始 SSE 缺失，已根据消息历史回填: {output_path}")
 
     def _emit_runtime_progress_log(self, payload: dict, tag: str = ""):
+        raw_data = self._extract_sse_event_data(payload)
+        raw_event_type = str(raw_data.get("type") or "").strip() if isinstance(raw_data, dict) else ""
+        if raw_event_type == "message.part.delta":
+            props = raw_data.get("properties") if isinstance(raw_data.get("properties"), dict) else {}
+            delta = str(props.get("delta") or "").strip()
+            summary = self._summarize_delta_progress_text(delta, 50)
+            now = time.time()
+            last_progress_at = max(self._last_non_delta_progress_at, self._last_delta_progress_at)
+            if summary and (now - last_progress_at) >= DELTA_PROGRESS_THROTTLE_SECONDS:
+                self._last_delta_progress_text = summary
+                self._last_delta_progress_at = now
+                self._log("INFO", f"OpenCode 当前模型还在输出{summary}", tag=tag)
+            return
+
         mapped = self._map_sse_payload(payload)
         if not mapped:
             return
@@ -1024,6 +1094,10 @@ class OpenCodeAdapter(AgentAdapter):
         if signature in self._seen_runtime_events:
             return
         self._seen_runtime_events.add(signature)
+        # 只有真正形成了一条新的运行时日志，才认为出现了“非 delta 活动”。
+        # 否则轮询 latest message 时回放的重复 reasoning/tool/text 事件，会把
+        # _last_non_delta_progress_at 每秒刷新一次，导致 delta 的 10 秒节流窗口永远到不了。
+        self._last_non_delta_progress_at = time.time()
         self._log(level, log_message, tag=tag)
 
     def _extract_message_id(self, payload: dict) -> Optional[str]:

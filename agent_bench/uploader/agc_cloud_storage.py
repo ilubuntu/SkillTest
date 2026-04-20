@@ -24,6 +24,7 @@ from typing import Dict, Optional
 
 import json
 
+from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 from agent_bench.uploader.interface import ObjectUploader
 
 
@@ -54,7 +55,7 @@ class AgcCloudStorageClient:
         bucket_name: str = DEFAULT_BUCKET_NAME,
         token_url: str = TOKEN_URL,
         upload_base_url: str = UPLOAD_BASE_URL,
-        timeout: int = 300,
+        timeout: int = DEFAULT_TIMEOUT_SECONDS,
     ):
         if not project_id:
             raise ValueError("project_id 不能为空")
@@ -89,7 +90,7 @@ class AgcCloudStorageClient:
         bucket_name: str = DEFAULT_BUCKET_NAME,
         token_url: str = TOKEN_URL,
         upload_base_url: str = UPLOAD_BASE_URL,
-        timeout: int = 300,
+        timeout: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> "AgcCloudStorageClient":
         if not isinstance(config, dict):
             raise ValueError("config 必须是字典")

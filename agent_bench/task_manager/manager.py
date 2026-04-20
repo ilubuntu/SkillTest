@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 import yaml
 
+from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 from agent_bench.cloud_api.converter import (
     build_case,
     build_execution_result_payload,
@@ -552,7 +553,7 @@ class CloudExecutionManager:
                 agent = load_agent(agents[0].get("id")) if agents else None
             if not agent:
                 raise ValueError("必须选择一个可用 agent")
-            default_timeout = int(agent.get("timeout") or 480)
+            default_timeout = int(agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
             with self._lock:
                 self._progress.append_conversation(
                     state,

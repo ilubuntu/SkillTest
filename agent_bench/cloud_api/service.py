@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 import yaml
 
+from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 from agent_bench.cloud_api.client import report_status, upload_execution_result
 from agent_bench.cloud_api.converter import (
     build_case,
@@ -1275,7 +1276,7 @@ class CloudExecutionManager:
                 agent = load_agent(agents[0].get("id")) if agents else None
             if not agent:
                 raise ValueError("必须选择一个可用 agent")
-            default_timeout = int(agent.get("timeout") or 480)
+            default_timeout = int(agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
             default_temperature = agent.get("temperature")
             with self._lock:
                 self._append_conversation(
@@ -1471,7 +1472,7 @@ class CloudExecutionManager:
             if not agent:
                 raise ValueError("必须选择一个可用 agent")
 
-            default_timeout = int(agent.get("timeout") or 480)
+            default_timeout = int(agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
             default_temperature = agent.get("temperature")
 
             result = run_single_case(
@@ -1594,7 +1595,7 @@ class CloudExecutionManager:
                     agent_spec=generation_agent_spec,
                     runtime_options=None,
                     on_progress=on_progress,
-                    fallback_timeout=300,
+                    fallback_timeout=DEFAULT_TIMEOUT_SECONDS,
                     artifact_prefix="case_generation",
                     artifact_base_dir="generate",
                 )
@@ -1700,7 +1701,7 @@ class CloudExecutionManager:
             if not run_agent:
                 raise ValueError("未找到 agent_default 配置")
 
-            default_timeout = int(run_agent.get("timeout") or 480)
+            default_timeout = int(run_agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
             default_temperature = run_agent.get("temperature")
             with self._lock:
                 current = self._states[execution_id]
@@ -1845,7 +1846,7 @@ class CloudExecutionManager:
             if not run_agent:
                 raise ValueError(f"未找到 {payload.agentId or 'agent_default'} 配置")
 
-            default_timeout = int(run_agent.get("timeout") or 480)
+            default_timeout = int(run_agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
             default_temperature = run_agent.get("temperature")
             result = run_single_case(
                 case=case,

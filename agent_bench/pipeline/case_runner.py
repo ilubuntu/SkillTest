@@ -9,6 +9,7 @@ import subprocess
 import time
 from typing import Callable
 
+from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 from agent_bench.pipeline.artifacts import (
     agent_meta_dir,
     agent_workspace_dir,
@@ -1078,7 +1079,7 @@ def _run_compile_check(case: dict,
     t0 = time.time()
     compile_result = check_project_compilable(
         project_path,
-        timeout=300,
+        timeout=DEFAULT_TIMEOUT_SECONDS,
         template_project_path=template_project_path,
     )
     elapsed = time.time() - t0
