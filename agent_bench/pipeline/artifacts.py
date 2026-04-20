@@ -3,6 +3,19 @@
 
 import json
 import os
+import re
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _strip_ansi_sequences(value):
+    if isinstance(value, str):
+        return ANSI_ESCAPE_RE.sub("", value)
+    if isinstance(value, dict):
+        return {key: _strip_ansi_sequences(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_strip_ansi_sequences(item) for item in value]
+    return value
 
 def stage_dir(case_dir: str, stage: str) -> str:
     """返回指定阶段目录并确保存在。"""
@@ -31,7 +44,8 @@ def original_project_dir(case_dir: str) -> str:
 
 
 def review_dir(case_dir: str) -> str:
-    return stage_dir(case_dir, "constraint")
+    # 约束评分已移出主流程，这里只返回路径，不再因为读取目录路径而自动创建目录。
+    return os.path.join(case_dir, "constraint")
 
 
 def diff_dir(case_dir: str) -> str:
@@ -39,7 +53,8 @@ def diff_dir(case_dir: str) -> str:
 
 
 def static_dir(case_dir: str) -> str:
-    return stage_dir(case_dir, "static")
+    # 静态评分已移出主流程，这里只返回路径，不再因为读取目录路径而自动创建目录。
+    return os.path.join(case_dir, "static")
 
 
 def checks_dir(case_dir: str) -> str:
@@ -117,10 +132,11 @@ def save_compile_artifacts(case_dir: str, stage: str, compile_result: dict):
     """保存编译阶段产物。"""
     target_dir = os.path.join(checks_dir(case_dir), stage)
     os.makedirs(target_dir, exist_ok=True)
+    sanitized_result = _strip_ansi_sequences(compile_result or {})
     with open(os.path.join(target_dir, "compile_result.json"), "w", encoding="utf-8") as f:
-        json.dump(compile_result, f, ensure_ascii=False, indent=2)
+        json.dump(sanitized_result, f, ensure_ascii=False, indent=2)
     with open(os.path.join(target_dir, "compile.log.txt"), "w", encoding="utf-8") as f:
-        f.write(compile_result.get("error", "") or ("编译成功" if compile_result.get("compilable") else ""))
+        f.write(sanitized_result.get("error", "") or ("编译成功" if sanitized_result.get("compilable") else ""))
 
 
 def load_runner_artifacts(case_dir: str) -> tuple:

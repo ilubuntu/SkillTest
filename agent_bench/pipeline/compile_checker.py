@@ -6,6 +6,8 @@
 
 import os
 import json
+import argparse
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -19,14 +21,11 @@ WINDOWS_RESERVED_NAMES = {
     *(f"com{i}" for i in range(1, 10)),
     *(f"lpt{i}" for i in range(1, 10)),
 }
-
-
-def _external_stage_meta_dir(project_root: str) -> str:
-    parent = os.path.dirname(project_root)
-    stage = os.path.basename(project_root)
-    meta_dir = os.path.join(parent, f"{stage}_meta")
-    os.makedirs(meta_dir, exist_ok=True)
-    return meta_dir
+TOOLCHAIN_ENV_NODE = "AGENT_BENCH_NODE_BIN"
+TOOLCHAIN_ENV_HVIGOR = "AGENT_BENCH_HVIGOR_JS"
+TOOLCHAIN_ENV_JAVA = "AGENT_BENCH_JAVA_HOME"
+TOOLCHAIN_ENV_SDK = "AGENT_BENCH_HARMONYOS_SDK"
+TOOLCHAIN_ENV_SDK_LEGACY = "AGENT_BENCH_SDK_ROOT"
 
 
 def _external_stage_cache_dir(project_root: str) -> str:
@@ -35,6 +34,12 @@ def _external_stage_cache_dir(project_root: str) -> str:
     cache_dir = os.path.join(parent, f"{stage}_cache")
     os.makedirs(cache_dir, exist_ok=True)
     return cache_dir
+
+
+def _cleanup_external_stage_cache_dir(project_root: str):
+    cache_dir = os.path.join(os.path.dirname(project_root), f"{os.path.basename(project_root)}_cache")
+    if os.path.exists(cache_dir):
+        shutil.rmtree(cache_dir, ignore_errors=True)
 
 
 def _is_reserved_windows_name(name: str) -> bool:
@@ -81,52 +86,6 @@ def _copy_template(src: str, dest: str):
     shutil.copytree(src, dest, ignore=_ignore)
 
 
-def _collect_project_files(root: str) -> Dict[str, str]:
-    """收集工程文件快照（相对路径 -> 绝对路径）"""
-    file_map: Dict[str, str] = {}
-    for current_root, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in IGNORED_COMPARE_DIRS and not _is_reserved_windows_name(d)]
-        for name in files:
-            if name in {"oh-package-lock.json5", "opencode.json"} or _is_reserved_windows_name(name):
-                continue
-            abs_path = os.path.join(current_root, name)
-            try:
-                rel_path = os.path.relpath(abs_path, root)
-            except ValueError:
-                continue
-            file_map[rel_path] = abs_path
-    return file_map
-
-
-def _diff_project_files(original_root: str, final_root: str) -> list:
-    """比较原始工程和最终工程，返回发生变化的相对路径列表"""
-    before_files = _collect_project_files(original_root)
-    after_files = _collect_project_files(final_root)
-    changed = set()
-
-    for rel_path in sorted(set(before_files) | set(after_files)):
-        before_path = before_files.get(rel_path)
-        after_path = after_files.get(rel_path)
-        if before_path is None or after_path is None:
-            changed.add(rel_path)
-            continue
-        with open(before_path, "rb") as f:
-            before_bytes = f.read()
-        with open(after_path, "rb") as f:
-            after_bytes = f.read()
-        if before_bytes != after_bytes:
-            changed.add(rel_path)
-
-    return sorted(changed)
-
-
-def _save_changed_files(project_root: str, changed_files: list):
-    """保存最简版 changed_files 产物"""
-    meta_dir = _external_stage_meta_dir(project_root)
-    with open(os.path.join(meta_dir, "changed_files.json"), "w", encoding="utf-8") as f:
-        json.dump({"changed_files": changed_files}, f, ensure_ascii=False, indent=2)
-
-
 def prepare_project_workspace(template_project_path: str, workspace_dir: str):
     """将 original_project 复制到指定 side 目录。"""
     if not template_project_path:
@@ -142,7 +101,7 @@ def prepare_project_workspace(template_project_path: str, workspace_dir: str):
 def check_project_compilable(project_path: str,
                              timeout: int = 300,
                              template_project_path: str = None) -> Dict[str, Any]:
-    """直接编译 side 工程目录，并基于 original_project 记录 changed_files。"""
+    """直接编译 side 工程目录。"""
     if not os.path.isdir(project_path):
         return {
             "compilable": False,
@@ -151,9 +110,6 @@ def check_project_compilable(project_path: str,
         }
 
     is_success, error_msg = _compile_project(project_path, timeout=timeout)
-    if template_project_path and os.path.isdir(template_project_path):
-        changed_files = _diff_project_files(template_project_path, project_path)
-        _save_changed_files(project_path, changed_files)
 
     if not is_success:
         print(f"[COMPILE ERROR] error_msg={error_msg[:200]}")
@@ -165,86 +121,255 @@ def check_project_compilable(project_path: str,
     }
 
 
-def _find_deveco_base() -> str:
-    """查找 DevEco Studio 的工具根目录
-
-    优先读取 config.yaml 的 deveco_path，未配置则按平台自动探测。
-    """
-    import platform
+def _load_harmony_toolchain_config() -> dict:
     from agent_bench.pipeline.loader import load_config
+    config = load_config() or {}
+    return config.get("harmony_toolchain") or {}
 
-    config = load_config()
-    deveco_path = config.get("deveco_path")
+
+def _platform_key() -> tuple[str, str]:
     system = platform.system()
-
-    if deveco_path:
-        deveco_path = deveco_path.rstrip("/\\")
-        if system == "Darwin" and not deveco_path.endswith("Contents"):
-            candidate = os.path.join(deveco_path, "Contents")
-            if os.path.isdir(os.path.join(candidate, "tools")):
-                return candidate
-        if os.path.isdir(os.path.join(deveco_path, "tools")):
-            return deveco_path
-        return deveco_path
-
     if system == "Darwin":
-        candidates = [
+        return system, "macos"
+    if system == "Linux":
+        return system, "linux"
+    if system == "Windows":
+        return system, "windows"
+    raise RuntimeError(f"暂不支持的平台: {system}")
+
+
+def _normalize_path(path: str) -> str:
+    raw = str(path or "").strip()
+    if not raw:
+        return ""
+    return os.path.normpath(os.path.expandvars(os.path.expanduser(raw)))
+
+
+def _java_executable_path(java_home: str) -> str:
+    _, platform_name = _platform_key()
+    executable = "java.exe" if platform_name == "windows" else "java"
+    return os.path.join(java_home, "bin", executable)
+
+
+def _toolchain_record(node: str, hvigor: str, harmonyos_sdk: str, java_home: str, source: str) -> Dict[str, str]:
+    return {
+        "node": _normalize_path(node),
+        "hvigor": _normalize_path(hvigor),
+        "harmonyos_sdk": _normalize_path(harmonyos_sdk),
+        "java_home": _normalize_path(java_home),
+        "source": source,
+    }
+
+
+def _resolve_ohpm_path(toolchain: Dict[str, str]) -> str:
+    """根据当前工具链位置推导 ohpm 可执行路径。"""
+    node_path = _normalize_path(toolchain.get("node", ""))
+    hvigor_path = _normalize_path(toolchain.get("hvigor", ""))
+    _, platform_name = _platform_key()
+
+    candidates: list[str] = []
+    if platform_name == "macos":
+        # .../Contents/tools/node/bin/node -> .../Contents/tools/ohpm/bin/ohpm
+        contents_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(node_path))))
+        candidates.extend([
+            os.path.join(contents_root, "tools", "ohpm", "bin", "ohpm"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(hvigor_path))), "ohpm", "bin", "ohpm"),
+        ])
+    elif platform_name == "linux":
+        base = os.path.dirname(os.path.dirname(os.path.dirname(hvigor_path)))
+        candidates.extend([
+            os.path.join(base, "ohpm", "bin", "ohpm"),
+            os.path.join(base, "tool", "ohpm", "bin", "ohpm"),
+            os.path.join(base, "tools", "ohpm", "bin", "ohpm"),
+        ])
+    else:
+        base = os.path.dirname(os.path.dirname(os.path.dirname(hvigor_path)))
+        candidates.extend([
+            os.path.join(base, "ohpm", "bin", "ohpm.bat"),
+            os.path.join(base, "ohpm", "bin", "ohpm.cmd"),
+            os.path.join(base, "tools", "ohpm", "bin", "ohpm.bat"),
+            os.path.join(base, "tools", "ohpm", "bin", "ohpm.cmd"),
+        ])
+
+    seen = set()
+    for candidate in candidates:
+        normalized = _normalize_path(candidate)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            if os.path.isfile(normalized):
+                return normalized
+    return ""
+
+
+def _validate_toolchain_record(record: Dict[str, str]) -> list[str]:
+    problems = []
+    if not os.path.isfile(record.get("node", "")):
+        problems.append(f"node 不存在: {record.get('node', '')}")
+    if not os.path.isfile(record.get("hvigor", "")):
+        problems.append(f"hvigor 不存在: {record.get('hvigor', '')}")
+    if not os.path.isdir(record.get("harmonyos_sdk", "")):
+        problems.append(f"harmonyos_sdk 不存在: {record.get('harmonyos_sdk', '')}")
+    java_home = record.get("java_home", "")
+    if not os.path.isdir(java_home):
+        problems.append(f"java_home 不存在: {java_home}")
+    elif not os.path.isfile(_java_executable_path(java_home)):
+        problems.append(f"java 可执行文件不存在: {_java_executable_path(java_home)}")
+    return problems
+
+
+def _configured_toolchain_candidates() -> list[Dict[str, str]]:
+    _, platform_name = _platform_key()
+    toolchain_config = _load_harmony_toolchain_config()
+    section = toolchain_config.get(platform_name) or {}
+    if not isinstance(section, dict):
+        return []
+    required_values = [
+        section.get("node"),
+        section.get("hvigor"),
+        section.get("harmonyos_sdk"),
+        section.get("java_home"),
+    ]
+    if not any(str(item or "").strip() for item in required_values):
+        return []
+    return [
+        _toolchain_record(
+            section.get("node", ""),
+            section.get("hvigor", ""),
+            section.get("harmonyos_sdk", ""),
+            section.get("java_home", ""),
+            f"config:{platform_name}",
+        )
+    ]
+
+
+def _auto_detect_toolchain_candidates() -> list[Dict[str, str]]:
+    _, platform_name = _platform_key()
+    candidates: list[Dict[str, str]] = []
+
+    if platform_name == "macos":
+        base_candidates = [
             "/Applications/DevEco-Studio.app/Contents",
+            "/Applications/DevEco-Studio.app",
         ]
-    elif system == "Linux":
-        candidates = [
+        for base in base_candidates:
+            base = _normalize_path(base)
+            if base.endswith(".app"):
+                base = os.path.join(base, "Contents")
+            candidates.append(_toolchain_record(
+                os.path.join(base, "tools", "node", "bin", "node"),
+                os.path.join(base, "tools", "hvigor", "bin", "hvigorw.js"),
+                os.path.join(base, "sdk"),
+                os.path.join(base, "jbr", "Contents", "Home"),
+                f"auto:{base}",
+            ))
+        return candidates
+
+    if platform_name == "linux":
+        base_candidates = [
             "/home/work/hmsdk/command-line-tools",
             "/usr/local/hmsdk/command-line-tools",
         ]
-    else:
-        candidates = [
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Huawei", "DevEco Studio"),
-            os.path.join(os.environ.get("ProgramFiles", ""), "Huawei", "DevEco Studio"),
-            r"C:\DevEco Studio",
-            r"D:\DevEco Studio",
-            r"D:\deveco\DevEco Studio",
+        java_candidates = []
+        for item in [
+            os.environ.get("JAVA_HOME", ""),
+            "/usr/lib/jvm/java-11-openjdk-amd64",
+            "/usr/lib/jvm/java-17-openjdk-amd64",
+        ]:
+            value = _normalize_path(item)
+            if value and value not in java_candidates:
+                java_candidates.append(value)
+        node_rel_candidates = [
+            os.path.join("tool", "node", "bin", "node"),
+            os.path.join("tools", "node", "bin", "node"),
         ]
+        hvigor_rel_candidates = [
+            os.path.join("hvigor", "bin", "hvigorw.js"),
+            os.path.join("tools", "hvigor", "bin", "hvigorw.js"),
+        ]
+        for base in base_candidates:
+            base = _normalize_path(base)
+            for node_rel in node_rel_candidates:
+                for hvigor_rel in hvigor_rel_candidates:
+                    for java_home in java_candidates:
+                        candidates.append(_toolchain_record(
+                            os.path.join(base, node_rel),
+                            os.path.join(base, hvigor_rel),
+                            os.path.join(base, "sdk"),
+                            java_home,
+                            f"auto:{base}",
+                        ))
+        return candidates
 
-    for c in candidates:
-        if c and os.path.isdir(os.path.join(c, "tools")):
-            return c
+    base_candidates = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Huawei", "DevEco Studio"),
+        os.path.join(os.environ.get("ProgramFiles", ""), "Huawei", "DevEco Studio"),
+        r"C:\Program Files\Huawei\DevEco Studio",
+        r"C:\DevEco Studio",
+        r"D:\DevEco Studio",
+        r"D:\deveco\DevEco Studio",
+    ]
+    for base in base_candidates:
+        base = _normalize_path(base)
+        if not base:
+            continue
+        candidates.append(_toolchain_record(
+            os.path.join(base, "tools", "node", "node.exe"),
+            os.path.join(base, "tools", "hvigor", "bin", "hvigorw.js"),
+            os.path.join(base, "sdk"),
+            os.path.join(base, "jbr"),
+            f"auto:{base}",
+        ))
+    return candidates
 
-    if system == "Darwin":
-        return "/Applications/DevEco-Studio.app/Contents"
-    elif system == "Linux":
-        return "/home/work/hmsdk/command-line-tools"
-    return r"C:\Program Files\Huawei\DevEco Studio"
+
+def resolve_harmony_toolchain() -> Dict[str, str]:
+    """
+    解析当前平台的 HarmonyOS 工具链。
+
+    优先使用 config.yaml 中当前平台的显式配置；若配置不完整或不存在，且 auto_detect=true，
+    则按平台默认目录自动探测。启动阶段如果仍然找不到完整工具链，应直接失败，不允许服务继续启动。
+    """
+    toolchain_config = _load_harmony_toolchain_config()
+    auto_detect = bool(toolchain_config.get("auto_detect", True))
+    checked_candidates = []
+
+    for candidate in _configured_toolchain_candidates():
+        problems = _validate_toolchain_record(candidate)
+        if not problems:
+            return candidate
+        checked_candidates.append((candidate.get("source", "config"), problems))
+
+    if auto_detect:
+        for candidate in _auto_detect_toolchain_candidates():
+            problems = _validate_toolchain_record(candidate)
+            if not problems:
+                return candidate
+            checked_candidates.append((candidate.get("source", "auto"), problems))
+
+    details = []
+    for source, problems in checked_candidates[:8]:
+        details.append(f"{source}: " + "；".join(problems))
+    detail_text = "\n".join(details) if details else "未找到任何可用候选路径。"
+    hint = "已尝试自动探测。" if auto_detect else "已禁用自动探测。"
+    raise RuntimeError(f"HarmonyOS 工具链检查失败。{hint}\n{detail_text}")
 
 
-def _find_deveco_paths() -> Dict[str, str]:
-    """基于 DevEco Studio 根目录，构造各工具的完整路径"""
-    import platform
-    system = platform.system()
-    deveco_base = _find_deveco_base()
-
-    if system == "Darwin":
-        node = os.path.join(deveco_base, "tools", "node", "bin", "node")
-        hvigor = os.path.join(deveco_base, "tools", "hvigor", "bin", "hvigorw.js")
-        java = os.path.join(deveco_base, "jbr", "Contents", "Home")
-        sdk = os.path.join(deveco_base, "sdk")
-    elif system == "Linux":
-        node = os.path.join(deveco_base, "tool", "node", "bin", "node")
-        hvigor = os.path.join(deveco_base, "hvigor", "bin", "hvigorw.js")
-        java_home = os.environ.get("JAVA_HOME") or "/usr/lib/jvm/java-11-openjdk-amd64"
-        java = java_home
-        sdk = os.path.join(deveco_base, "sdk")
-    else:
-        node = os.path.join(deveco_base, "tools", "node", "node.exe")
-        hvigor = os.path.join(deveco_base, "tools", "hvigor", "bin", "hvigorw.js")
-        java = os.path.join(deveco_base, "jbr")
-        sdk = os.path.join(deveco_base, "sdk")
-
+def build_harmony_toolchain_env(toolchain: Dict[str, str] | None = None) -> Dict[str, str]:
+    toolchain = toolchain or resolve_harmony_toolchain()
     return {
-        "node": node,
-        "hvigor": hvigor,
-        "java": java,
-        "sdk": sdk,
+        TOOLCHAIN_ENV_NODE: toolchain["node"],
+        TOOLCHAIN_ENV_HVIGOR: toolchain["hvigor"],
+        TOOLCHAIN_ENV_JAVA: toolchain["java_home"],
+        TOOLCHAIN_ENV_SDK: toolchain["harmonyos_sdk"],
+        TOOLCHAIN_ENV_SDK_LEGACY: toolchain["harmonyos_sdk"],
     }
+
+
+def apply_harmony_toolchain_env(toolchain: Dict[str, str] | None = None) -> Dict[str, str]:
+    toolchain = toolchain or resolve_harmony_toolchain()
+    for key, value in build_harmony_toolchain_env(toolchain).items():
+        os.environ[key] = value
+    return toolchain
 
 
 def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Dict[str, str]:
@@ -263,14 +388,15 @@ def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Di
     os.makedirs(npm_cache_root, exist_ok=True)
     os.makedirs(corepack_home, exist_ok=True)
 
-    env["DEVECO_SDK_HOME"] = paths["sdk"]
-    env["HARMONYOS_SDK"] = paths["sdk"]
-    env["JAVA_HOME"] = paths["java"]
+    env["DEVECO_SDK_HOME"] = paths["harmonyos_sdk"]
+    env["HARMONYOS_SDK"] = paths["harmonyos_sdk"]
+    env["JAVA_HOME"] = paths["java_home"]
     env["PATH"] = (
-        os.path.join(paths["java"], "bin") + os.pathsep
+        os.path.join(paths["java_home"], "bin") + os.pathsep
         + os.path.dirname(paths["node"]) + os.pathsep
         + env.get("PATH", "")
     )
+    env.update(build_harmony_toolchain_env(paths))
     env["HOME"] = home_root
     env["USERPROFILE"] = home_root
     env["LOCALAPPDATA"] = local_appdata_root
@@ -285,13 +411,13 @@ def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Di
     env["npm_config_prefer_offline"] = "false"
     env.pop("NODE_HOME", None)
     env.pop("HVIGOR_APP_HOME", None)
-
-    proxy = env.get("HTTPS_PROXY") or env.get("https_proxy") or env.get("HTTP_PROXY") or env.get("http_proxy")
-    if proxy:
-        env.setdefault("NPM_CONFIG_HTTPS_PROXY", proxy)
-        env.setdefault("npm_config_https_proxy", proxy)
-        env.setdefault("NPM_CONFIG_PROXY", proxy)
-        env.setdefault("npm_config_proxy", proxy)
+    for key in (
+        "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+        "NPM_CONFIG_PROXY", "NPM_CONFIG_HTTPS_PROXY",
+        "npm_config_proxy", "npm_config_https_proxy",
+    ):
+        env.pop(key, None)
 
     original_userprofile = os.environ.get("USERPROFILE") or ""
     if original_userprofile:
@@ -310,29 +436,45 @@ def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Di
 
 def build_agent_workspace_env(project_path: str) -> Dict[str, str]:
     """构造给 agent 进程复用的 HarmonyOS/DevEco 工作区环境。"""
-    paths = _find_deveco_paths()
+    paths = resolve_harmony_toolchain()
     env = _build_workspace_compile_env(project_path, paths)
-    env["AGENT_BENCH_NODE_BIN"] = paths["node"]
-    env["AGENT_BENCH_HVIGOR_JS"] = paths["hvigor"]
-    env["AGENT_BENCH_JAVA_HOME"] = paths["java"]
-    env["AGENT_BENCH_SDK_ROOT"] = paths["sdk"]
     env["AGENT_BENCH_WORKSPACE_DIR"] = project_path
     return env
 
 
 def _compile_project(project_path: str, timeout: int = 300) -> Tuple[bool, str]:
     """在指定项目目录下执行 hvigor 编译"""
-    paths = _find_deveco_paths()
+    paths = resolve_harmony_toolchain()
 
     if not os.path.exists(paths["node"]):
         return False, f"DevEco Studio node 未找到: {paths['node']}"
     if not os.path.exists(paths["hvigor"]):
         return False, f"DevEco Studio hvigorw.js 未找到: {paths['hvigor']}"
-    if not os.path.exists(paths["sdk"]):
-        return False, f"DevEco Studio SDK 未找到: {paths['sdk']}"
+    if not os.path.exists(paths["harmonyos_sdk"]):
+        return False, f"DevEco Studio SDK 未找到: {paths['harmonyos_sdk']}"
 
     try:
         env = _build_workspace_compile_env(project_path, paths)
+        ohpm_path = _resolve_ohpm_path(paths)
+        if not ohpm_path:
+            return False, "DevEco Studio ohpm 未找到"
+
+        ohpm_cmd = [ohpm_path, "install", "--all"]
+        ohpm_result = subprocess.run(
+            ohpm_cmd,
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            timeout=min(timeout, 300),
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+        if ohpm_result.returncode != 0:
+            ohpm_stdout = ohpm_result.stdout or ""
+            ohpm_stderr = ohpm_result.stderr or ""
+            ohpm_output = ohpm_stdout + "\n[STDERR]\n" + ohpm_stderr if ohpm_stderr else ohpm_stdout
+            return False, f"[OHPM INSTALL FAILED]\n{ohpm_output}".strip()
 
         hvigor_cmd = [
             paths["node"], paths["hvigor"],
@@ -370,6 +512,10 @@ def _compile_project(project_path: str, timeout: int = 300) -> Tuple[bool, str]:
         return False, f"命令未找到: {paths['node']}"
     except Exception as e:
         return False, f"编译异常: {str(e)}"
+    finally:
+        # `workspace_cache/` 只承载本轮编译进程的 HOME/TMP/npm/corepack 隔离目录，
+        # 编译结束后就没有保留价值了。
+        _cleanup_external_stage_cache_dir(project_path)
 
 
 def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
@@ -422,9 +568,6 @@ def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
                 f.write(cleaned_code)
 
         is_success, error_msg = _compile_project(sandbox, timeout=timeout)
-        if case_dir:
-            changed_files = _diff_project_files(template_path, sandbox)
-            _save_changed_files(case_dir, changed_files)
 
         if not is_success:
             print(f"[COMPILE ERROR] error_msg={error_msg[:200]}")
@@ -437,3 +580,20 @@ def check_compilable(code: str, timeout: int = 300, case_dir: str = None,
     finally:
         if tmp_parent:
             shutil.rmtree(tmp_parent, ignore_errors=True)
+
+
+def _main():
+    parser = argparse.ArgumentParser(description="HarmonyOS 工具链检测")
+    parser.add_argument("--print-env", action="store_true", help="输出启动 OpenCode/执行器所需的环境变量")
+    args = parser.parse_args()
+
+    toolchain = resolve_harmony_toolchain()
+    if args.print_env:
+        for key, value in build_harmony_toolchain_env(toolchain).items():
+            print(f"{key}={value}")
+        return
+    print(json.dumps(toolchain, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    _main()

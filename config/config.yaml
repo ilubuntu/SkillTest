@@ -1,8 +1,73 @@
-deveco_path: "/home/work/hmsdk/command-line-tools"
+# HarmonyOS 工具链配置。
+# 程序启动时会优先读取当前平台配置，并校验以下 4 个路径是否真实可用：
+# - node
+# - hvigor
+# - harmonyos_sdk
+# - java_home
+# 如果当前平台配置无效且 auto_detect=true，会继续自动探测；
+# 自动探测后仍失败，执行器将直接拒绝启动。
+harmony_toolchain:
+  # 为 true 时，当前平台配置不通过后继续自动探测。
+  # 为 false 时，只认下方显式配置，配置错误将直接启动失败。
+  auto_detect: true
 
+  # macOS 环境，一般填写 DevEco Studio.app 内部实际路径。
+  macos:
+    node: "/Applications/DevEco-Studio.app/Contents/tools/node/bin/node"
+    hvigor: "/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw.js"
+    harmonyos_sdk: "/Applications/DevEco-Studio.app/Contents/sdk"
+    java_home: "/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home"
+
+  # Linux 云测服务器环境，一般填写 command-line-tools 路径。
+  # 如果服务器没有安装 DevEco Studio，而是只装了 command-line-tools，
+  # 重点确认这 4 个路径都真实存在。
+  linux:
+    node: "/home/work/hmsdk/command-line-tools/tool/node/bin/node"
+    hvigor: "/home/work/hmsdk/command-line-tools/hvigor/bin/hvigorw.js"
+    harmonyos_sdk: "/home/work/hmsdk/command-line-tools/sdk"
+    java_home: "/usr/lib/jvm/java-11-openjdk-amd64"
+
+  # Windows 环境，一般填写 DevEco Studio 安装目录下的实际路径。
+  windows:
+    node: "C:\\Program Files\\Huawei\\DevEco Studio\\tools\\node\\node.exe"
+    hvigor: "C:\\Program Files\\Huawei\\DevEco Studio\\tools\\hvigor\\bin\\hvigorw.js"
+    harmonyos_sdk: "C:\\Program Files\\Huawei\\DevEco Studio\\sdk"
+    java_home: "C:\\Program Files\\Huawei\\DevEco Studio\\jbr"
+
+# 任务管理配置。
 task_manager:
+  # 最大并发执行数。
+  # 超过该值的新任务会进入等待队列，不会被直接丢弃。
   max_concurrency: 3
+
+  # 云测管理台地址。
+  # 执行器会向该地址上报任务进度和最终结果。
   cloud_base_url: "http://47.100.28.161:3000"
+
+# 日志配置。
+# 这些配置控制执行器自己的日志文件，不影响业务结果。
+logging:
+  # 日志级别。通常保持 INFO 即可。
+  level: "INFO"
+
+  # 进程级总日志文件名，位于 logs/ 目录下。
+  executor_log_filename: "agent_bench.log"
+
+  # 当前总日志指针文件名，位于 logs/ 目录下。
+  # 里面只保存当前总日志文件的实际路径。
+  current_executor_log_filename: "current_executor_log"
+
+  # 单个任务目录下的详细日志文件名。
+  # 每个 execution 会在 results/execution_xxx/ 下生成这份文件。
+  local_execution_log_filename: "local_execution.log"
+
+  # 总日志滚动周期。
+  # H 表示按小时滚动。
+  rotation_when: "H"
+
+  # 最多保留多少份历史滚动日志。
+  # 当前按小时滚动，因此 72 表示大约保留最近 72 小时（3 天）。
+  backup_count: 72
 
 # OpenCode 权限配置提醒：
 # 当前程序不会自动把下面的配置写入 ~/.opencode/opencode.json。

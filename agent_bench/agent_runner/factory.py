@@ -19,7 +19,7 @@ def create_adapter(agent: dict,
             on_progress("log", {"level": level, "message": message})
 
     emit("WARNING", "检查 OpenCode 服务状态...")
-    api_base = ensure_opencode_server(proxy_config=agent.get("opencode_proxy"))
+    api_base = ensure_opencode_server()
     if check_api_available(api_base):
         emit("INFO", f"OpenCode 服务已就绪: {api_base}")
     else:

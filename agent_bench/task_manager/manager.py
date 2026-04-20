@@ -25,7 +25,7 @@ from agent_bench.cloud_api.models import CloudExecutionStartRequest, LocalCaseRu
 from agent_bench.case_generation import generate_case_from_text
 from agent_bench.pipeline.case_runner import run_single_case
 from agent_bench.pipeline.constraint_adapter import sanitize_constraints_for_semantic_review
-from agent_bench.pipeline.loader import load_agent, load_agents, load_config
+from agent_bench.pipeline.loader import load_agent, load_agents, load_config, load_logging_config
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir
 from agent_bench.task_manager.artifacts import TaskArtifactUploader
 from agent_bench.task_manager.progress import TaskProgressTracker
@@ -237,6 +237,19 @@ def _prepare_project_from_file_url(file_url: str, target_dir: str, on_progress=N
     _emit_prepare_log(on_progress, f"工程包已解压到任务执行沙箱: {extract_dir}")
 
     return _find_project_root(extract_dir)
+
+
+def _cleanup_download_source_dir(source_dir: str, on_progress=None):
+    """
+    `_download/` 只承担下载和解压中转职责。
+
+    一旦原始工程已经复制到 `original/`，后续主流程只会再使用 `original/`
+    和由其派生出来的 `workspace/`，中转目录就没有保留价值了。
+    """
+    if not source_dir or not os.path.exists(source_dir):
+        return
+    shutil.rmtree(source_dir, ignore_errors=True)
+    _emit_prepare_log(on_progress, f"已清理下载中转目录: {source_dir}")
 
 
 class CloudExecutionManager:
@@ -477,7 +490,10 @@ class CloudExecutionManager:
                 self._progress.append_conversation(state, "status", "任务开始执行")
                 self._progress.append_execution_detail(state, STAGE_PENDING, f"任务已接收，等待执行 (executor_id={state.get('execution_id')})")
                 self._progress.append_execution_detail(state, STAGE_PREPARING, f"本地产物目录: {run_dir}")
-                executor_log = os.path.join(run_dir, "local_execution.log")
+                executor_log = os.path.join(
+                    run_dir,
+                    str(load_logging_config().get("local_execution_log_filename") or "local_execution.log"),
+                )
                 if executor_log:
                     self._progress.append_execution_detail(state, STAGE_PREPARING, f"可用 tail -f {executor_log} 查看实时执行日志")
             downloaded_project_root = _prepare_project_from_file_url(payload.testCase.fileUrl, source_dir, on_progress=on_progress)
@@ -486,6 +502,7 @@ class CloudExecutionManager:
                 shutil.rmtree(original_dir)
             shutil.copytree(downloaded_project_root, original_dir)
             _emit_prepare_log(on_progress, f"原始工程已准备完成: {original_dir}")
+            _cleanup_download_source_dir(source_dir, on_progress=on_progress)
             raw_input = (payload.testCase.input or "").strip()
             raw_expected_output = (payload.testCase.expectedOutput or "").strip()
             input_text = raw_input

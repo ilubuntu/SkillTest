@@ -15,6 +15,7 @@ Use this skill to compile a HarmonyOS project from the CLI with the machine's in
 - Treat build failures as environment, SDK, signing, or source issues to diagnose, not as permission to rewrite protected configuration.
 - Prefer read-only inspection of project config before building.
 - If a required toolchain path is outside the sandbox, request escalation rather than working around it.
+- When `AGENT_BENCH_*` environment variables exist, use them directly. Do not re-detect platform paths in that case.
 
 ## Workflow
 
@@ -22,36 +23,73 @@ Use this skill to compile a HarmonyOS project from the CLI with the machine's in
 
 Check for root files such as `build-profile.json5`, `hvigorfile.ts`, `oh-package.json5`, and module folders like `entry/src/main/module.json5`.
 
-### 2. Resolve the DevEco Studio installation
+### 2. Resolve the toolchain
 
-Detect the platform and locate the toolchain accordingly:
+Use the following priority:
+
+1. `AGENT_BENCH_*` environment variables injected by the executor
+2. Local platform fallback detection only when `AGENT_BENCH_*` is absent
+
+Required executor-injected variables:
+
+- `AGENT_BENCH_NODE_BIN`
+- `AGENT_BENCH_HVIGOR_JS`
+- `AGENT_BENCH_HARMONYOS_SDK`
+- `AGENT_BENCH_JAVA_HOME`
+
+Only when the above variables are missing should you fall back to local platform detection:
 
 **macOS:**
 - Default to `/Applications/DevEco-Studio.app/Contents`.
 - Ensure these paths exist before building:
   - `tools/node/bin/node`
   - `tools/hvigor/bin/hvigorw.js`
-  - `sdk/default`
+  - `sdk`
   - `jbr/Contents/Home`
 
 **Linux (command-line-tools):**
 - Default to `/home/work/hmsdk/command-line-tools`.
 - Ensure these paths exist before building:
-  - `tool/node/bin/node`
-  - `hvigor/bin/hvigorw.js`
-  - `sdk/default`
-- Java is NOT bundled; use system JDK. Set `JAVA_HOME` to `/usr/lib/jvm/java-11-openjdk-amd64` (or wherever JDK 11+ is installed).
+  - `tool/node/bin/node` or `tools/node/bin/node`
+  - `hvigor/bin/hvigorw.js` or `tools/hvigor/bin/hvigorw.js`
+  - `sdk`
+  - system `JAVA_HOME`
 
-### 3. Build with the bundled toolchain
+**Windows:**
+- Default to `C:\Program Files\Huawei\DevEco Studio`.
+- Ensure these paths exist before building:
+  - `tools\node\node.exe`
+  - `tools\hvigor\bin\hvigorw.js`
+  - `sdk`
+  - `jbr`
 
-**macOS build command:**
+### 3. Install dependencies first
+
+Before the build command, first run one dependency installation round in the current project:
 
 ```bash
-export DEVECO_SDK_HOME="$DEVECO_PATH/Contents/sdk"
-export JAVA_HOME="$DEVECO_PATH/Contents/jbr/Contents/Home"
-export PATH="$JAVA_HOME/bin:$PATH"
-"$DEVECO_PATH/Contents/tools/node/bin/node" \
-  "$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js" \
+"/Applications/DevEco-Studio.app/Contents/tools/ohpm/bin/ohpm" install --all
+```
+
+When `AGENT_BENCH_*` is available, infer the sibling `ohpm` path from the injected DevEco toolchain root and run:
+
+```bash
+"$DETECTED_OHPM" install --all
+```
+
+Do not force `--registry` unless the environment already requires a specific mirror.
+
+### 4. Build
+
+When `AGENT_BENCH_*` is available, use this command directly:
+
+```bash
+export DEVECO_SDK_HOME="$AGENT_BENCH_HARMONYOS_SDK"
+export HARMONYOS_SDK="$AGENT_BENCH_HARMONYOS_SDK"
+export JAVA_HOME="$AGENT_BENCH_JAVA_HOME"
+export PATH="$JAVA_HOME/bin:$(dirname "$AGENT_BENCH_NODE_BIN"):$PATH"
+"$AGENT_BENCH_NODE_BIN" \
+  "$AGENT_BENCH_HVIGOR_JS" \
   --mode module \
   -p product=default \
   assembleHap \
@@ -61,14 +99,15 @@ export PATH="$JAVA_HOME/bin:$PATH"
   --daemon
 ```
 
-**Linux build command:**
+If `AGENT_BENCH_*` is absent, resolve local platform paths first, then run the same command shape:
 
 ```bash
-export DEVECO_SDK_HOME="$DEVECO_PATH/sdk"
-export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
-export PATH="$JAVA_HOME/bin:$DEVECO_PATH/tool/node/bin:$PATH"
-"$DEVECO_PATH/tool/node/bin/node" \
-  "$DEVECO_PATH/hvigor/bin/hvigorw.js" \
+export DEVECO_SDK_HOME="$DETECTED_SDK"
+export HARMONYOS_SDK="$DETECTED_SDK"
+export JAVA_HOME="$DETECTED_JAVA_HOME"
+export PATH="$JAVA_HOME/bin:$(dirname "$DETECTED_NODE"):$PATH"
+"$DETECTED_NODE" \
+  "$DETECTED_HVIGOR" \
   --mode module \
   -p product=default \
   assembleHap \
@@ -80,27 +119,29 @@ export PATH="$JAVA_HOME/bin:$DEVECO_PATH/tool/node/bin:$PATH"
 
 If the build command fails because sandbox access is blocked, rerun it with escalation and explain that DevEco Studio toolchain access is required.
 
-### 4. Stop the daemon after the build
+### 5. Stop the daemon after the build
 
-Stop the hvigor daemon after the build attempt to reduce cross-session conflicts:
+When `AGENT_BENCH_*` is available, use:
 
-**macOS:**
 ```bash
-"$DEVECO_PATH/Contents/tools/node/bin/node" \
-  "$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js" \
+"$AGENT_BENCH_NODE_BIN" \
+  "$AGENT_BENCH_HVIGOR_JS" \
   --stop-daemon
 ```
 
-**Linux:**
+Stop the hvigor daemon after the build attempt to reduce cross-session conflicts:
+
+If `AGENT_BENCH_*` is absent, use the detected local paths:
+
 ```bash
-"$DEVECO_PATH/tool/node/bin/node" \
-  "$DEVECO_PATH/hvigor/bin/hvigorw.js" \
+"$DETECTED_NODE" \
+  "$DETECTED_HVIGOR" \
   --stop-daemon
 ```
 
 Run this even after a failed build when possible.
 
-### 5. Verify build output
+### 6. Verify build output
 
 - Detect the entry module by reading `build-profile.json5` modules and checking each module's `src/main/module.json5` for `"type": "entry"`.
 - If entry detection is inconclusive, fall back to `entry`.
@@ -125,7 +166,11 @@ When deployment is requested, use the detailed guidance in [references/build-wor
 ## Response Expectations
 
 - When you actually use this skill for a build attempt, include the literal marker `[[BUILD_HARMONY_PROJECT_CALLED]]` in your final response summary.
-- State the DevEco Studio path being used.
+- State the exact toolchain paths being used:
+  - `node`
+  - `hvigor`
+  - `harmonyos_sdk`
+  - `java_home`
 - Summarize whether the build succeeded.
 - Provide the generated HAP path if present.
 - If the build failed, report the concrete failing step and the relevant error, then suggest the narrowest next action.

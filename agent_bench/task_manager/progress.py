@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 
 from agent_bench.cloud_api.client import report_status
 from agent_bench.cloud_api.converter import build_status_payload, map_internal_status_to_remote
+from agent_bench.pipeline.loader import load_logging_config
 from agent_bench.task_manager.state import now_iso
 
 STATUS_PUSH_DETAIL_FLUSH_SECONDS = 3.0
@@ -24,6 +25,10 @@ STAGE_STATIC_SCORING = "static_scoring"
 STAGE_COMPLETED = "completed"
 
 logger = logging.getLogger("agent_bench.executor")
+
+
+def local_execution_log_filename() -> str:
+    return str(load_logging_config().get("local_execution_log_filename") or "local_execution.log")
 
 
 def _now_stage_time() -> str:
@@ -124,7 +129,7 @@ class TaskProgressTracker:
         run_dir = str(state.get("run_dir") or "").strip()
         if not run_dir:
             return ""
-        return os.path.join(run_dir, "local_execution.log")
+        return os.path.join(run_dir, local_execution_log_filename())
 
     def write_execution_log(self, state: Dict[str, Any], level: str, message: str):
         # 每个 execution 都维护一份独立文本日志，方便并发任务单独排查。

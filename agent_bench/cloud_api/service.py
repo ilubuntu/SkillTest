@@ -430,6 +430,19 @@ def _prepare_project_from_file_url(file_url: str, target_dir: str, on_progress=N
     return _find_project_root(extract_dir)
 
 
+def _cleanup_download_source_dir(source_dir: str, on_progress=None):
+    """
+    `_download/` 只承担下载和解压中转职责。
+
+    一旦原始工程已经复制到 `original/`，后续主流程只会再使用 `original/`
+    和由其派生出来的 `workspace/`，中转目录就没有保留价值了。
+    """
+    if not source_dir or not os.path.exists(source_dir):
+        return
+    shutil.rmtree(source_dir, ignore_errors=True)
+    _emit_prepare_log(on_progress, f"已清理下载中转目录: {source_dir}")
+
+
 class CloudExecutionManager:
     def __init__(self):
         self._lock = threading.Lock()
@@ -1212,6 +1225,7 @@ class CloudExecutionManager:
                 shutil.rmtree(original_dir)
             shutil.copytree(downloaded_project_root, original_dir)
             _emit_prepare_log(on_progress, f"原始工程已准备完成: {original_dir}")
+            _cleanup_download_source_dir(source_dir, on_progress=on_progress)
             raw_input = (payload.testCase.input or "").strip()
             raw_expected_output = (payload.testCase.expectedOutput or "").strip()
             input_text = raw_input

@@ -34,6 +34,15 @@ AGENTS_DIR = _external_config_dir()
 TEST_CASES_REGISTRY_PATH = os.path.join(BASE_DIR, "test_cases", "test_cases.yaml")
 AGENTS_REGISTRY_PATH = os.path.join(AGENTS_DIR, "agents.yaml")
 
+DEFAULT_LOGGING_CONFIG = {
+    "level": "INFO",
+    "executor_log_filename": "agent_bench.log",
+    "current_executor_log_filename": "current_executor_log",
+    "local_execution_log_filename": "local_execution.log",
+    "rotation_when": "H",
+    "backup_count": 72,
+}
+
 # ── 缓存（避免重复加载） ─────────────────────────────────────
 
 _registry_cache = {
@@ -49,6 +58,21 @@ def load_yaml(file_path: str) -> dict:
     import yaml
     with open(file_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def load_logging_config() -> dict:
+    config = load_config() or {}
+    logging_config = config.get("logging") if isinstance(config, dict) else {}
+    result = dict(DEFAULT_LOGGING_CONFIG)
+    if isinstance(logging_config, dict):
+        for key in DEFAULT_LOGGING_CONFIG:
+            value = logging_config.get(key)
+            if value is not None and str(value).strip() != "":
+                result[key] = value
+    result["level"] = str(result.get("level") or "INFO").upper()
+    result["backup_count"] = int(result.get("backup_count") or 72)
+    result["rotation_when"] = str(result.get("rotation_when") or "H").upper()
+    return result
 
 
 def load_file(relative_path: str) -> str:

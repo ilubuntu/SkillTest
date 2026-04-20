@@ -13,16 +13,9 @@ set "EXECUTOR_DIR=%SCRIPT_DIR%\agent_bench\executor"
 set "LOG_DIR=%SCRIPT_DIR%\logs"
 set "OPENCODE_LOG=%LOG_DIR%\opencode.log"
 set "CURRENT_EXECUTOR_LOG_FILE=%LOG_DIR%\current_executor_log"
-set "OPENCODE_RUNTIME_DIR=%SCRIPT_DIR%\.opencode_runtime"
-set "OPENCODE_XDG_CONFIG_HOME=%OPENCODE_RUNTIME_DIR%\xdg_config"
 set "BACKEND_LOG="
 set "PYTHON_CMD="
 set "AUTO_PAUSE_ON_FAILURE=0"
-set "OPENCODE_HTTP_PROXY="
-set "OPENCODE_HTTPS_PROXY="
-set "OPENCODE_ALL_PROXY="
-set "OPENCODE_NO_PROXY="
-set "OPENCODE_USE_PROXY=0"
 
 set "ACTION=%~1"
 if not defined ACTION (
@@ -56,7 +49,6 @@ exit /b 0
 
 :ensure_log_dir
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
-if not exist "%OPENCODE_XDG_CONFIG_HOME%" mkdir "%OPENCODE_XDG_CONFIG_HOME%"
 exit /b 0
 
 :resolve_python
@@ -117,44 +109,6 @@ if exist "%CURRENT_EXECUTOR_LOG_FILE%" (
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$f = Get-ChildItem -Path '%LOG_DIR%' -Filter 'agent_bench_*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName; if ($f) { Write-Output $f }"`) do set "BACKEND_LOG=%%I"
 exit /b 0
 
-:load_opencode_proxy_config
-set "OPENCODE_HTTP_PROXY="
-set "OPENCODE_HTTPS_PROXY="
-set "OPENCODE_ALL_PROXY="
-set "OPENCODE_NO_PROXY="
-set "OPENCODE_USE_PROXY=0"
-set "AGENTS_CONFIG=%SCRIPT_DIR%\config\agents.yaml"
-if not exist "%AGENTS_CONFIG%" exit /b 0
-
-for /f "usebackq tokens=1,* delims==" %%A in (`call %PYTHON_CMD% -c "import sys,yaml; data=yaml.safe_load(open(sys.argv[1], encoding='utf-8')) or {}; agents=data.get('agents') or []; proxy=next(((agent.get('opencode_proxy') or {}) for agent in agents if isinstance(agent, dict) and isinstance(agent.get('opencode_proxy') or {}, dict) and (agent.get('opencode_proxy') or {})), {}); print('http_proxy=' + str(proxy.get('http_proxy') or '').strip()); print('https_proxy=' + str(proxy.get('https_proxy') or '').strip()); print('all_proxy=' + str(proxy.get('all_proxy') or '').strip()); print('no_proxy=' + str(proxy.get('no_proxy') or '').strip())" "%AGENTS_CONFIG%" 2^>nul`) do (
-    if /I "%%A"=="http_proxy" set "OPENCODE_HTTP_PROXY=%%B"
-    if /I "%%A"=="https_proxy" set "OPENCODE_HTTPS_PROXY=%%B"
-    if /I "%%A"=="all_proxy" set "OPENCODE_ALL_PROXY=%%B"
-    if /I "%%A"=="no_proxy" set "OPENCODE_NO_PROXY=%%B"
-)
-exit /b 0
-
-:select_opencode_network_mode
-set "OPENCODE_USE_PROXY=0"
-call :info "Checking OpenCode network path..."
-powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -UseBasicParsing -Uri 'https://models.dev' -TimeoutSec 6 > $null; exit 0 } catch { exit 1 }" >nul 2>&1
-if not errorlevel 1 (
-    call :info "OpenCode will use direct network access."
-    exit /b 0
-)
-
-if defined OPENCODE_HTTP_PROXY (
-    powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try { $proxy = New-Object System.Net.WebProxy('http://127.0.0.1:7890'); $req = [System.Net.WebRequest]::Create('https://models.dev'); $req.Proxy = $proxy; $req.Timeout = 6000; $resp = $req.GetResponse(); $resp.Close(); exit 0 } catch { exit 1 }" >nul 2>&1
-    if not errorlevel 1 (
-        set "OPENCODE_USE_PROXY=1"
-        call :info "OpenCode will use proxy network access."
-        exit /b 0
-    )
-)
-
-call :warn "Direct network and proxy preflight both failed; OpenCode will start with direct network as fallback."
-exit /b 0
-
 :refresh_executor_log_file
 set "BACKEND_LOG="
 call :resolve_executor_log_file
@@ -182,43 +136,6 @@ powershell -NoProfile -Command "$root = Join-Path $env:USERPROFILE '.local\\shar
 if not errorlevel 1 (
     call :warn "Removed stale OpenCode snapshot lock files."
 )
-exit /b 0
-
-:start_opencode
-call :info "Starting OpenCode Server on port %OPENCODE_PORT%..."
-call :is_opencode_healthy
-if not errorlevel 1 (
-    call :info "OpenCode Server is already running."
-    exit /b 0
-)
-
-call :kill_port %OPENCODE_PORT%
-call :cleanup_opencode_snapshot_locks
-call :ensure_log_dir
-if not exist "%OPENCODE_LOG%" type nul > "%OPENCODE_LOG%"
-call :select_opencode_network_mode
-
-if "%OPENCODE_USE_PROXY%"=="1" (
-    call :info "OpenCode Server will use isolated config dir: %OPENCODE_XDG_CONFIG_HOME%"
-    call :info "OpenCode Server will use proxy environment (NO_PROXY=%OPENCODE_NO_PROXY%)"
-    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && set XDG_CONFIG_HOME=%OPENCODE_XDG_CONFIG_HOME% && set http_proxy=%OPENCODE_HTTP_PROXY% && set https_proxy=%OPENCODE_HTTPS_PROXY% && set HTTP_PROXY=%OPENCODE_HTTP_PROXY% && set HTTPS_PROXY=%OPENCODE_HTTPS_PROXY% && set all_proxy=%OPENCODE_ALL_PROXY% && set ALL_PROXY=%OPENCODE_ALL_PROXY% && set no_proxy=%OPENCODE_NO_PROXY% && set NO_PROXY=%OPENCODE_NO_PROXY% && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
- ) else (
-    call :info "OpenCode Server will use isolated config dir: %OPENCODE_XDG_CONFIG_HOME%"
-    call :info "OpenCode Server will start without proxy environment"
-    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && set XDG_CONFIG_HOME=%OPENCODE_XDG_CONFIG_HOME% && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
- )
-
-call :info "Waiting for OpenCode Server..."
-for /L %%I in (1,1,90) do (
-    call :is_opencode_healthy
-    if not errorlevel 1 (
-        call :info "OpenCode Server started successfully."
-        exit /b 0
-    )
-    timeout /t 1 /nobreak >nul
-)
-
-call :warn "OpenCode Server may not be fully ready yet. Check %OPENCODE_LOG%"
 exit /b 0
 
 :install_python_deps
@@ -291,8 +208,6 @@ call :check_deps
 if errorlevel 1 exit /b 1
 
 call :ensure_log_dir
-call :load_opencode_proxy_config
-call :start_opencode
 call :install_python_deps
 call :start_backend
 call :is_backend_healthy
@@ -377,7 +292,6 @@ call :info "Restarting executor service only..."
 call :check_deps
 if errorlevel 1 exit /b 1
 call :ensure_log_dir
-call :load_opencode_proxy_config
 call :refresh_executor_log_file
 call :kill_port %BACKEND_PORT%
 timeout /t 1 /nobreak >nul
