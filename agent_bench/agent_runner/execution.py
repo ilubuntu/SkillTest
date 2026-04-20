@@ -36,14 +36,18 @@ class AgentRunner:
         timeout = int(self.agent_spec.timeout or 0)
         return timeout if timeout > 0 else self.fallback_timeout
 
-    def prepare(self):
+    def prepare(self, workspace_dir: str):
         self._notify("WARNING", f"开始准备 {self.agent_spec.display_name} 运行配置...")
         log_agent_configuration(self.agent_spec, self.on_progress)
-        skill_result = verify_runtime_skills(self.agent_spec, self.on_progress)
+        skill_result = verify_runtime_skills(self.agent_spec, workspace_dir, self.on_progress)
         if not skill_result.get("ok"):
             raise RuntimeError(f"{self.agent_spec.display_name} 运行前 skill 校验失败")
         if skill_result.get("mounted"):
             self._notify("INFO", "本轮已完成 skill 挂载与复检，后续将基于挂载后的状态创建 OpenCode 会话并发起 HTTP 请求")
+        if skill_result.get("config_path"):
+            self._notify("INFO", f"当前任务 OpenCode 配置文件: {skill_result.get('config_path')}")
+        if skill_result.get("skill_root"):
+            self._notify("INFO", f"当前任务 OpenCode skill 目录: {skill_result.get('skill_root')}")
         self._notify("INFO", "已采用 CLI 对齐消息组织：skill 要求仅保留在用户消息中，工程目录通过 HTTP directory 传递")
         self.adapter = create_adapter(
             self.agent_spec.raw,

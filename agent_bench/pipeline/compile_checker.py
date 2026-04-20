@@ -13,7 +13,7 @@ from typing import Dict, Tuple, Any
 
 INDEX_ETS_REL = os.path.join("entry", "src", "main", "ets", "pages", "Index.ets")
 META_DIR_NAME = ".agent_bench"
-IGNORED_COMPARE_DIRS = {"build", ".hvigor", "node_modules", "oh_modules", META_DIR_NAME}
+IGNORED_COMPARE_DIRS = {"build", ".hvigor", "node_modules", "oh_modules", ".opencode", META_DIR_NAME}
 WINDOWS_RESERVED_NAMES = {
     "con", "prn", "aux", "nul",
     *(f"com{i}" for i in range(1, 10)),
@@ -87,7 +87,7 @@ def _collect_project_files(root: str) -> Dict[str, str]:
     for current_root, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in IGNORED_COMPARE_DIRS and not _is_reserved_windows_name(d)]
         for name in files:
-            if name == "oh-package-lock.json5" or _is_reserved_windows_name(name):
+            if name in {"oh-package-lock.json5", "opencode.json"} or _is_reserved_windows_name(name):
                 continue
             abs_path = os.path.join(current_root, name)
             try:

@@ -14,10 +14,11 @@ agents:
     model: "opencode-go/glm-5"
     # model: "openai/gpt-5.4"
     # model: "bailian-coding-plan/glm-5"
+    # model: "minimax-cn-coding-plan/MiniMax-M2.7"
     mounted_skills:
       - name: "build-harmony-project"
         path: "config/skills/build-harmony-project"
-    extra_prompt: "你已挂载 build-harmony-project skill。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了build-harmony-project、总体编译次数、是否执行成功；如果失败，必须说明失败阶段和错误原因。"
+    extra_prompt: "你已挂载 build-harmony-project skill。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了build-harmony-project、总体编译次数、是否执行成功；如果失败，必须说明失败阶段和错误原因。同时请明确说明你当前可见的 skill 名称清单，并逐项列出 skill 名称。"
 
   - id: "harmonyos-plugin"
     name: "鸿蒙开发 Agent"
@@ -30,7 +31,13 @@ agents:
     mounted_skills:
       - name: "build-harmony-project"
         path: "config/skills/build-harmony-project"
-    extra_prompt: "你已挂载 build-harmony-project skill。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了build-harmony-project、总体编译次数、是否执行成功；如果失败，必须说明失败阶段和错误原因。"
+      - name: "harmonyos-atomic-dev"
+        path: "config/skills/harmonyos-atomic-dev"
+      - name: "harmonyos-hvigor"
+        path: "config/skills/harmonyos-hvigor"
+      - name: "harmonyos-prd-design"
+        path: "config/skills/harmonyos-prd-design"
+    extra_prompt: "你已挂载 build-harmony-project skill。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了build-harmony-project、总体编译次数、是否执行成功；如果失败，必须说明失败阶段和错误原因。同时请明确说明你当前可见的 skill 名称清单，并逐项列出 skill 名称。"
 
   - id: "static_code_score_agent"
     name: "静态代码打分 Agent"

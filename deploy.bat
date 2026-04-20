@@ -13,6 +13,8 @@ set "EXECUTOR_DIR=%SCRIPT_DIR%\agent_bench\executor"
 set "LOG_DIR=%SCRIPT_DIR%\logs"
 set "OPENCODE_LOG=%LOG_DIR%\opencode.log"
 set "CURRENT_EXECUTOR_LOG_FILE=%LOG_DIR%\current_executor_log"
+set "OPENCODE_RUNTIME_DIR=%SCRIPT_DIR%\.opencode_runtime"
+set "OPENCODE_XDG_CONFIG_HOME=%OPENCODE_RUNTIME_DIR%\xdg_config"
 set "BACKEND_LOG="
 set "PYTHON_CMD="
 set "AUTO_PAUSE_ON_FAILURE=0"
@@ -54,6 +56,7 @@ exit /b 0
 
 :ensure_log_dir
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+if not exist "%OPENCODE_XDG_CONFIG_HOME%" mkdir "%OPENCODE_XDG_CONFIG_HOME%"
 exit /b 0
 
 :resolve_python
@@ -196,11 +199,13 @@ if not exist "%OPENCODE_LOG%" type nul > "%OPENCODE_LOG%"
 call :select_opencode_network_mode
 
 if "%OPENCODE_USE_PROXY%"=="1" (
+    call :info "OpenCode Server will use isolated config dir: %OPENCODE_XDG_CONFIG_HOME%"
     call :info "OpenCode Server will use proxy environment (NO_PROXY=%OPENCODE_NO_PROXY%)"
-    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && set http_proxy=%OPENCODE_HTTP_PROXY% && set https_proxy=%OPENCODE_HTTPS_PROXY% && set HTTP_PROXY=%OPENCODE_HTTP_PROXY% && set HTTPS_PROXY=%OPENCODE_HTTPS_PROXY% && set all_proxy=%OPENCODE_ALL_PROXY% && set ALL_PROXY=%OPENCODE_ALL_PROXY% && set no_proxy=%OPENCODE_NO_PROXY% && set NO_PROXY=%OPENCODE_NO_PROXY% && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
+    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && set XDG_CONFIG_HOME=%OPENCODE_XDG_CONFIG_HOME% && set http_proxy=%OPENCODE_HTTP_PROXY% && set https_proxy=%OPENCODE_HTTPS_PROXY% && set HTTP_PROXY=%OPENCODE_HTTP_PROXY% && set HTTPS_PROXY=%OPENCODE_HTTPS_PROXY% && set all_proxy=%OPENCODE_ALL_PROXY% && set ALL_PROXY=%OPENCODE_ALL_PROXY% && set no_proxy=%OPENCODE_NO_PROXY% && set NO_PROXY=%OPENCODE_NO_PROXY% && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
  ) else (
+    call :info "OpenCode Server will use isolated config dir: %OPENCODE_XDG_CONFIG_HOME%"
     call :info "OpenCode Server will start without proxy environment"
-    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
+    start "" /b cmd /d /c "cd /d ""%SCRIPT_DIR%"" && set XDG_CONFIG_HOME=%OPENCODE_XDG_CONFIG_HOME% && opencode serve --port %OPENCODE_PORT% >> ""%OPENCODE_LOG%"" 2>&1"
  )
 
 call :info "Waiting for OpenCode Server..."

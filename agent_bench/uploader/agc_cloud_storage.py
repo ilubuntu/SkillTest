@@ -372,6 +372,10 @@ class AgcCloudStorageClient:
             return True
         if "oh_modules" in parts:
             return True
+        if ".opencode" in parts:
+            return True
+        if normalized.endswith("opencode.json"):
+            return True
         if normalized.endswith("oh-package-lock.json5"):
             return True
         return False

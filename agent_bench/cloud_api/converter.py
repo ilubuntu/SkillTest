@@ -315,35 +315,15 @@ def build_execution_result_payload(execution_id: int,
                                    expected_output_score: Optional[int] = None) -> Dict[str, Any]:
     """组装最终结果上报载荷。
 
-    评分优先级：
-    - expected_output_score: 调用方传入 > 约束评分 overall_score
-    - code_quality_score: 调用方传入 > 静态评分 quality_score > 静态评分 overall_score > 0
+    当前执行链已移除约束打分与静态代码打分，两个评分字段固定按 0 上报。
     """
     metrics = load_agent_metrics(case_dir)
     output_text = load_agent_output(case_dir)
     compile_results = result.get("compile_results") or {}
-    constraint_review = result.get("constraint_review") or {}
-    constraint_summary = constraint_review.get("summary") or {}
-    static_review = result.get("static_review") or {}
-    static_summary = static_review.get("summary") or {}
 
     is_build_success = bool(compile_results.get("compilable"))
     token_consumption = _extract_total_tokens(metrics)
     iteration_count = _extract_iteration_count(metrics, output_text)
-
-    # 期望结果评分：优先调用方显式传入，否则从约束评分取
-    resolved_expected_output_score = expected_output_score
-    if resolved_expected_output_score is None:
-        resolved_expected_output_score = _normalize_score_value(constraint_summary.get("overall_score"))
-
-    # 代码质量评分：优先调用方显式传入，否则从静态评分取
-    resolved_code_quality_score = code_quality_score
-    if resolved_code_quality_score is None:
-        resolved_code_quality_score = _normalize_score_value(static_summary.get("quality_score"))
-    if resolved_code_quality_score is None:
-        resolved_code_quality_score = _normalize_score_value(static_summary.get("overall_score"))
-    if resolved_code_quality_score is None:
-        resolved_code_quality_score = 0
 
     payload = CloudExecutionResultPayload(
         testExecutionId=execution_id,
@@ -352,8 +332,8 @@ def build_execution_result_payload(execution_id: int,
             executionTime=max(0, int(execution_time_s)),
             tokenConsumption=max(0, int(token_consumption)),
             iterationCount=max(0, int(iteration_count)),
-            codeQualityScore=max(0, min(100, int(resolved_code_quality_score))),
-            expectedOutputScore=_score_expected_output(expected_output, output_text) if resolved_expected_output_score is None else max(0, min(100, int(resolved_expected_output_score))),
+            codeQualityScore=0,
+            expectedOutputScore=0,
             outputCodeUrl=output_code_url,
             diffFileUrl=diff_file_url,
         ),

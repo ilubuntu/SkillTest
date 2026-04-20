@@ -30,6 +30,8 @@ EXECUTOR_DIR="$SCRIPT_DIR/agent_bench/executor"
 LOG_DIR="$SCRIPT_DIR/logs"
 OPENCODE_LOG="$LOG_DIR/opencode.log"
 CURRENT_EXECUTOR_LOG_FILE="$LOG_DIR/current_executor_log"
+OPENCODE_RUNTIME_DIR="$SCRIPT_DIR/.opencode_runtime"
+OPENCODE_XDG_CONFIG_HOME="$OPENCODE_RUNTIME_DIR/xdg_config"
 BACKEND_LOG=""
 PYTHON_BIN=""
 OPENCODE_HTTP_PROXY=""
@@ -74,6 +76,7 @@ check_deps() {
 
 ensure_log_dir() {
     mkdir -p "$LOG_DIR"
+    mkdir -p "$OPENCODE_XDG_CONFIG_HOME"
 }
 
 set_executor_log_file() {
@@ -179,11 +182,13 @@ start_opencode() {
 
     if [ -n "$OPENCODE_HTTP_PROXY" ] || [ -n "$OPENCODE_HTTPS_PROXY" ] || [ -n "$OPENCODE_ALL_PROXY" ]; then
         info "OpenCode Server 启动将使用代理环境"
+        info "OpenCode Server 使用独立配置目录: $OPENCODE_XDG_CONFIG_HOME"
         info "  http_proxy=${OPENCODE_HTTP_PROXY:-<empty>}"
         info "  https_proxy=${OPENCODE_HTTPS_PROXY:-<empty>}"
         info "  all_proxy=${OPENCODE_ALL_PROXY:-<empty>}"
         info "  NO_PROXY=${OPENCODE_NO_PROXY:-<empty>}"
         env \
+            XDG_CONFIG_HOME="$OPENCODE_XDG_CONFIG_HOME" \
             http_proxy="$OPENCODE_HTTP_PROXY" \
             https_proxy="$OPENCODE_HTTPS_PROXY" \
             HTTP_PROXY="$OPENCODE_HTTP_PROXY" \
@@ -195,7 +200,8 @@ start_opencode() {
             nohup opencode serve --port $OPENCODE_PORT >>"$OPENCODE_LOG" 2>&1 &
     else
         info "OpenCode Server 启动不使用代理环境"
-        nohup opencode serve --port $OPENCODE_PORT >>"$OPENCODE_LOG" 2>&1 &
+        info "OpenCode Server 使用独立配置目录: $OPENCODE_XDG_CONFIG_HOME"
+        env XDG_CONFIG_HOME="$OPENCODE_XDG_CONFIG_HOME" nohup opencode serve --port $OPENCODE_PORT >>"$OPENCODE_LOG" 2>&1 &
     fi
 
     # 等待启动

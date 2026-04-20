@@ -1,0 +1,73 @@
+{
+  "name": "harmonyos-prd-design",
+  "displayName": "HarmonyOS PRD 设计生成专家",
+  "version": "1.12.0",
+  "description": "专业的 HarmonyOS PRD 设计生成专家，基于鸿蒙设计规范，提供从用户研究到设计交付的全流程支持，生成 ArkTS/ArkUI 代码示例和可交互 Web 演示页面",
+  "author": "HarmonyOS Design Team",
+  "license": "MIT",
+  "homepage": "https://developer.huawei.com/consumer/cn/design",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/harmonyos-prd-design-skill"
+  },
+  "keywords": [
+    "harmonyos",
+    "prd",
+    "design",
+    "ux",
+    "ui",
+    "视觉设计",
+    "UX体验",
+    "创意美学",
+    "独特设计",
+    "ArkTS",
+    "ArkUI",
+    "容器组件",
+    "高级组件",
+    "Design Thinking",
+    "用户研究",
+    "可用性测试",
+    "设计系统",
+    "信息架构",
+    "web原型",
+    "HTML/CSS/JS",
+    "交互演示"
+  ],
+  "category": "design",
+  "triggers": [
+    "harmonyos.*设计",
+    "鸿蒙.*设计",
+    "prd.*设计",
+    "UI.*设计",
+    "UX.*设计",
+    "视觉.*设计",
+    "界面.*设计",
+    ".*视觉风格",
+    ".*UX.*标准",
+    ".*独特.*美学",
+    ".*原型.*演示"
+  ],
+  "capabilities": {
+    "input": {
+      "type": "natural_language",
+      "description": "用户自然语言需求描述",
+      "examples": [
+        "帮我设计一个独特的电商 Web 应用",
+        "设计一个有特色的社交应用视觉风格",
+        "创造令人难忘的 UI 设计"
+      ]
+    },
+    "output": {
+      "type": "structured_document",
+      "format": "markdown",
+      "description": "结构化的需求文档、UI设计方案、视觉风格描述和架构设计方案",
+      "sections": [
+        "需求分析",
+        "设计思维分析",
+        "视觉设计方案",
+        "UI设计方案",
+        "UX体验标准"
+      ]
+    }
+  }
+}

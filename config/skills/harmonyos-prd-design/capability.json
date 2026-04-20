@@ -1,0 +1,247 @@
+{
+  "skill": {
+    "name": "harmonyos-prd-design",
+    "version": "1.12.0"
+  },
+  "capabilities": [
+    {
+      "id": "user_research",
+      "name": "用户研究与分析",
+      "description": "进行用户研究和分析，创建用户画像、使用场景、用户旅程地图",
+      "methods": [
+        "用户访谈",
+        "问卷调查",
+        "行为数据分析",
+        "竞品分析",
+        "用户画像创建",
+        "用户旅程梳理"
+      ],
+      "output": {
+        "目标用户画像": "详细的用户特征和需求",
+        "使用场景": "典型使用场景描述",
+        "用户旅程": "用户使用产品的完整流程",
+        "竞品分析": "同类产品的设计优缺点"
+      },
+      "highlight": true
+    },
+    {
+      "id": "information_architecture",
+      "name": "信息架构设计",
+      "description": "设计信息架构、站点地图和交互模式",
+      "methods": [
+        "内容层级结构设计",
+        "功能模块划分",
+        "站点地图创建",
+        "交互模式确定"
+      ],
+      "output": {
+        "信息架构": "清晰的内容和功能组织结构",
+        "站点地图": "页面层级关系",
+        "交互模式": "主要交互方式和流程"
+      },
+      "highlight": false
+    },
+    {
+      "id": "design_thinking",
+      "name": "设计思维分析",
+      "description": "使用 Design Thinking 框架进行设计思维分析，确定美学方向和差异化策略",
+      "methods": [
+        "Purpose（目的）分析",
+        "Tone（基调）选择",
+        "Constraints（约束）分析",
+        "Differentiation（差异化）策略"
+      ],
+      "output": {
+        "设计方向": "明确的美学方向",
+        "差异化策略": "独特的价值主张",
+        "约束条件": "技术和设计约束"
+      },
+      "highlight": true
+    },
+    {
+      "id": "aesthetic_design",
+      "name": "前端美学设计",
+      "description": "基于鸿蒙设计规范创造独特的前端美学",
+      "knowledge_sources": [
+        "references/visual-design.md"
+      ],
+      "output": {
+        "字体方案": "独特的鸿蒙字体组合",
+        "色彩方案": "创造性的规范色应用",
+        "动效设计": "精致的交互动效",
+        "空间布局": "8vp网格内的独特布局"
+      },
+      "highlight": true
+    },
+    {
+      "id": "visual_design",
+      "name": "视觉设计",
+      "description": "基于鸿蒙视觉设计规范进行视觉设计",
+      "knowledge_sources": [
+        "references/visual-design.md"
+      ],
+      "output": {
+        "色彩方案": "主色、辅助色、中性色",
+        "字体系统": "字体家族、字号、字重",
+        "图标系统": "图标风格、尺寸、状态",
+        "视觉风格": "整体视觉风格定义"
+      }
+    },
+    {
+      "id": "ux_design",
+      "name": "UX 体验设计",
+      "description": "基于鸿蒙 UX 体验标准进行 UX 设计，包括交互设计和用户流程设计",
+      "knowledge_sources": [
+        "references/ux-standard.md",
+        "references/ux-guidelines-general.md"
+      ],
+      "output": {
+        "UX 标准": "元服务/通用应用 UX 体验标准",
+        "交互设计": "交互模式和流程",
+        "用户流程": "主要用户流程路径",
+        "用户体验优化": "用户体验优化建议"
+      }
+    },
+    {
+      "id": "usability_evaluation",
+      "name": "可用性评估",
+      "description": "进行 Nielsen 可用性启发式评估和可用性测试",
+      "methods": [
+        "Nielsen 可用性启发式评估（10条原则）",
+        "用户流程优化",
+        "可用性测试",
+        "用户反馈收集"
+      ],
+      "output": {
+        "可用性评估报告": "Nielsen 10条原则符合性评估",
+        "用户流程优化": "优化建议和方案",
+        "可用性测试方案": "测试任务和场景"
+      },
+      "highlight": true
+    },
+    {
+      "id": "design_system",
+      "name": "设计系统交付",
+      "description": "输出完整的设计系统文档、组件库、设计规范和评审检查清单",
+      "output": {
+        "设计规范文档": "色彩、字体、间距、图标、动效规范",
+        "组件库": "完整的设计组件库",
+        "设计评审检查清单": "10项评审检查项目",
+        "设计资源": "切图、标注、原型、文档"
+      },
+      "highlight": false
+    },
+    {
+      "id": "arkts_code_generation",
+      "name": "ArkTS/ArkUI 代码生成",
+      "description": "生成 ArkTS 代码片段示例，展示 ArkUI 容器组件和高级组件的实际使用",
+      "methods": [
+        "容器组件代码示例",
+        "高级组件代码示例",
+        "样式系统代码示例",
+        "状态管理代码示例",
+        "动效系统代码示例"
+      ],
+      "output": {
+        "容器组件": "Column、Row、Stack、Grid 代码示例",
+        "高级组件": "List、Tabs、Navigation、Dialog 代码示例",
+        "样式系统": "@Styles、@Extend 代码示例",
+        "状态管理": "@Local、@Param 代码示例",
+        "动效系统": "属性动画、转场动画代码示例"
+      },
+      "highlight": true
+    },
+    {
+      "id": "web_prototype",
+      "name": "Web 应用原型生成",
+      "description": "生成可交互的 HTML/CSS/JS Web 应用演示页面，用于可视化展示设计方案",
+      "methods": [
+        "HTML 结构生成",
+        "CSS 样式实现",
+        "JavaScript 交互实现",
+        "响应式设计",
+        "动效演示"
+      ],
+      "output": {
+        "HTML 文件": "完整的单文件 HTML（内联所有 CSS/JS），文件名固定为 prototype.html",
+        "使用说明": "如何在浏览器中打开和查看"
+      },
+      "highlight": true
+    }
+  ],
+  "highlights": [
+    {
+      "id": "user_research",
+      "name": "用户研究与分析",
+      "description": "进行用户访谈、问卷调查、用户画像创建、用户旅程梳理",
+      "priority": "high"
+    },
+    {
+      "id": "design_thinking",
+      "name": "设计思维分析",
+      "description": "使用 Design Thinking 框架确定美学方向和差异化策略",
+      "priority": "high"
+    },
+    {
+      "id": "aesthetic_design",
+      "name": "前端美学设计",
+      "description": "在鸿蒙规范内创造独特的前端美学，避免通用 AI 美学",
+      "priority": "high"
+    },
+    {
+      "id": "usability_evaluation",
+      "name": "可用性评估",
+      "description": "Nielsen 可用性启发式评估和可用性测试",
+      "priority": "high"
+    },
+    {
+      "id": "arkts_code_generation",
+      "name": "ArkTS/ArkUI 代码生成",
+      "description": "生成 ArkTS 代码片段示例，展示容器组件和高级组件的实际使用",
+      "priority": "high"
+    },
+    {
+      "id": "web_prototype",
+      "name": "Web 应用原型生成",
+      "description": "生成可交互的 HTML/CSS/JS Web 应用演示页面，可视化展示设计方案",
+      "priority": "high"
+    },
+    {
+      "id": "avoid_generic_aesthetics",
+      "name": "避免通用 AI 美学",
+      "description": "避免使用过度使用的字体、陈词滥调的配色、可预测的布局",
+      "priority": "critical"
+    }
+  ],
+  "output_format": {
+    "type": "markdown",
+    "structure": [
+      "1. 需求分析",
+      "2. 设计思维分析",
+      "3. 视觉设计方案",
+      "4. UI 设计方案",
+      "5. UX 体验标准"
+    ]
+  },
+  "aesthetic_guidelines": {
+    "typography": {
+      "avoid": ["Arial", "Inter", "Roboto", "system fonts"],
+      "recommend": "在鸿蒙字体家族内选择有特色的字体组合",
+      "principle": "独特性优于通用性"
+    },
+    "color": {
+      "avoid": "紫色梯度 + 白色背景等过度使用的方案",
+      "recommend": "创造性地使用鸿蒙规范色，大胆使用主色和辅助色",
+      "principle": "一致性 + 冲击力"
+    },
+    "layout": {
+      "avoid": "可预测的网格布局",
+      "recommend": "在 8vp 网格内创造不对称、重叠等独特布局",
+      "principle": "差异化优于标准化"
+    },
+    "motion": {
+      "duration": "200-500ms",
+      "principles": ["有意义", "快速", "自然", "克制"]
+    }
+  }
+}

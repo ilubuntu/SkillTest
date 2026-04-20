@@ -1,0 +1,34 @@
+{
+  "version": "1.0.0",
+  "last_check": null,
+  "last_update": "2026-03-19T15:41:47.320948",
+  "sources": [
+    {
+      "id": "visual-design",
+      "name": "视觉风格",
+      "url": "https://developer.huawei.com/consumer/cn/doc/design-guides/visual_design-0000001823497081",
+      "output_file": "visual-design.md",
+      "last_update": "2026-03-19",
+      "checksum": "",
+      "status": "active"
+    },
+    {
+      "id": "ux-standard",
+      "name": "元服务 UX 体验标准",
+      "url": "https://developer.huawei.com/consumer/cn/doc/design-guides/ux-standard-overview-0000002019655177",
+      "output_file": "ux-standard.md",
+      "last_update": "2026-03-19",
+      "checksum": "",
+      "status": "active"
+    },
+    {
+      "id": "ux-guidelines-general",
+      "name": "通用应用 UX 体验标准",
+      "url": "https://developer.huawei.com/consumer/cn/doc/design-guides/ux-guidelines-general-0000001760708152",
+      "output_file": "ux-guidelines-general.md",
+      "last_update": "2026-03-19",
+      "checksum": "",
+      "status": "active"
+    }
+  ]
+}

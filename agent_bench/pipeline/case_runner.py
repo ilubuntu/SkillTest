@@ -30,8 +30,6 @@ from agent_bench.pipeline.loader import (
 )
 from agent_bench.pipeline.prompts import (
     build_agent_task_prompt,
-    build_constraint_review_prompt,
-    build_static_review_prompt,
 )
 from agent_bench.agent_runner import AgentRunner, build_agent_spec
 
@@ -42,6 +40,8 @@ WORKSPACE_GITIGNORE = """build/
 oh_modules/
 node_modules/
 oh-package-lock.json5
+.opencode/
+opencode.json
 *.log
 """
 
@@ -787,7 +787,7 @@ def _run_constraint_review_attempt(case: dict,
             "level": "INFO",
             "message": f"constraint review attempt: {stage_label}",
         })
-        runtime.prepare()
+        runtime.prepare(workspace_dir=workspace_dir)
         output_text, elapsed = runtime.execute(
             review_prompt,
             workspace_dir=workspace_dir,
@@ -975,10 +975,10 @@ def _run_static_review_agent(case: dict,
     elapsed = 0.0
     _notify(on_progress, "stage_start", {"case_id": case["id"], "stage": "static_scoring"})
     try:
-        runtime.prepare()
+        runtime.prepare(workspace_dir=workspace_dir)
         output_text, elapsed = runtime.execute(
             review_prompt,
-            workspace_dir=case_dir,
+            workspace_dir=workspace_dir,
             tag=f"[{agent_spec.display_name}] ",
         )
         last_error_message = runtime.get_last_error_message()
@@ -1155,7 +1155,7 @@ def run_single_case(case: dict,
             )
             try:
                 _notify(on_progress, "stage_start", {"case_id": case_id, "stage": "generating"})
-                runtime.prepare()
+                runtime.prepare(workspace_dir=workspace_dir)
                 output_text, elapsed = runtime.execute(
                     task_prompt,
                     workspace_dir=workspace_dir,
@@ -1192,26 +1192,8 @@ def run_single_case(case: dict,
                 "workspace_dir": workspace_dir,
                 "patch_path": patch_path,
             })
-            case["_constraint_review_result"] = _run_constraint_review_agent(
-                case=case,
-                case_dir=case_dir,
-                original_dir=original_project_dir(case_dir),
-                workspace_dir=workspace_dir,
-                patch_path=patch_path,
-                on_progress=on_progress,
-                agent_timeout=agent_timeout,
-            )
-            _ensure_review_stage_succeeded(case["_constraint_review_result"], "约束规则打分")
-            case["_static_review_result"] = _run_static_review_agent(
-                case=case,
-                case_dir=case_dir,
-                original_dir=original_project_dir(case_dir),
-                workspace_dir=workspace_dir,
-                patch_path=patch_path,
-                on_progress=on_progress,
-                agent_timeout=agent_timeout,
-            )
-            _ensure_review_stage_succeeded(case["_static_review_result"], "静态代码打分")
+            # 当前主链只负责主修复 Agent 执行、产物准备和结果上报。
+            # 约束打分与代码打分已从主流程移除，避免修复完成后继续阻塞。
             _log_skill_call_detection(
                 case_id,
                 agent_spec.display_name,
