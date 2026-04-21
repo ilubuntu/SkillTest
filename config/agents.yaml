@@ -6,10 +6,10 @@ agents:
     tools:
       skill: true
     timeout: 300
-    model: "opencode-go/glm-5"
+    # model: "opencode-go/glm-5"
     # model: "openai/gpt-5.4"
     # model: "bailian-coding-plan/glm-5"
-    # model: "minimax-cn-coding-plan/MiniMax-M2.7"
+    model: "opencode/minimax-m2.5-free"
     mounted_skills:
       - name: "build-harmony-project"
         path: "config/skills/build-harmony-project"
