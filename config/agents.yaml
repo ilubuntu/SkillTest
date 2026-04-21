@@ -22,7 +22,8 @@ agents:
     tools:
       skill: true
     timeout: 300
-    model: "opencode-go/glm-5"
+    # model: "opencode-go/glm-5"
+    model: "opencode/minimax-m2.5-free"
     mounted_skills:
       - name: "build-harmony-project"
         path: "config/skills/build-harmony-project"
