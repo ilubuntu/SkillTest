@@ -124,12 +124,34 @@ exit /b %errorlevel%
 
 :kill_port
 set "PORT=%~1"
- powershell -NoProfile -Command "$port=%PORT%; $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($connections) { foreach ($procId in $connections) { try { Stop-Process -Id $procId -Force -ErrorAction Stop } catch {} }; exit 0 } else { exit 1 }" >nul 2>&1
-if not errorlevel 1 (
-    call :warn "Port %PORT% is in use. Existing process has been stopped."
-    timeout /t 1 /nobreak >nul
+set "PORT_KILLED=0"
+powershell -NoProfile -Command "$port=%PORT%; $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if (-not $conns) { exit 1 }; foreach ($procId in $conns) { try { Stop-Process -Id $procId -Force -ErrorAction Stop; Write-Output 'killed' } catch { try { $p = Get-Process -Id $procId -ErrorAction SilentlyContinue; if ($p) { & taskkill /F /T /PID $procId 2>$null; Write-Output 'taskkill' } } catch {} } }; exit 0" >nul 2>&1
+if not errorlevel 1 set "PORT_KILLED=1"
+if "%PORT_KILLED%"=="1" (
+    call :warn "Port %PORT% is in use. Attempting to stop existing process."
+    timeout /t 2 /nobreak >nul
 )
-exit /b 0
+powershell -NoProfile -Command "$port=%PORT%; $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if (-not $conns) { exit 1 }; foreach ($procId in $conns) { try { Stop-Process -Id $procId -Force -ErrorAction Stop } catch { & taskkill /F /T /PID $procId 2>$null } }; exit 0" >nul 2>&1
+for /L %%W in (1,1,5) do (
+    powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }" >nul 2>&1
+    if not errorlevel 1 (
+        call :info "Port %PORT% is now free."
+        exit /b 0
+    )
+    timeout /t 2 /nobreak >nul
+)
+call :warn "Port %PORT% may still be occupied by a zombie process. Attempting aggressive cleanup..."
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "Get-Process opencode -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id" 2^>nul`) do (
+    taskkill /F /T /PID %%P >nul 2>&1
+)
+timeout /t 3 /nobreak >nul
+powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }" >nul 2>&1
+if not errorlevel 1 (
+    call :info "Port %PORT% is now free after aggressive cleanup."
+    exit /b 0
+)
+call :warn "Port %PORT% is still occupied. OpenCode may fail to start."
+exit /b 1
 
 :cleanup_opencode_snapshot_locks
 powershell -NoProfile -Command "$root = Join-Path $env:USERPROFILE '.local\\share\\opencode\\snapshot'; if (-not (Test-Path $root)) { exit 0 }; $threshold = (Get-Date).AddMinutes(-5); $locks = Get-ChildItem -Path $root -Recurse -Filter 'gc.pid.lock' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $threshold }; foreach ($lock in $locks) { try { Remove-Item -LiteralPath $lock.FullName -Force -ErrorAction Stop } catch {} }; if ($locks) { exit 0 } else { exit 1 }" >nul 2>&1
