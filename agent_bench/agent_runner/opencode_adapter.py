@@ -481,13 +481,17 @@ class OpenCodeAdapter(AgentAdapter):
                 raise TimeoutError("OpenCode prompt_async 未在超时内返回完整消息")
 
             assistant_messages = self._fetch_assistant_messages(session_id, effective_prompt)
-            if sse_log_path:
-                self._backfill_sse_logs_from_messages(
-                    all_messages=assistant_messages,
-                    output_path=sse_log_path,
-                    mapped_path=progress_log_path,
-                    full_path=full_sse_log_path,
-                )
+            # 不再把 message history 回填成伪 SSE。
+            # 这样可以避免 agent_opencode_sse_full.jsonl / agent_opencode_sse_events.jsonl
+            # 被“快照回填”污染，误导排障。
+            #
+            # if sse_log_path:
+            #     self._backfill_sse_logs_from_messages(
+            #         all_messages=assistant_messages,
+            #         output_path=sse_log_path,
+            #         mapped_path=progress_log_path,
+            #         full_path=full_sse_log_path,
+            #     )
             message_id = self._extract_message_id(payload)
             message_info = self._fetch_message_info(session_id, message_id) if message_id else None
             final_payload = message_info or payload
@@ -551,7 +555,7 @@ class OpenCodeAdapter(AgentAdapter):
             if payload:
                 last_seen = payload
                 parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
-                self._emit_runtime_progress_from_parts(parts, tag=tag)
+                self._emit_runtime_progress_from_parts(parts, tag=tag, source="session")
                 has_text = bool(self._extract_best_text(parts, prompt_text))
                 has_step_finish = any(
                     isinstance(part, dict) and str(part.get("type", "")).lower() == "step-finish"
@@ -618,10 +622,24 @@ class OpenCodeAdapter(AgentAdapter):
                                     data_lines.append(line[5:].lstrip())
                                 elif line == "":
                                     payload = self._parse_sse_event_payload(event_name, data_lines)
-                                    if payload is not None and self._event_matches_session(payload, session_id):
-                                        self._mark_runtime_activity()
-                                        self._append_jsonl(output_path, payload, progress_output_path, full_output_path)
-                                        self._emit_runtime_progress_log(payload, tag=tag)
+                                    if payload is not None:
+                                        # sse_full 要保留真正的原始 SSE，不做 session 过滤。
+                                        if full_output_path:
+                                            os.makedirs(os.path.dirname(full_output_path), exist_ok=True)
+                                            with open(full_output_path, "a", encoding="utf-8") as f:
+                                                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+                                        # 旧逻辑保留在这里，先不要删。
+                                        # 之前 full / events 都先过 session 过滤，导致 full 也不再是真正的 full。
+                                        # if payload is not None and self._event_matches_session(payload, session_id):
+                                        #     self._mark_runtime_activity()
+                                        #     self._append_jsonl(output_path, payload, progress_output_path, full_output_path)
+                                        #     self._emit_runtime_progress_log(payload, tag=tag)
+
+                                        if self._event_matches_session(payload, session_id):
+                                            self._mark_runtime_activity()
+                                            self._append_jsonl(output_path, payload, progress_output_path, None)
+                                            self._emit_runtime_progress_log(payload, tag=tag, source="sse")
                                     event_name = None
                                     data_lines = []
                         if connected:
@@ -953,11 +971,11 @@ class OpenCodeAdapter(AgentAdapter):
             },
         }
 
-    def _emit_runtime_progress_from_parts(self, parts: list, tag: str = ""):
+    def _emit_runtime_progress_from_parts(self, parts: list, tag: str = "", source: str = "session"):
         for part in parts or []:
             payload = self._make_synthetic_sse_payload(part)
             if payload:
-                self._emit_runtime_progress_log(payload, tag=tag)
+                self._emit_runtime_progress_log(payload, tag=tag, source=source)
 
     def _mark_runtime_activity(self):
         # 以“收到当前 session 的真实 SSE 事件”为活动信号。
@@ -1001,7 +1019,14 @@ class OpenCodeAdapter(AgentAdapter):
         if wrote_any:
             self._log("INFO", f"[OpenCode] 原始 SSE 缺失，已根据消息历史回填: {output_path}")
 
-    def _emit_runtime_progress_log(self, payload: dict, tag: str = ""):
+    @staticmethod
+    def _runtime_progress_source_prefix(source: str) -> str:
+        if str(source or "").strip().lower() == "session":
+            return "【session】"
+        return "【sse】"
+
+    def _emit_runtime_progress_log(self, payload: dict, tag: str = "", source: str = "sse"):
+        source_prefix = self._runtime_progress_source_prefix(source)
         raw_data = self._extract_sse_event_data(payload)
         raw_event_type = str(raw_data.get("type") or "").strip() if isinstance(raw_data, dict) else ""
         if raw_event_type == "message.part.delta":
@@ -1013,7 +1038,7 @@ class OpenCodeAdapter(AgentAdapter):
             if summary and (now - last_progress_at) >= DELTA_PROGRESS_THROTTLE_SECONDS:
                 self._last_delta_progress_text = summary
                 self._last_delta_progress_at = now
-                self._log("INFO", f"OpenCode 当前模型还在输出{summary}", tag=tag)
+                self._log("INFO", f"{source_prefix} OpenCode 当前模型还在输出{summary}", tag=tag)
             return
 
         mapped = self._map_sse_payload(payload)
@@ -1044,50 +1069,50 @@ class OpenCodeAdapter(AgentAdapter):
 
         if event_type == "step_start":
             signature = ("step_start",) + event_identity
-            log_message = "OpenCode 已收到任务，开始执行"
+            log_message = f"{source_prefix} OpenCode 已收到任务，开始执行"
         elif event_type == "reasoning":
             signature = ("reasoning",) + event_identity
-            log_message = "OpenCode 模型开始思考"
+            log_message = f"{source_prefix} OpenCode 模型开始思考"
         elif event_type == "tool_call":
             lowered = message.lower()
             tool_name = lowered.split(" ", 1)[0]
             if tool_name.startswith("task"):
                 signature = ("tool_call",) + event_identity
-                log_message = f"OpenCode 启动子任务: {message}" if message else "OpenCode 启动子任务"
+                log_message = f"{source_prefix} OpenCode 启动子任务: {message}" if message else f"{source_prefix} OpenCode 启动子任务"
             elif tool_name.startswith("glob") or tool_name.startswith("read") or tool_name.startswith("bash"):
                 signature = ("tool_call",) + event_identity
-                log_message = f"OpenCode 开始检查工程和读取文件: {message}" if message else "OpenCode 开始检查工程和读取文件"
+                log_message = f"{source_prefix} OpenCode 开始检查工程和读取文件: {message}" if message else f"{source_prefix} OpenCode 开始检查工程和读取文件"
             elif tool_name.startswith("edit") or tool_name.startswith("write"):
                 signature = ("tool_call",) + event_identity
-                log_message = f"OpenCode 开始修改代码: {message}" if message else "OpenCode 开始修改代码"
+                log_message = f"{source_prefix} OpenCode 开始修改代码: {message}" if message else f"{source_prefix} OpenCode 开始修改代码"
             else:
                 signature = ("tool_call",) + event_identity
-                log_message = f"OpenCode 开始调用工具: {message}"
+                log_message = f"{source_prefix} OpenCode 开始调用工具: {message}"
         elif event_type == "tool_result":
             lowered = message.lower()
             tool_name = lowered.split(" ", 1)[0]
             signature = ("tool_result",) + event_identity
             if tool_name.startswith("task"):
-                log_message = f"OpenCode 子任务完成: {message}" if message else "OpenCode 子任务完成"
+                log_message = f"{source_prefix} OpenCode 子任务完成: {message}" if message else f"{source_prefix} OpenCode 子任务完成"
             elif tool_name.startswith("bash") and any(token in lowered for token in ("hvigor", "assemblehap", "stop-daemon")):
-                log_message = f"OpenCode 编译命令执行完成: {message}"
+                log_message = f"{source_prefix} OpenCode 编译命令执行完成: {message}"
             elif tool_name.startswith("edit"):
-                log_message = f"OpenCode 代码修改完成: {message}"
+                log_message = f"{source_prefix} OpenCode 代码修改完成: {message}"
             elif tool_name.startswith("read") or tool_name.startswith("glob"):
-                log_message = f"OpenCode 文件检查完成: {message}"
+                log_message = f"{source_prefix} OpenCode 文件检查完成: {message}"
             else:
-                log_message = f"OpenCode 工具执行完成: {message}" if message else "OpenCode 工具执行完成"
+                log_message = f"{source_prefix} OpenCode 工具执行完成: {message}" if message else f"{source_prefix} OpenCode 工具执行完成"
         elif event_type == "patch":
             signature = ("patch",) + event_identity
-            log_message = f"OpenCode 已生成代码补丁: {message}" if message else "OpenCode 已生成代码补丁"
+            log_message = f"{source_prefix} OpenCode 已生成代码补丁: {message}" if message else f"{source_prefix} OpenCode 已生成代码补丁"
         elif event_type == "text":
             signature = ("text",) + event_identity
-            log_message = f"OpenCode 开始输出结果: {message}" if message else "OpenCode 开始输出结果"
+            log_message = f"{source_prefix} OpenCode 开始输出结果: {message}" if message else f"{source_prefix} OpenCode 开始输出结果"
         elif event_type == "step_finish":
             if (message or "").strip().lower() == "other":
                 return
             signature = ("step_finish",) + event_identity
-            log_message = f"OpenCode 本轮执行结束: {message}" if message else "OpenCode 本轮执行结束"
+            log_message = f"{source_prefix} OpenCode 本轮执行结束: {message}" if message else f"{source_prefix} OpenCode 本轮执行结束"
 
         if not signature or not log_message:
             return
