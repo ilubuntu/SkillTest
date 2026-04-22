@@ -13,6 +13,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
+from agent_bench.cloud_api.iteration_counter import IterationCounter
 from agent_bench.cloud_api.models import (
     CloudExecutionResultData,
     CloudExecutionResultPayload,
@@ -134,6 +135,8 @@ def load_agent_output(case_dir: str) -> str:
 
 # ── 指标提取 ──────────────────────────────────────────────────
 
+_ITERATION_COUNTER = IterationCounter()
+
 
 def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
     """从 metrics 中提取总 token 数。
@@ -177,90 +180,13 @@ def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
     return 0
 
 
-def _extract_build_execution_count(metrics: Dict[str, Any]) -> int:
-    """统计真实编译执行次数（去重）。
-
-    只统计 bash 命令中真正触发 HarmonyOS 编译的 assembleHap 调用次数。
-    不再使用额外的输出标记，避免统计口径与真实命令执行不一致。
-    """
-    if not isinstance(metrics, dict):
-        return 0
-
-    raw = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
-    parts = []
-    if isinstance(raw, dict):
-        message_info = raw.get("message_info") or {}
-        if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
-            parts = message_info.get("parts") or []
-
-    assemble_hap_ids = set()
-    assemble_hap_count = 0
-
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
-        part_type = str(part.get("type") or "").strip().lower()
-        if part_type != "tool":
-            continue
-
-        state = part.get("state") if isinstance(part.get("state"), dict) else {}
-        status = str(state.get("status") or "").strip().lower()
-        if status not in {"completed", "running"}:
-            continue
-
-        command_input = state.get("input") if isinstance(state.get("input"), dict) else {}
-        tool_name = str(part.get("tool") or "").strip().lower()
-
-        if tool_name == "bash":
-            command_str = str(command_input.get("command") or "").strip().lower()
-            if "assemblehap" in command_str:
-                call_id = str(part.get("callID") or "").strip() or str(part.get("id") or "").strip()
-                if call_id and call_id not in assemble_hap_ids:
-                    assemble_hap_ids.add(call_id)
-                    assemble_hap_count += 1
-
-    return assemble_hap_count
-
-
 def _extract_iteration_count(metrics: Dict[str, Any], output_text: str = "") -> int:
-    """提取迭代次数，优先级：编译执行数 > step-start 数 > observed_calls 数 > session/token 存在 > 输出非空。"""
-    if not isinstance(metrics, dict):
-        return 1 if (output_text or "").strip() else 0
-
-    # 优先使用编译执行次数
-    build_execution_count = _extract_build_execution_count(metrics)
-    if build_execution_count > 0:
-        return build_execution_count
-
-    # 其次统计 step-start 事件数
-    raw = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
-    parts = []
-    if isinstance(raw, dict):
-        message_info = raw.get("message_info") or {}
-        if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
-            parts = message_info.get("parts") or []
-    step_count = 0
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
-        if str(part.get("type") or "").lower() == "step-start":
-            step_count += 1
-    if step_count > 0:
-        return step_count
-
-    # 再用 derived.tools.observed_calls 数量
-    derived = metrics.get("derived") if isinstance(metrics.get("derived"), dict) else {}
-    observed_calls = ((((derived.get("tools") or {}) if isinstance(derived, dict) else {}).get("observed_calls")) or [])
-    if isinstance(observed_calls, list) and observed_calls:
-        return len(observed_calls) + 1
-
-    # 兜底：有 session 或有 token 消耗则算 1 次
-    http = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
-    if (http.get("session_id") or "").strip():
-        return 1
-    if _extract_total_tokens(metrics) > 0:
-        return 1
-    return 1 if (output_text or "").strip() else 0
+    """提取迭代次数。"""
+    return _ITERATION_COUNTER.extract_iteration_count(
+        metrics,
+        output_text=output_text,
+        total_tokens=_extract_total_tokens(metrics),
+    )
 
 
 # ── 评分计算 ──────────────────────────────────────────────────

@@ -9,6 +9,7 @@ from logging.handlers import TimedRotatingFileHandler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent_bench.common.version import APP_VERSION
 from agent_bench.executor.routes import router as cloud_api_router
 from agent_bench.executor.cloud_api import local_router
 from agent_bench.pipeline.loader import load_logging_config, validate_runtime_config
@@ -93,7 +94,7 @@ def _check_runtime_dependencies():
 app = FastAPI(
     title="云测桥接执行器",
     description="本地接收任务、调用 Agent、上报进度和结果。",
-    version="1.0.0",
+    version=APP_VERSION,
 )
 
 app.add_middleware(
@@ -130,6 +131,7 @@ async def health():
     return {
         "ok": True,
         "service": "cloud_executor",
+        "version": APP_VERSION,
     }
 
 
@@ -137,6 +139,7 @@ async def health():
 async def root():
     return {
         "service": "cloud_executor",
+        "version": APP_VERSION,
         "health": "/api/health",
         "baseline": "/api/cloud-api/baseline",
         "harmonyos-plugin": "/api/cloud-api/harmonyos-plugin",
