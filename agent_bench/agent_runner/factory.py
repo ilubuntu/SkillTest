@@ -7,7 +7,7 @@ from agent_bench.agent_runner.opencode_adapter import OpenCodeAdapter
 
 def create_adapter(agent: dict,
                    timeout: int,
-                   sse_filter: str = "full",
+                   sse_filter: str = "medium",
                    on_progress=None,
                    artifact_prefix: str = "agent",
                    artifact_base_dir: str = "generate"):

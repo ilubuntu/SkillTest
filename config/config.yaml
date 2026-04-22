@@ -59,7 +59,7 @@ opencode:
   #               session.idle / session.updated / sse.error，并压缩成最小必要字段
   #   - sse_events: 只保留关键进度事件 message.part.updated(step-start/reasoning/tool/patch/text/step-finish)、
   #                 session.status、session.idle，并压缩成最小必要字段
-  sse_filter: "low"
+  sse_filter: "medium"
 
 # 日志配置。
 # 这些配置控制执行器自己的日志文件，不影响业务结果。

@@ -24,7 +24,7 @@ from typing import Optional
 
 from agent_bench.pipeline.artifacts import agent_meta_dir, review_dir, static_dir
 from agent_bench.agent_runner.adapter import AgentAdapter
-from agent_bench.agent_runner.sse_runtime_state import SseRuntimeState
+from agent_bench.agent_runner.agent_runtime_state import AgentRuntimeState
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
 DEFAULT_API_BASE = "http://localhost:4096"
@@ -61,7 +61,7 @@ class OpenCodeAdapter(AgentAdapter):
                  model: str = None,
                  target_skills: Optional[list[str]] = None,
                  timeout: int = TIMEOUT,
-                 sse_filter: str = "full",
+                 sse_filter: str = "medium",
                  on_progress=None,
                  artifact_prefix: str = "agent",
                  artifact_base_dir: str = "generate"):
@@ -86,7 +86,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_delta_progress_at = 0.0
         self._last_delta_progress_text = ""
         self._last_non_delta_progress_at = 0.0
-        self._sse_runtime_state = SseRuntimeState()
+        self._agent_runtime_state = AgentRuntimeState()
 
     def _log(self, level: str, message: str, tag: str = ""):
         if self.on_progress:
@@ -280,10 +280,10 @@ class OpenCodeAdapter(AgentAdapter):
 
     @staticmethod
     def _normalize_sse_filter(value: Optional[str]) -> str:
-        normalized = str(value or "full").strip().lower()
+        normalized = str(value or "medium").strip().lower()
         if normalized in VALID_SSE_FILTERS:
             return normalized
-        return "full"
+        return "medium"
 
     @staticmethod
     def _short_workspace_path(path: str) -> str:
@@ -323,7 +323,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_interaction_metrics = None
         self._last_error_message = ""
         self._seen_runtime_events = set()
-        self._sse_runtime_state.reset()
+        self._agent_runtime_state.reset()
         self.sse_filter = self._normalize_sse_filter(self.sse_filter)
 
         if not runtime_options:
@@ -642,7 +642,7 @@ class OpenCodeAdapter(AgentAdapter):
                 open(progress_log_path, "a", encoding="utf-8").close()
             if full_sse_log_path:
                 open(full_sse_log_path, "a", encoding="utf-8").close()
-            self._sse_runtime_state.reset(session_id)
+            self._agent_runtime_state.reset(session_id)
             self._mark_runtime_activity()
             sse_thread = threading.Thread(
                 target=self._capture_sse_events,
@@ -727,15 +727,16 @@ class OpenCodeAdapter(AgentAdapter):
                                     prompt_text: str,
                                     tag: str = "") -> Optional[dict]:
         last_seen = None
-        if not self._sse_runtime_state.has_activity():
+        if not self._agent_runtime_state.has_activity():
             self._mark_runtime_activity()
         while True:
-            idle_seconds = self._sse_runtime_state.idle_seconds()
+            idle_seconds = self._agent_runtime_state.idle_seconds()
             if idle_seconds >= self.timeout:
                 break
             payload = self._fetch_latest_message(session_id, prompt_text)
             if payload:
                 last_seen = payload
+                self._mark_message_polling_progress(payload, prompt_text, session_id=session_id)
                 parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
                 self._emit_runtime_progress_from_parts(parts, tag=tag, source="session")
                 has_text = bool(self._extract_best_text(parts, prompt_text))
@@ -1187,9 +1188,65 @@ class OpenCodeAdapter(AgentAdapter):
                 self._emit_runtime_progress_log(payload, tag=tag, source=source)
 
     def _mark_runtime_activity(self):
-        # 以“收到当前 session 的真实 SSE 事件”为活动信号。
-        # 只要还有 delta / tool / text / step-finish 持续到达，就不应被判定为超时。
-        self._sse_runtime_state.mark_activity()
+        # 只要当前 session 还有真实进展，运行态就应被刷新。
+        # 这既包括 SSE 事件，也包括 HTTP message 轮询发现的新进展。
+        self._agent_runtime_state.mark_activity()
+
+    def _mark_message_polling_progress(self, payload: dict, prompt_text: str, session_id: str = "") -> bool:
+        signature = self._build_message_progress_signature(payload, prompt_text)
+        return self._agent_runtime_state.mark_message_progress(signature, session_id=session_id)
+
+    def _build_message_progress_signature(self, payload: dict, prompt_text: str) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        parts = payload.get("parts")
+        if not isinstance(parts, list) or not parts:
+            return ""
+        info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+        summary = {
+            "message_id": self._extract_message_id(payload) or "",
+            "finish": str(info.get("finish") or ""),
+            "parts": [],
+        }
+        prompt_norm = (prompt_text or "").strip()
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            part_type = str(part.get("type") or "").strip().lower()
+            if not part_type:
+                continue
+            part_summary = {"type": part_type}
+            if part_type == "text":
+                text = str(part.get("text") or "").strip()
+                if text and not (prompt_norm and (text == prompt_norm or text in prompt_norm)):
+                    part_summary["text"] = self._clip_large_text(text, 80)
+            elif part_type == "reasoning":
+                part_summary["text"] = self._clip_large_text(str(part.get("text") or "").strip(), 80)
+            elif part_type == "tool":
+                part_summary["tool"] = str(part.get("tool") or "").strip()
+                state = part.get("state") if isinstance(part.get("state"), dict) else {}
+                if state.get("status"):
+                    part_summary["status"] = str(state.get("status") or "").strip()
+                state_input = state.get("input") if isinstance(state.get("input"), dict) else {}
+                if state_input:
+                    if state_input.get("filePath") or state_input.get("path"):
+                        part_summary["path"] = self._short_workspace_path(state_input.get("filePath") or state_input.get("path"))
+                    elif state_input.get("pattern"):
+                        part_summary["pattern"] = self._clip_large_text(state_input.get("pattern"), 80)
+                    elif state_input.get("command") or state_input.get("cmd"):
+                        part_summary["cmd"] = self._clip_large_text(state_input.get("command") or state_input.get("cmd"), 80)
+                    elif state_input.get("description"):
+                        part_summary["description"] = self._clip_large_text(state_input.get("description"), 80)
+            elif part_type == "patch":
+                files = part.get("files")
+                if isinstance(files, list) and files:
+                    part_summary["files"] = [self._short_workspace_path(str(item)) for item in files[:3]]
+            elif part_type == "step-finish":
+                part_summary["reason"] = str(part.get("reason") or "").strip()
+            summary["parts"].append(part_summary)
+        if not summary["parts"]:
+            return ""
+        return json.dumps(summary, ensure_ascii=False, sort_keys=True)
 
     def _backfill_sse_logs_from_messages(self,
                                         all_messages: list,
