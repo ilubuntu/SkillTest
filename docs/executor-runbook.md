@@ -90,6 +90,6 @@ results/execution_<id>_<timestamp>/
 
 用途：
 
-- `full`：完整原始 SSE
+- `full`：当前 session 的完整原始 SSE
 - `events`：裁剪后的原始事件
 - `progress`：本地展示与进度提炼

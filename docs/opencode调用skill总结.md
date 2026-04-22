@@ -60,7 +60,7 @@ OpenCode 请求体中显式携带：
 
 ### 外部目录权限
 
-当 skill 或工具需要访问外部目录时，完整 SSE 文件用于定位：
+当 skill 或工具需要访问外部目录时，当前 session 的完整 SSE 文件用于定位：
 
 - `*_opencode_sse_full.jsonl`
 

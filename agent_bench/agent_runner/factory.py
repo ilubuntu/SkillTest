@@ -7,6 +7,7 @@ from agent_bench.agent_runner.opencode_adapter import OpenCodeAdapter
 
 def create_adapter(agent: dict,
                    timeout: int,
+                   sse_filter: str = "full",
                    on_progress=None,
                    artifact_prefix: str = "agent",
                    artifact_base_dir: str = "generate"):
@@ -35,6 +36,7 @@ def create_adapter(agent: dict,
             if isinstance(item, dict) and str(item.get("name") or "").strip()
         ],
         timeout=timeout,
+        sse_filter=sse_filter,
         on_progress=on_progress,
         artifact_prefix=artifact_prefix,
         artifact_base_dir=artifact_base_dir,

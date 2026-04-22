@@ -44,6 +44,23 @@ task_manager:
   # 执行器会向该地址上报任务进度和最终结果。
   cloud_base_url: "http://47.100.28.161:3000"
 
+# OpenCode SSE 落盘配置。
+opencode:
+  # SSE 原始事件落盘档位。
+  # - full:
+  #   - sse_full: 只保留当前 session 的完整原始 SSE
+  #   - sse_events: 只保留当前 session 的裁剪事件；message.part.delta 不写，其它事件保留
+  # - medium:
+  #   - sse_full: 在 full 基础上进一步裁剪，去掉顶层 event / data.directory / data.project，
+  #               递归去掉 sessionID / messageID / partID，并把所有 patch 裁到 100 字符
+  #   - sse_events: 在 full 基础上进一步去掉顶层 event / data.project，以及常见 time / id / sessionID 字段
+  # - low:
+  #   - sse_full: 只保留关键事件类型 message.part.updated / message.updated / session.status /
+  #               session.idle / session.updated / sse.error，并压缩成最小必要字段
+  #   - sse_events: 只保留关键进度事件 message.part.updated(step-start/reasoning/tool/patch/text/step-finish)、
+  #                 session.status、session.idle，并压缩成最小必要字段
+  sse_filter: "low"
+
 # 日志配置。
 # 这些配置控制执行器自己的日志文件，不影响业务结果。
 logging:

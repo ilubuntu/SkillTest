@@ -24,12 +24,18 @@ from typing import Optional
 
 from agent_bench.pipeline.artifacts import agent_meta_dir, review_dir, static_dir
 from agent_bench.agent_runner.adapter import AgentAdapter
+from agent_bench.agent_runner.sse_runtime_state import SseRuntimeState
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
 DEFAULT_API_BASE = "http://localhost:4096"
 TIMEOUT = DEFAULT_TIMEOUT_SECONDS
 MAX_RAW_SSE_LINE_CHARS = 2000
 DELTA_PROGRESS_THROTTLE_SECONDS = 10.0
+VALID_SSE_FILTERS = {"full", "medium", "low"}
+MEDIUM_PATCH_LIMIT_CHARS = 100
+LOW_FULL_EVENT_TYPES = {"message.part.updated", "message.updated", "session.status", "session.idle", "session.updated"}
+LOW_RAW_EVENT_TYPES = {"message.part.updated", "session.status", "session.idle"}
+LOW_PART_TYPES = {"step-start", "reasoning", "tool", "patch", "text", "step-finish"}
 
 
 def parse_model(model_str: str) -> dict:
@@ -55,6 +61,7 @@ class OpenCodeAdapter(AgentAdapter):
                  model: str = None,
                  target_skills: Optional[list[str]] = None,
                  timeout: int = TIMEOUT,
+                 sse_filter: str = "full",
                  on_progress=None,
                  artifact_prefix: str = "agent",
                  artifact_base_dir: str = "generate"):
@@ -63,6 +70,7 @@ class OpenCodeAdapter(AgentAdapter):
         self.model = model
         self.target_skills = [str(item).strip() for item in (target_skills or []) if str(item).strip()]
         self.timeout = timeout
+        self.sse_filter = self._normalize_sse_filter(sse_filter)
         self.on_progress = on_progress
         self.artifact_prefix = artifact_prefix or "agent"
         self.artifact_base_dir = artifact_base_dir or "generate"
@@ -78,7 +86,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_delta_progress_at = 0.0
         self._last_delta_progress_text = ""
         self._last_non_delta_progress_at = 0.0
-        self._last_runtime_activity_at = 0.0
+        self._sse_runtime_state = SseRuntimeState()
 
     def _log(self, level: str, message: str, tag: str = ""):
         if self.on_progress:
@@ -92,6 +100,190 @@ class OpenCodeAdapter(AgentAdapter):
         if len(text) <= limit:
             return text
         return text[:limit] + "..."
+
+    @staticmethod
+    def _clip_text_with_total_limit(value: str, limit: int) -> str:
+        text = str(value or "")
+        if len(text) <= limit:
+            return text
+        if limit <= 3:
+            return text[: max(limit, 0)]
+        return text[: limit - 3] + "..."
+
+    def _compact_medium_sse_payload(self, payload: dict) -> dict:
+        try:
+            compact = json.loads(json.dumps(payload, ensure_ascii=False))
+        except Exception:
+            return payload
+
+        compact = self._apply_medium_common_sse_fields(compact)
+        data = compact.get("data")
+        if isinstance(data, dict):
+            data.pop("directory", None)
+        compact = self._prune_medium_sse_event_fields(compact)
+        self._prune_medium_sse_node(compact)
+        return compact
+
+    @staticmethod
+    def _apply_medium_common_sse_fields(payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            return payload
+        payload.pop("event", None)
+        data = payload.get("data")
+        if isinstance(data, dict):
+            data.pop("project", None)
+        return payload
+
+    @staticmethod
+    def _prune_medium_sse_event_fields(payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            return payload
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return payload
+        nested = data.get("payload")
+        if not isinstance(nested, dict):
+            return payload
+        nested.pop("id", None)
+        nested.pop("aggregateID", None)
+        nested.pop("aggregateId", None)
+        props = nested.get("properties")
+        if not isinstance(props, dict):
+            props = nested.get("data")
+        if isinstance(props, dict):
+            props.pop("time", None)
+            props.pop("sessionID", None)
+            props.pop("sessionId", None)
+
+            part = props.get("part")
+            if isinstance(part, dict):
+                part.pop("id", None)
+                part.pop("messageID", None)
+                part.pop("messageId", None)
+                part.pop("sessionID", None)
+                part.pop("sessionId", None)
+                part.pop("time", None)
+        return payload
+
+    def _prune_medium_sse_node(self, value):
+        if isinstance(value, dict):
+            for key in ("sessionID", "sessionId", "messageID", "messageId", "partID", "partId"):
+                value.pop(key, None)
+            for key, item in list(value.items()):
+                if key == "patch":
+                    value[key] = self._clip_text_with_total_limit(item, MEDIUM_PATCH_LIMIT_CHARS)
+                    continue
+                self._prune_medium_sse_node(item)
+            return
+        if isinstance(value, list):
+            for item in value:
+                self._prune_medium_sse_node(item)
+
+    def _build_low_sse_payload(self, payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            return payload
+        if str(payload.get("event") or "").strip() == "sse.error":
+            return {
+                "timestamp": payload.get("timestamp"),
+                "event": "sse.error",
+                "data": {
+                    "error": self._clip_large_text(
+                        (payload.get("data") or {}).get("error") if isinstance(payload.get("data"), dict) else "",
+                        240,
+                    ),
+                },
+            }
+
+        event_data = self._extract_sse_event_data(payload)
+        if not isinstance(event_data, dict):
+            return {
+                "timestamp": payload.get("timestamp"),
+                "data": event_data,
+            }
+
+        event_type = str(event_data.get("type") or "").strip()
+        simplified = {
+            "timestamp": payload.get("timestamp"),
+            "data": {
+                "payload": {
+                    "type": event_type,
+                },
+            },
+        }
+        props = event_data.get("properties") if isinstance(event_data.get("properties"), dict) else {}
+        simple_props = {}
+
+        if event_type == "message.part.updated":
+            part = props.get("part") if isinstance(props.get("part"), dict) else {}
+            simple_part = {}
+            part_type = str(part.get("type") or "").strip()
+            if part_type:
+                simple_part["type"] = part_type
+            if part.get("tool"):
+                simple_part["tool"] = part.get("tool")
+            if part.get("reason"):
+                simple_part["reason"] = part.get("reason")
+            if part.get("text"):
+                simple_part["text"] = self._clip_large_text(part.get("text"), 160)
+            files = part.get("files")
+            if isinstance(files, list) and files:
+                simple_part["files"] = [self._short_workspace_path(str(item)) for item in files[:3]]
+            state = part.get("state") if isinstance(part.get("state"), dict) else {}
+            if state:
+                simple_state = {}
+                if state.get("status"):
+                    simple_state["status"] = state.get("status")
+                state_input = state.get("input") if isinstance(state.get("input"), dict) else {}
+                if state_input:
+                    simple_input = {}
+                    if state_input.get("description"):
+                        simple_input["description"] = self._clip_large_text(state_input.get("description"), 120)
+                    if state_input.get("filePath") or state_input.get("path"):
+                        simple_input["path"] = self._short_workspace_path(state_input.get("filePath") or state_input.get("path"))
+                    if state_input.get("command") or state_input.get("cmd"):
+                        simple_input["cmd"] = self._clip_large_text(state_input.get("command") or state_input.get("cmd"), 120)
+                    if simple_input:
+                        simple_state["input"] = simple_input
+                if simple_state:
+                    simple_part["state"] = simple_state
+            if simple_part:
+                simple_props["part"] = simple_part
+        elif event_type == "message.updated":
+            for key in ("finish", "error"):
+                if props.get(key):
+                    simple_props[key] = props.get(key)
+        elif event_type == "session.status":
+            for key in ("status", "state"):
+                if props.get(key):
+                    simple_props[key] = props.get(key)
+        elif event_type == "session.updated":
+            for key in ("title", "status"):
+                if props.get(key):
+                    simple_props[key] = props.get(key)
+
+        if simple_props:
+            simplified["data"]["payload"]["properties"] = simple_props
+        return simplified
+
+    def _build_full_sse_payload(self, payload: dict) -> dict:
+        if self.sse_filter == "medium":
+            return self._compact_medium_sse_payload(payload)
+        if self.sse_filter == "low":
+            return self._build_low_sse_payload(payload)
+        return payload
+
+    def _get_sse_event_type(self, payload: dict) -> str:
+        data = self._extract_sse_event_data(payload)
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("type") or "").strip()
+
+    @staticmethod
+    def _normalize_sse_filter(value: Optional[str]) -> str:
+        normalized = str(value or "full").strip().lower()
+        if normalized in VALID_SSE_FILTERS:
+            return normalized
+        return "full"
 
     @staticmethod
     def _short_workspace_path(path: str) -> str:
@@ -131,7 +323,8 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_interaction_metrics = None
         self._last_error_message = ""
         self._seen_runtime_events = set()
-        self._last_runtime_activity_at = 0.0
+        self._sse_runtime_state.reset()
+        self.sse_filter = self._normalize_sse_filter(self.sse_filter)
 
         if not runtime_options:
             self._log("DEBUG", "无额外运行时配置")
@@ -449,6 +642,7 @@ class OpenCodeAdapter(AgentAdapter):
                 open(progress_log_path, "a", encoding="utf-8").close()
             if full_sse_log_path:
                 open(full_sse_log_path, "a", encoding="utf-8").close()
+            self._sse_runtime_state.reset(session_id)
             self._mark_runtime_activity()
             sse_thread = threading.Thread(
                 target=self._capture_sse_events,
@@ -475,7 +669,6 @@ class OpenCodeAdapter(AgentAdapter):
                 session_id,
                 effective_prompt,
                 tag=tag,
-                full_sse_log_path=full_sse_log_path,
             )
             if not payload:
                 raise TimeoutError("OpenCode prompt_async 未在超时内返回完整消息")
@@ -532,24 +725,13 @@ class OpenCodeAdapter(AgentAdapter):
     def _wait_for_completed_message(self,
                                     session_id: str,
                                     prompt_text: str,
-                                    tag: str = "",
-                                    full_sse_log_path: Optional[str] = None) -> Optional[dict]:
+                                    tag: str = "") -> Optional[dict]:
         last_seen = None
-        if self._last_runtime_activity_at <= 0:
+        if not self._sse_runtime_state.has_activity():
             self._mark_runtime_activity()
         while True:
-            idle_seconds = time.monotonic() - self._last_runtime_activity_at
+            idle_seconds = self._sse_runtime_state.idle_seconds()
             if idle_seconds >= self.timeout:
-                # 保险兜底：如果 full SSE 文件在超时窗口内仍有刷新，说明会话实际上还在持续输出，
-                # 本地活动时间戳可能漏记了。这种情况下继续等待，并打 error 日志留痕便于排查。
-                if self._has_recent_full_sse_activity(full_sse_log_path, self.timeout):
-                    self._log(
-                        "ERROR",
-                        f"检测到本地超时判断与 full SSE 活动不一致：最近{self.timeout}s内 full SSE 仍在刷新，自动延长等待窗口，请检查超时逻辑",
-                        tag=tag,
-                    )
-                    self._mark_runtime_activity()
-                    continue
                 break
             payload = self._fetch_latest_message(session_id, prompt_text)
             if payload:
@@ -595,6 +777,14 @@ class OpenCodeAdapter(AgentAdapter):
         base_dir = os.path.dirname(output_path)
         return os.path.join(base_dir, f"{self.artifact_prefix}_opencode_sse_full.jsonl")
 
+    def _should_write_full_sse_payload(self, payload: dict) -> bool:
+        if self.sse_filter != "low":
+            return self.sse_filter in VALID_SSE_FILTERS
+        if str(payload.get("event") or "").strip() == "sse.error":
+            return True
+        event_type = self._get_sse_event_type(payload)
+        return event_type in LOW_FULL_EVENT_TYPES
+
     def _capture_sse_events(self, session_id: str, output_path: str, stop_event: threading.Event, connected_event: threading.Event, tag: str = ""):
         self._log("WARNING", f"开始监听 OpenCode SSE 事件流: {output_path}", tag=tag)
         progress_output_path = self._resolve_sse_progress_log_path(output_path)
@@ -623,20 +813,14 @@ class OpenCodeAdapter(AgentAdapter):
                                 elif line == "":
                                     payload = self._parse_sse_event_payload(event_name, data_lines)
                                     if payload is not None:
-                                        # sse_full 要保留真正的原始 SSE，不做 session 过滤。
-                                        if full_output_path:
-                                            os.makedirs(os.path.dirname(full_output_path), exist_ok=True)
-                                            with open(full_output_path, "a", encoding="utf-8") as f:
-                                                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-
-                                        # 旧逻辑保留在这里，先不要删。
-                                        # 之前 full / events 都先过 session 过滤，导致 full 也不再是真正的 full。
-                                        # if payload is not None and self._event_matches_session(payload, session_id):
-                                        #     self._mark_runtime_activity()
-                                        #     self._append_jsonl(output_path, payload, progress_output_path, full_output_path)
-                                        #     self._emit_runtime_progress_log(payload, tag=tag)
-
+                                        # 每个任务独立启动一条 SSE 监听，但 full 文件只保留当前 session
+                                        # 的完整原始事件，避免混入其他任务的事件后误导超时判断。
                                         if self._event_matches_session(payload, session_id):
+                                            if full_output_path and self._should_write_full_sse_payload(payload):
+                                                full_payload = self._build_full_sse_payload(payload)
+                                                os.makedirs(os.path.dirname(full_output_path), exist_ok=True)
+                                                with open(full_output_path, "a", encoding="utf-8") as f:
+                                                    f.write(json.dumps(full_payload, ensure_ascii=False) + "\n")
                                             self._mark_runtime_activity()
                                             self._append_jsonl(output_path, payload, progress_output_path, None)
                                             self._emit_runtime_progress_log(payload, tag=tag, source="sse")
@@ -684,6 +868,9 @@ class OpenCodeAdapter(AgentAdapter):
         return text[:limit] + "..."
 
     def _shrink_raw_sse_payload(self, payload: dict) -> dict:
+        if self.sse_filter == "low":
+            return self._build_low_sse_payload(payload)
+
         try:
             compact = json.loads(json.dumps(payload, ensure_ascii=False))
         except Exception:
@@ -739,6 +926,9 @@ class OpenCodeAdapter(AgentAdapter):
 
         serialized = json.dumps(compact, ensure_ascii=False)
         if len(serialized) <= MAX_RAW_SSE_LINE_CHARS:
+            if self.sse_filter == "medium":
+                compact = self._apply_medium_common_sse_fields(compact)
+                compact = self._prune_medium_sse_event_fields(compact)
             return compact
 
         data = compact.get("data")
@@ -768,6 +958,9 @@ class OpenCodeAdapter(AgentAdapter):
 
         serialized = json.dumps(compact, ensure_ascii=False)
         if len(serialized) <= MAX_RAW_SSE_LINE_CHARS:
+            if self.sse_filter == "medium":
+                compact = self._apply_medium_common_sse_fields(compact)
+                compact = self._prune_medium_sse_event_fields(compact)
             return compact
 
         event_data = self._extract_sse_event_data(compact)
@@ -800,7 +993,13 @@ class OpenCodeAdapter(AgentAdapter):
                 if part.get("text"):
                     simple_part["text"] = self._clip_large_text(part.get("text"), 120)
                 simple_props["part"] = simple_part
+            if self.sse_filter == "medium":
+                simplified = self._apply_medium_common_sse_fields(simplified)
+                simplified = self._prune_medium_sse_event_fields(simplified)
             return simplified
+        if self.sse_filter == "medium":
+            compact = self._apply_medium_common_sse_fields(compact)
+            compact = self._prune_medium_sse_event_fields(compact)
         return compact
 
     @staticmethod
@@ -814,6 +1013,16 @@ class OpenCodeAdapter(AgentAdapter):
         return data
 
     def _should_store_raw_sse_payload(self, payload: dict) -> bool:
+        if self.sse_filter == "low":
+            event_type = self._get_sse_event_type(payload)
+            if event_type == "message.part.updated":
+                data = self._extract_sse_event_data(payload)
+                props = data.get("properties") if isinstance(data, dict) and isinstance(data.get("properties"), dict) else {}
+                part = props.get("part") if isinstance(props.get("part"), dict) else {}
+                part_type = str(part.get("type") or "").strip()
+                return part_type in LOW_PART_TYPES
+            return event_type in LOW_RAW_EVENT_TYPES
+
         data = self._extract_sse_event_data(payload)
         if not isinstance(data, dict):
             return True
@@ -980,17 +1189,7 @@ class OpenCodeAdapter(AgentAdapter):
     def _mark_runtime_activity(self):
         # 以“收到当前 session 的真实 SSE 事件”为活动信号。
         # 只要还有 delta / tool / text / step-finish 持续到达，就不应被判定为超时。
-        self._last_runtime_activity_at = time.monotonic()
-
-    @staticmethod
-    def _has_recent_full_sse_activity(full_sse_log_path: Optional[str], within_seconds: int) -> bool:
-        if not full_sse_log_path:
-            return False
-        try:
-            last_mtime = os.path.getmtime(full_sse_log_path)
-        except OSError:
-            return False
-        return (time.time() - last_mtime) < max(int(within_seconds or 0), 1)
+        self._sse_runtime_state.mark_activity()
 
     def _backfill_sse_logs_from_messages(self,
                                         all_messages: list,

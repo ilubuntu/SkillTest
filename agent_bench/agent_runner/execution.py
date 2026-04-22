@@ -36,6 +36,24 @@ class AgentRunner:
         timeout = int(self.agent_spec.timeout or 0)
         return timeout if timeout > 0 else self.fallback_timeout
 
+    def _resolve_sse_filter(self) -> str:
+        from agent_bench.pipeline.loader import load_config
+
+        config = load_config() or {}
+        if not isinstance(config, dict):
+            return "full"
+
+        opencode_config = config.get("opencode")
+        if isinstance(opencode_config, dict):
+            value = opencode_config.get("sse_filter", opencode_config.get("sse-filter"))
+            if value is not None and str(value).strip():
+                return str(value).strip()
+
+        value = config.get("sse_filter", config.get("sse-filter"))
+        if value is not None and str(value).strip():
+            return str(value).strip()
+        return "full"
+
     def prepare(self, workspace_dir: str):
         self._notify("WARNING", f"开始准备 {self.agent_spec.display_name} 运行配置...")
         log_agent_configuration(self.agent_spec, self.on_progress)
@@ -52,6 +70,7 @@ class AgentRunner:
         self.adapter = create_adapter(
             self.agent_spec.raw,
             timeout=self._resolve_timeout(),
+            sse_filter=self._resolve_sse_filter(),
             on_progress=self.on_progress,
             artifact_prefix=self.artifact_prefix,
             artifact_base_dir=self.artifact_base_dir,
