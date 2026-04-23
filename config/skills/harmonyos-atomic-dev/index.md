@@ -25,6 +25,8 @@
 - [component/navigation/nav_destination.md](component/navigation/nav_destination.md) — NavDestination (navigation 目录)
 - [component/navigation/nav_router.md](component/navigation/nav_router.md) — NavRouter 声明式路由导航
 - [component/navigation/navigator.md](component/navigation/navigator.md) — Navigator 页面跳转组件
+- [component/for_each/for-each-basic.ets](component/for_each/for-each-basic.ets) — ForEach 循环渲染基础示例
+- [component/lazy_for_each/lazy-for-each-basic.ets](component/lazy_for_each/lazy-for-each-basic.ets) — LazyForEach 延迟加载数据源实现
 - [component/gesture/gesture-tap.ets](component/gesture/gesture-tap.ets) — TapGesture 点击手势
 - [component/gesture/gesture-pan.ets](component/gesture/gesture-pan.ets) — PanGesture 拖动手势
 - [component/gesture/gesture-pinch.ets](component/gesture/gesture-pinch.ets) — PinchGesture 捏合手势
@@ -40,6 +42,11 @@
 ### Experience (开发实践)
 - [experience/experience_gesture.md](experience/experience_gesture.md) — Gesture 手势组件开发实践（6 个场景 + 踩坑记录）
 - [experience/experience_image.md](experience/experience_image.md) — Image 图片组件开发实践（5 个场景 + 踩坑记录）
+- [experience/experience_account-kit.md](experience/experience_account-kit.md) — AccountKit 账号服务开发实践
+- [experience/experience_file.md](experience/experience_file.md) — 文件管理能力开发实践
+- [experience/experience_scan.md](experience/experience_scan.md) — ScanKit 扫码能力开发实践
+- [experience/experience_scenario_fusion.md](experience/experience_scenario_fusion.md) — ScenarioFusionKit 融合场景服务开发实践
+- [experience/experience_share.md](experience/experience_share.md) — 元服务分享能力开发实践
 
 ### Kit Capabilities (Code Examples)
 - [kit/account/account-silent-login.ets](kit/account/account-silent-login.ets) — 静默登录 (AccountKit)
@@ -49,7 +56,13 @@
 - [kit/account/account-kit-cancel-auth.ets](kit/account/account-kit-cancel-auth.ets) — 取消华为账号授权 (AccountKit)
 - [kit/account/account-kit-avatar-nickname.ets](kit/account/account-kit-avatar-nickname.ets) — 获取华为账号头像昵称 (AccountKit)
 - [kit/contact/contact.ets](kit/contact/contact.ets) — 通讯录读取与选择联系人
-- [kit/file/file.ets](kit/file/file.ets) — 文件读写操作 (CoreFileKit)
+- [kit/file/file-read-write.ets](kit/file/file-read-write.ets) — 文件读写操作 (CoreFileKit)
+- [kit/file/file-dir-manage.ets](kit/file/file-dir-manage.ets) — 目录管理 (CoreFileKit)
+- [kit/file/file-info-query.ets](kit/file/file-info-query.ets) — 文件信息查询 (CoreFileKit)
+- [kit/file/file-picker-operate.ets](kit/file/file-picker-operate.ets) — 文件选择器操作 (CoreFileKit)
+- [kit/file/file-rename-delete.ets](kit/file/file-rename-delete.ets) — 文件重命名与删除 (CoreFileKit)
+- [kit/file/file-stream-operate.ets](kit/file/file-stream-operate.ets) — 文件流操作 (CoreFileKit)
+- [kit/file/file-text-operate.ets](kit/file/file-text-operate.ets) — 文本文件操作 (CoreFileKit)
 - [kit/file/preview.ets](kit/file/preview.ets) — 文件预览 (PreviewKit)
 - [kit/image/image-encode-decode.ets](kit/image/image-encode-decode.ets) — 图片编解码 (ImageKit)
 - [kit/network/network-connection-manager.ets](kit/network/network-connection-manager.ets) — 网络连接管理
@@ -58,8 +71,11 @@
 - [kit/scan/create-bar-code.ets](kit/scan/create-bar-code.ets) — 二维码/条形码生成 (ScanKit)
 - [kit/scan/scan-bar-code.ets](kit/scan/scan-bar-code.ets) — 二维码/条形码扫描 (ScanKit)
 - [kit/share/share-button.ets](kit/share/share-button.ets) — 分享功能按钮 (ScenarioFusionKit)
+- [kit/share/share-on-share.ets](kit/share/share-on-share.ets) — 元服务页面分享回调
 - [kit/storage/preferences-utils.ets](kit/storage/preferences-utils.ets) — 轻量级数据持久化 (ArkData)
-- [kit/scenario-fusion/account-avatar-button.ets](kit/scenario-fusion/account-avatar-button.ets) — 账号头像按钮
-- [kit/scenario-fusion/feedback-button.ets](kit/scenario-fusion/feedback-button.ets) — 反馈按钮
-- [kit/scenario-fusion/get-service-code-button.ets](kit/scenario-fusion/get-service-code-button.ets) — 服务授权动态码按钮
-- [kit/camera-picker/camera-picker.ets](kit/camera-picker/camera-picker.md) — 系统相机选择器（CameraPicker）
+- [kit/scenario-fusion/scenario-fusion-choose-avatar.ets](kit/scenario-fusion/scenario-fusion-choose-avatar.ets) — 选择头像 (ScenarioFusionKit)
+- [kit/scenario-fusion/scenario-fusion-feedback.ets](kit/scenario-fusion/scenario-fusion-feedback.ets) — 反馈与投诉 (ScenarioFusionKit)
+- [kit/scenario-fusion/scenario-fusiont-choose-location.ets](kit/scenario-fusion/scenario-fusiont-choose-location.ets) — 地图选点 (ScenarioFusionKit)
+- [kit/camera-picker/camera-picker.md](kit/camera-picker/camera-picker.md) — 系统相机选择器（CameraPicker）
+- [kit/media-library-kit/picker.md](kit/media-library-kit/picker.md) — 使用 Picker 选择媒体库资源（图片、视频等）
+- [kit/push/push.md](kit/push/push.md) — Push Kit 推送服务开发指南
