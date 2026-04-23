@@ -46,6 +46,20 @@ task_manager:
 
 # OpenCode SSE 落盘配置。
 opencode:
+  # OpenCode 全局配置文件路径，用于自动启动 opencode server 前复制到隔离 XDG 目录。
+  # 读取顺序：
+  # 1. 优先读取当前平台对应的 opencode_config_path
+  # 2. 配置项为空或文件不存在时，回退查找用户目录
+  # 3. 全部找不到时，执行器启动失败，避免 provider 缺失后任务静默超时
+  # 三个平台默认建议：
+  # - macos: 通常是 ~/.opencode/opencode.json
+  # - linux: root 用户云测通常是 /root/.config/opencode/opencode.json
+  # - windows: 通常是 %APPDATA%\\opencode\\opencode.json
+  opencode_config_path:
+    macos: "~/.opencode/opencode.json"
+    linux: "/root/.config/opencode/opencode.json"
+    windows: "%APPDATA%\\opencode\\opencode.json"
+
   # SSE 原始事件落盘档位。
   # - full:
   #   - sse_full: 只保留当前 session 的完整原始 SSE

@@ -2,7 +2,10 @@
 """服务发现与自动启动。"""
 
 import json
+import logging
 import os
+import platform
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -14,6 +17,7 @@ from agent_bench.agent_runner.opencode_env import resolve_opencode_command
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVICE_LOG_PATH = os.path.join(tempfile.gettempdir(), "agent_bench_service.log")
+logger = logging.getLogger(__name__)
 
 
 def _runtime_root_dir() -> str:
@@ -22,6 +26,93 @@ def _runtime_root_dir() -> str:
 
 def _default_opencode_xdg_config_home() -> str:
     return os.path.join(_runtime_root_dir(), ".opencode_runtime", "xdg_config")
+
+
+def _isolated_opencode_config_path(xdg_config_home: str) -> str:
+    return os.path.join(xdg_config_home, "opencode", "opencode.json")
+
+
+def _normalize_config_path(path: str) -> str:
+    return os.path.normpath(os.path.expandvars(os.path.expanduser(str(path or "").strip())))
+
+
+def _platform_config_key() -> str:
+    system = platform.system().lower()
+    if system == "darwin":
+        return "macos"
+    if system == "windows":
+        return "windows"
+    return "linux"
+
+
+def _configured_opencode_config_candidate() -> tuple[Optional[str], str]:
+    try:
+        from agent_bench.pipeline.loader import load_config
+
+        config = load_config() or {}
+    except Exception as exc:
+        logger.warning("读取 config.yaml 失败，跳过 opencode_config_path 配置: %s", exc)
+        return None, ""
+
+    opencode_config = config.get("opencode") if isinstance(config, dict) else {}
+    if not isinstance(opencode_config, dict):
+        return None, ""
+
+    value = opencode_config.get("opencode_config_path", opencode_config.get("opencode-config-path"))
+    if value is None:
+        return None, ""
+
+    if isinstance(value, dict):
+        platform_key = _platform_config_key()
+        raw_path = value.get(platform_key) or value.get("default")
+        source = f"config.opencode.opencode_config_path.{platform_key}"
+    else:
+        raw_path = value
+        source = "config.opencode.opencode_config_path"
+
+    if raw_path is None or str(raw_path).strip() == "":
+        return None, source
+    return _normalize_config_path(str(raw_path)), source
+
+
+def _user_opencode_config_candidates() -> list[tuple[str, str]]:
+    home_dir = os.path.expanduser("~")
+    appdata_dir = os.environ.get("APPDATA") or os.path.join(home_dir, "AppData", "Roaming")
+    return [
+        (os.path.join(home_dir, ".opencode", "opencode.json"), "user.home/.opencode"),
+        (os.path.join(home_dir, ".config", "opencode", "opencode.json"), "user.home/.config"),
+        (os.path.join(appdata_dir, "opencode", "opencode.json"), "windows.APPDATA"),
+    ]
+
+
+def _bootstrap_isolated_opencode_config(xdg_config_home: str) -> Optional[str]:
+    """初始化隔离 OpenCode 配置，避免自动启动的 server 缺少 provider。"""
+    target_path = _isolated_opencode_config_path(xdg_config_home)
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+    configured_path, configured_source = _configured_opencode_config_candidate()
+    if configured_path:
+        if os.path.isfile(configured_path):
+            shutil.copy2(configured_path, target_path)
+            logger.info("OpenCode 配置来源: %s -> %s", configured_path, target_path)
+            return target_path
+        logger.warning("配置项指定的 OpenCode 配置不存在，继续查找用户目录: source=%s path=%s", configured_source, configured_path)
+
+    checked_paths = []
+    for source_path, source_name in _user_opencode_config_candidates():
+        source_path = _normalize_config_path(source_path)
+        checked_paths.append(source_path)
+        if not os.path.isfile(source_path):
+            continue
+        shutil.copy2(source_path, target_path)
+        logger.info("OpenCode 配置来源: %s (%s) -> %s", source_path, source_name, target_path)
+        return target_path
+
+    configured_note = f"{configured_path}; " if configured_path else ""
+    raise RuntimeError(
+        "未找到 OpenCode 配置文件，无法启动 OpenCode server。"
+        f"已检查: {configured_note}{'; '.join(checked_paths)}"
+    )
 
 
 def check_api_available(api_base: str) -> bool:
@@ -37,7 +128,7 @@ def check_api_available(api_base: str) -> bool:
 
 def find_opencode_port() -> Optional[str]:
     """查找当前运行的 OpenCode server 端口。"""
-    common_ports = ["4096", "36903", "3000", "18792", "5000"]
+    common_ports = ["4096"]
 
     for port in common_ports:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -65,14 +156,21 @@ def ensure_opencode_server(timeout: int = 30) -> str:
     child_env = os.environ.copy()
     xdg_config_home = _default_opencode_xdg_config_home()
     os.makedirs(xdg_config_home, exist_ok=True)
+    isolated_config_path = _bootstrap_isolated_opencode_config(xdg_config_home)
     # 统一由 Python 启动链负责隔离 OpenCode 全局配置，避免依赖外层脚本入口。
     child_env["XDG_CONFIG_HOME"] = xdg_config_home
     try:
+        logger.info("自动启动 OpenCode Server: cmd=%s XDG_CONFIG_HOME=%s", " ".join(command), xdg_config_home)
+        if isolated_config_path:
+            logger.info("已准备隔离 OpenCode 配置: %s", isolated_config_path)
+        else:
+            logger.warning("未找到可复制的用户 OpenCode 配置，隔离目录缺少 opencode.json")
         with open(SERVICE_LOG_PATH, "a", encoding="utf-8") as log_file:
             log_file.write(
                 f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] starting opencode server "
                 f"cmd={' '.join(command)}"
                 f" XDG_CONFIG_HOME={xdg_config_home}"
+                f" isolated_config={isolated_config_path or ''}"
                 "\n"
             )
 

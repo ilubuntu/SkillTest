@@ -52,3 +52,4 @@ oh_modules/
 
 cache/
 results/
+.opencode_runtime/
