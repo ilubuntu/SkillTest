@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.3
+
+- 时间: `2026-04-23 20:11:35`
+- 主要变更:
+  - 执行器版本升级到 `0.0.3`
+  - OpenCode 自动启动前会按配置复制全局 `opencode.json` 到隔离 XDG 目录
+  - 新增 `opencode.opencode_config_path` 三平台配置，缺失配置时启动失败
+  - `.opencode_runtime/` 加入 Git 忽略
+
 ## 0.0.2
 
 - 时间: `2026-04-23 16:59:02`
