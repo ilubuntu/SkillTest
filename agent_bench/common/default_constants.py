@@ -9,5 +9,5 @@
 """
 
 # Agent 执行超时默认值（秒）。
-# 规则：agents.yaml 中配置了 timeout 时优先使用配置；未配置时回落到 300 秒。
-DEFAULT_TIMEOUT_SECONDS = 300
+# 规则：agents.yaml 中配置了 timeout 时优先使用配置；未配置时回落到 600 秒。
+DEFAULT_TIMEOUT_SECONDS = 600
