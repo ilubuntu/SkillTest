@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.4
+
+- 时间: `2026-04-24 11:51:58`
+- 主要变更:
+  - 执行器版本升级到 `0.0.4`
+  - 任务启动前会从 `XDG` 目录预热复制 `.opencode` 运行时文件到任务级 `workspace/.opencode`
+  - OpenCode 慢启动问题明显缓解，任务可更快进入 `session/SSE/message` 阶段
+  - HTTP 轮询日志增强：支持主 session、child session、todo 变化追踪
+  - 本地日志文案优化：`reasoning` 会带摘要，delta 日志改为 `当前模型还在输出Delta：...`
+
 ## 0.0.3
 
 - 时间: `2026-04-23 20:11:35`
