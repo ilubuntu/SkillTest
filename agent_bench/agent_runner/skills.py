@@ -54,6 +54,10 @@ def _workspace_opencode_config_path(workspace_dir: str) -> str:
     return os.path.join(workspace_dir, "opencode.json")
 
 
+def _xdg_opencode_runtime_template_dir() -> str:
+    return os.path.join(_runtime_root_dir(), ".opencode_runtime", "xdg_config", "opencode")
+
+
 def _remove_existing_path(path: str):
     if not os.path.lexists(path):
         return
@@ -89,6 +93,31 @@ def _skill_tool_enabled(agent_spec: AgentSpec) -> bool:
     if not isinstance(tools, dict):
         return False
     return bool(tools.get("skill"))
+
+
+def _seed_workspace_opencode_runtime(workspace_dir: str, on_progress) -> bool:
+    source_dir = _xdg_opencode_runtime_template_dir()
+    target_dir = _workspace_opencode_dir(workspace_dir)
+    if not os.path.isdir(source_dir):
+        return False
+
+    copied_any = False
+    for name in [".gitignore", "package.json", "package-lock.json", "node_modules"]:
+        source_path = os.path.join(source_dir, name)
+        target_path = os.path.join(target_dir, name)
+        if not os.path.exists(source_path) or os.path.lexists(target_path):
+            continue
+        try:
+            if os.path.isdir(source_path):
+                shutil.copytree(source_path, target_path)
+            else:
+                shutil.copy2(source_path, target_path)
+            copied_any = True
+        except Exception as exc:
+            _notify(on_progress, "WARNING", f"任务级 .opencode 预热失败[{name}]: {exc}")
+    if copied_any:
+        _notify(on_progress, "INFO", f"已从 XDG 预热任务级 .opencode 运行时目录: {target_dir}")
+    return copied_any
 
 
 def _write_workspace_opencode_config(agent_spec: AgentSpec, workspace_dir: str, on_progress) -> str:
@@ -182,6 +211,7 @@ def verify_runtime_skills(agent_spec: AgentSpec, workspace_dir: str, on_progress
         return {"ok": False, "mounted": False}
 
     os.makedirs(_workspace_opencode_dir(workspace_dir), exist_ok=True)
+    _seed_workspace_opencode_runtime(workspace_dir, on_progress)
     config_path = _write_workspace_opencode_config(agent_spec, workspace_dir, on_progress)
 
     all_ok = True

@@ -25,6 +25,7 @@ from typing import Optional
 from agent_bench.pipeline.artifacts import agent_meta_dir, review_dir, static_dir
 from agent_bench.agent_runner.adapter import AgentAdapter
 from agent_bench.agent_runner.agent_runtime_state import AgentRuntimeState
+from agent_bench.agent_runner.communicate import OpenCodeHttpClient, OpenCodeSseClient
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
 DEFAULT_API_BASE = "http://localhost:4096"
@@ -74,6 +75,8 @@ class OpenCodeAdapter(AgentAdapter):
         self.on_progress = on_progress
         self.artifact_prefix = artifact_prefix or "agent"
         self.artifact_base_dir = artifact_base_dir or "generate"
+        self._http_client = OpenCodeHttpClient(self.api_base)
+        self._sse_client = OpenCodeSseClient(self.api_base)
 
         # setup 阶段准备的配置
         self._system_message = ""
@@ -87,8 +90,10 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_delta_progress_text = ""
         self._last_non_delta_progress_at = 0.0
         self._agent_runtime_state = AgentRuntimeState()
+        self._last_local_log_at = time.monotonic()
 
     def _log(self, level: str, message: str, tag: str = ""):
+        self._last_local_log_at = time.monotonic()
         if self.on_progress:
             self.on_progress("log", {"level": level, "message": f"{tag}{message}"})
         if level == "ERROR":
@@ -583,44 +588,41 @@ class OpenCodeAdapter(AgentAdapter):
                               tag: str = "") -> str:
         """保留原有同步 message 调用路径，作为回退方案。"""
         t0 = time.time()
-        data = json.dumps(message_payload).encode("utf-8")
-        req = urllib.request.Request(
-            self._session_prompt_url(self.api_base, session_id, "message", workspace_dir),
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST"
+        result_data = self._http_client.send_message(
+            session_id=session_id,
+            payload=message_payload,
+            workspace_dir=workspace_dir,
+            timeout=self.timeout,
         )
-        with urllib.request.urlopen(req, timeout=self.timeout) as response:
-            result_data = response.read().decode("utf-8")
-            elapsed = time.time() - t0
-            result = self._parse_message_response(result_data, session_id, effective_prompt, tag)
-            message_id = self._extract_message_id(result)
-            message_info = self._fetch_message_info(session_id, message_id) if message_id else None
-            payload = message_info or result
-            parts = payload.get("parts", []) if isinstance(payload, dict) else []
-            self._last_interaction_metrics = self._build_interaction_metrics(
-                source="agent_runner",
-                session_id=session_id,
-                message_id=message_id,
-                prompt_text=effective_prompt,
-                response=result,
-                message_info=message_info,
-                api_elapsed_ms=round(elapsed * 1000),
-            )
-            text = self._extract_best_text(parts, effective_prompt)
-            if text:
-                derived = self._last_interaction_metrics.get("derived") if isinstance(self._last_interaction_metrics, dict) else {}
-                message_metrics = derived.get("message") if isinstance(derived, dict) else {}
-                if isinstance(message_metrics, dict):
-                    message_metrics["output_chars"] = len(text)
-                self._log("INFO",
-                    f"收到响应: {len(text)}字符, 耗时={elapsed:.1f}s",
-                    tag=tag)
-                return text
-            self._log("WARN",
-                f"响应中无 text 部分, parts数={len(parts)}, 耗时={elapsed:.1f}s",
+        elapsed = time.time() - t0
+        result = self._parse_message_response(result_data, session_id, effective_prompt, tag)
+        message_id = self._extract_message_id(result)
+        message_info = self._fetch_message_info(session_id, message_id) if message_id else None
+        payload = message_info or result
+        parts = payload.get("parts", []) if isinstance(payload, dict) else []
+        self._last_interaction_metrics = self._build_interaction_metrics(
+            source="agent_runner",
+            session_id=session_id,
+            message_id=message_id,
+            prompt_text=effective_prompt,
+            response=result,
+            message_info=message_info,
+            api_elapsed_ms=round(elapsed * 1000),
+        )
+        text = self._extract_best_text(parts, effective_prompt)
+        if text:
+            derived = self._last_interaction_metrics.get("derived") if isinstance(self._last_interaction_metrics, dict) else {}
+            message_metrics = derived.get("message") if isinstance(derived, dict) else {}
+            if isinstance(message_metrics, dict):
+                message_metrics["output_chars"] = len(text)
+            self._log("INFO",
+                f"收到响应: {len(text)}字符, 耗时={elapsed:.1f}s",
                 tag=tag)
-            return ""
+            return text
+        self._log("WARN",
+            f"响应中无 text 部分, parts数={len(parts)}, 耗时={elapsed:.1f}s",
+            tag=tag)
+        return ""
 
     def _execute_prompt_async_with_sse(self,
                                        session_id: str,
@@ -632,6 +634,7 @@ class OpenCodeAdapter(AgentAdapter):
         sse_log_path = self._resolve_sse_log_path(workspace_dir)
         progress_log_path = self._resolve_sse_progress_log_path(sse_log_path) if sse_log_path else None
         full_sse_log_path = self._resolve_sse_full_log_path(sse_log_path) if sse_log_path else None
+        http_polling_log_path = self._resolve_http_polling_log_path(workspace_dir)
         stop_event = threading.Event()
         connected_event = threading.Event()
         sse_thread = None
@@ -642,6 +645,8 @@ class OpenCodeAdapter(AgentAdapter):
                 open(progress_log_path, "a", encoding="utf-8").close()
             if full_sse_log_path:
                 open(full_sse_log_path, "a", encoding="utf-8").close()
+            if http_polling_log_path:
+                open(http_polling_log_path, "a", encoding="utf-8").close()
             self._agent_runtime_state.reset(session_id)
             self._mark_runtime_activity()
             sse_thread = threading.Thread(
@@ -654,20 +659,18 @@ class OpenCodeAdapter(AgentAdapter):
 
         t0 = time.time()
         try:
-            data = json.dumps(message_payload).encode("utf-8")
-            req = urllib.request.Request(
-                self._session_prompt_url(self.api_base, session_id, "prompt_async", workspace_dir),
-                data=data,
-                headers={"Content-Type": "application/json"},
-                method="POST"
+            self._http_client.prompt_async(
+                session_id=session_id,
+                payload=message_payload,
+                workspace_dir=workspace_dir,
+                timeout=300,
             )
-            with urllib.request.urlopen(req, timeout=30) as response:
-                response.read()
             self._log("WARNING", f"任务已发送，等待 Agent 与大模型返回结果；SSE 事件写入: {sse_log_path or '未启用'}", tag=tag)
 
             payload = self._wait_for_completed_message(
                 session_id,
                 effective_prompt,
+                http_polling_log_path=http_polling_log_path,
                 tag=tag,
             )
             if not payload:
@@ -725,33 +728,237 @@ class OpenCodeAdapter(AgentAdapter):
     def _wait_for_completed_message(self,
                                     session_id: str,
                                     prompt_text: str,
+                                    http_polling_log_path: Optional[str] = None,
                                     tag: str = "") -> Optional[dict]:
         last_seen = None
+        message_poll_interval = 2.0
+        child_poll_interval = 10.0
+        todo_poll_interval = 60.0
+        last_message_poll_at = 0.0
+        last_child_poll_at = 0.0
+        last_todo_poll_at = 0.0
+        same_message_poll_count = 0
+        last_message_response_signature = ""
+        last_message_heartbeat_log_at = 0.0
+        same_child_poll_count = 0
+        last_child_response_signature = ""
+        last_todo_response_signatures: dict[str, str] = {}
+        child_message_signatures: dict[str, str] = {}
+        child_session_ids: set[str] = set()
         if not self._agent_runtime_state.has_activity():
             self._mark_runtime_activity()
         while True:
             idle_seconds = self._agent_runtime_state.idle_seconds()
             if idle_seconds >= self.timeout:
                 break
-            payload = self._fetch_latest_message(session_id, prompt_text)
-            if payload:
-                last_seen = payload
-                self._mark_message_polling_progress(payload, prompt_text, session_id=session_id)
-                parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
-                self._emit_runtime_progress_from_parts(parts, tag=tag, source="session")
-                has_text = bool(self._extract_best_text(parts, prompt_text))
-                has_step_finish = any(
-                    isinstance(part, dict) and str(part.get("type", "")).lower() == "step-finish"
-                    for part in parts
+            now = time.monotonic()
+            if now - last_message_poll_at >= message_poll_interval:
+                last_message_poll_at = now
+                payload, raw_message_data = self._fetch_latest_message_with_raw(
+                    session_id,
+                    prompt_text,
                 )
-                info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
-                finish_reason = str(info.get("finish") or "").strip().lower()
-                if has_text and has_step_finish and finish_reason not in {"", "tool-calls"}:
-                    return payload
+                message_signature = self._build_http_message_response_signature(raw_message_data, payload, prompt_text)
+                message_changed = bool(message_signature and message_signature != last_message_response_signature)
+                if message_changed:
+                    last_message_response_signature = message_signature
+                    same_message_poll_count = 0
+                    message_poll_interval = 2.0
+                    self._append_http_polling_log(
+                        http_polling_log_path,
+                        "message",
+                        session_id,
+                        f"/session/{session_id}/message?limit=1",
+                        raw_message_data,
+                    )
+                elif message_signature:
+                    same_message_poll_count += 1
+                    if same_message_poll_count >= 3:
+                        message_poll_interval = 10.0
+                if raw_message_data is not None and not message_changed:
+                    if now - self._last_local_log_at >= 60 and now - last_message_heartbeat_log_at >= 60:
+                        last_message_heartbeat_log_at = now
+                        self._log(
+                            "INFO",
+                            "【轮询心跳】message 接口请求成功，最新消息暂未变化，任务仍在进行中",
+                            tag=tag,
+                        )
+                if payload:
+                    last_seen = payload
+                    if message_changed:
+                        self._mark_message_polling_progress(payload, prompt_text, session_id=session_id)
+                        parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
+                        self._emit_runtime_progress_from_parts(parts, tag=tag, source="session")
+                    else:
+                        parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
+                    has_text = bool(self._extract_best_text(parts, prompt_text))
+                    has_step_finish = any(
+                        isinstance(part, dict) and str(part.get("type", "")).lower() == "step-finish"
+                        for part in parts
+                    )
+                    info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+                    finish_reason = str(info.get("finish") or "").strip().lower()
+                    if has_text and has_step_finish and finish_reason not in {"", "tool-calls"}:
+                        return payload
+
+            if now - last_child_poll_at >= child_poll_interval:
+                last_child_poll_at = now
+                next_child_session_ids = self._fetch_child_session_ids(
+                    session_id,
+                    http_polling_log_path=http_polling_log_path,
+                    tag=tag,
+                )
+                child_response_signature = json.dumps(sorted(next_child_session_ids), ensure_ascii=False)
+                child_changed = child_response_signature != last_child_response_signature
+                if child_changed:
+                    last_child_response_signature = child_response_signature
+                    same_child_poll_count = 0
+                    child_poll_interval = 10.0
+                    self._log(
+                        "INFO",
+                        f"【session】 OpenCode 子会话列表有变化: {self._summarize_child_sessions(next_child_session_ids)}",
+                        tag=tag,
+                    )
+                else:
+                    same_child_poll_count += 1
+                    if same_child_poll_count >= 3:
+                        child_poll_interval = 60.0
+                child_session_ids = next_child_session_ids
+                for child_session_id in sorted(child_session_ids):
+                    child_payload, child_raw_message_data = self._fetch_latest_message_with_raw(
+                        child_session_id,
+                        prompt_text,
+                    )
+                    if child_payload:
+                        child_signature = self._build_http_message_response_signature(
+                            child_raw_message_data,
+                            child_payload,
+                            prompt_text,
+                        )
+                        if child_signature and child_signature != child_message_signatures.get(child_session_id, ""):
+                            child_message_signatures[child_session_id] = child_signature
+                            self._append_http_polling_log(
+                                http_polling_log_path,
+                                "message",
+                                child_session_id,
+                                f"/session/{child_session_id}/message?limit=1",
+                                child_raw_message_data,
+                            )
+                            self._mark_message_polling_progress(child_payload, prompt_text, session_id=child_session_id)
+                            child_parts = child_payload.get("parts") if isinstance(child_payload.get("parts"), list) else []
+                            self._emit_runtime_progress_from_parts(child_parts, tag=tag, source="child-session")
+
+            if now - last_todo_poll_at >= todo_poll_interval:
+                last_todo_poll_at = now
+                session_ids = [session_id] + sorted(child_session_ids)
+                for target_session_id in session_ids:
+                    todo_payload = self._fetch_session_todos(
+                        target_session_id,
+                        http_polling_log_path=http_polling_log_path,
+                        tag=tag,
+                    )
+                    todo_signature = self._build_todo_response_signature(todo_payload)
+                    if todo_signature and todo_signature != last_todo_response_signatures.get(target_session_id, ""):
+                        last_todo_response_signatures[target_session_id] = todo_signature
+                        self._log(
+                            "INFO",
+                            f"【TODO列表刷新】{self._summarize_todo_payload(todo_payload)}",
+                            tag=tag,
+                        )
             time.sleep(1)
         if last_seen:
             self._log("WARN", f"连续{self.timeout}s无 OpenCode SSE 活动，返回最近一次 assistant 消息", tag=tag)
         return last_seen
+
+    def _fetch_child_session_ids(self,
+                                 session_id: str,
+                                 http_polling_log_path: Optional[str] = None,
+                                 tag: str = "") -> set[str]:
+        endpoint = f"/session/{session_id}/children"
+        try:
+            payload = self._http_client.list_children(session_id, timeout=10)
+            self._append_http_polling_log(
+                http_polling_log_path,
+                "children",
+                session_id,
+                endpoint,
+                payload,
+            )
+            return self._extract_session_ids(payload)
+        except Exception as e:
+            self._append_http_polling_log(
+                http_polling_log_path,
+                "children.error",
+                session_id,
+                endpoint,
+                {"error": str(e)},
+            )
+            self._log("DEBUG", f"读取子 session 失败: {e}", tag=tag)
+            return set()
+
+    def _fetch_session_todos(self,
+                             session_id: str,
+                             http_polling_log_path: Optional[str] = None,
+                             tag: str = ""):
+        endpoint = f"/session/{session_id}/todo"
+        try:
+            payload = self._http_client.list_todos(session_id, timeout=10)
+            self._append_http_polling_log(
+                http_polling_log_path,
+                "todo",
+                session_id,
+                endpoint,
+                payload,
+            )
+            if self._todos_indicate_activity(payload):
+                self._mark_runtime_activity(session_id=session_id)
+            return payload
+        except Exception as e:
+            self._append_http_polling_log(
+                http_polling_log_path,
+                "todo.error",
+                session_id,
+                endpoint,
+                {"error": str(e)},
+            )
+            self._log("DEBUG", f"读取 session todo 失败: {e}", tag=tag)
+            return None
+
+    def _extract_session_ids(self, payload) -> set[str]:
+        result = set()
+
+        def walk(value):
+            if isinstance(value, dict):
+                candidate = value.get("id") or value.get("sessionID") or value.get("sessionId")
+                if candidate:
+                    result.add(str(candidate))
+                for item in value.values():
+                    walk(item)
+            elif isinstance(value, list):
+                for item in value:
+                    walk(item)
+
+        walk(payload)
+        return result
+
+    def _todos_indicate_activity(self, payload) -> bool:
+        active_statuses = {"pending", "in_progress", "in-progress", "running", "active", "doing", "todo"}
+
+        def walk(value):
+            if isinstance(value, dict):
+                status = str(value.get("status") or value.get("state") or "").strip().lower()
+                if status in active_statuses:
+                    return True
+                for item in value.values():
+                    if walk(item):
+                        return True
+            elif isinstance(value, list):
+                for item in value:
+                    if walk(item):
+                        return True
+            return False
+
+        return walk(payload)
 
     def _resolve_sse_log_path(self, workspace_dir: Optional[str]) -> Optional[str]:
         if not workspace_dir:
@@ -778,6 +985,37 @@ class OpenCodeAdapter(AgentAdapter):
         base_dir = os.path.dirname(output_path)
         return os.path.join(base_dir, f"{self.artifact_prefix}_opencode_sse_full.jsonl")
 
+    def _resolve_http_polling_log_path(self, workspace_dir: Optional[str]) -> Optional[str]:
+        if self.artifact_base_dir != "generate" or not workspace_dir:
+            return None
+        normalized_dir = workspace_dir.rstrip(os.sep)
+        if os.path.isdir(os.path.join(normalized_dir, "workspace")) or os.path.isdir(os.path.join(normalized_dir, "original")):
+            case_dir = normalized_dir
+        else:
+            case_dir = os.path.dirname(normalized_dir)
+        target_dir = agent_meta_dir(case_dir)
+        os.makedirs(target_dir, exist_ok=True)
+        return os.path.join(target_dir, f"{self.artifact_prefix}_opencode_http_polling.jsonl")
+
+    def _append_http_polling_log(self,
+                                 path: Optional[str],
+                                 kind: str,
+                                 session_id: str,
+                                 endpoint: str,
+                                 payload):
+        if not path:
+            return
+        row = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "kind": kind,
+            "sessionID": session_id,
+            "endpoint": endpoint,
+            "data": payload,
+        }
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
     def _should_write_full_sse_payload(self, payload: dict) -> bool:
         if self.sse_filter != "low":
             return self.sse_filter in VALID_SSE_FILTERS
@@ -790,60 +1028,37 @@ class OpenCodeAdapter(AgentAdapter):
         self._log("WARNING", f"开始监听 OpenCode SSE 事件流: {output_path}", tag=tag)
         progress_output_path = self._resolve_sse_progress_log_path(output_path)
         full_output_path = self._resolve_sse_full_log_path(output_path)
-        while not stop_event.is_set():
-            try:
-                connected = False
-                last_error = None
-                for endpoint in ("/event", "/global/event"):
-                    try:
-                        req = urllib.request.Request(f"{self.api_base}{endpoint}", method="GET")
-                        with urllib.request.urlopen(req, timeout=10) as response:
-                            connected = True
-                            connected_event.set()
-                            event_name = None
-                            data_lines = []
-                            while not stop_event.is_set():
-                                raw_line = response.readline()
-                                if not raw_line:
-                                    break
-                                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-                                if line.startswith("event:"):
-                                    event_name = line[6:].strip()
-                                elif line.startswith("data:"):
-                                    data_lines.append(line[5:].lstrip())
-                                elif line == "":
-                                    payload = self._parse_sse_event_payload(event_name, data_lines)
-                                    if payload is not None:
-                                        # 每个任务独立启动一条 SSE 监听，但 full 文件只保留当前 session
-                                        # 的完整原始事件，避免混入其他任务的事件后误导超时判断。
-                                        if self._event_matches_session(payload, session_id):
-                                            if full_output_path and self._should_write_full_sse_payload(payload):
-                                                full_payload = self._build_full_sse_payload(payload)
-                                                os.makedirs(os.path.dirname(full_output_path), exist_ok=True)
-                                                with open(full_output_path, "a", encoding="utf-8") as f:
-                                                    f.write(json.dumps(full_payload, ensure_ascii=False) + "\n")
-                                            self._mark_runtime_activity()
-                                            self._append_jsonl(output_path, payload, progress_output_path, None)
-                                            self._emit_runtime_progress_log(payload, tag=tag, source="sse")
-                                    event_name = None
-                                    data_lines = []
-                        if connected:
-                            break
-                    except Exception as exc:
-                        last_error = exc
-                        continue
-                if not connected and last_error is not None:
-                    raise last_error
-                time.sleep(0.5)
-            except Exception as exc:
-                if stop_event.is_set():
-                    break
-                self._append_jsonl(output_path, {
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "event": "sse.error",
-                    "data": {"error": str(exc)},
-                }, progress_output_path, full_output_path)
-                time.sleep(1)
+
+        def handle_payload(payload: dict):
+            # 每个任务独立启动一条 SSE 监听，但 full 文件只保留当前 session
+            # 的完整原始事件，避免混入其他任务的事件后误导超时判断。
+            if not self._event_matches_session(payload, session_id):
+                return
+            if full_output_path and self._should_write_full_sse_payload(payload):
+                full_payload = self._build_full_sse_payload(payload)
+                os.makedirs(os.path.dirname(full_output_path), exist_ok=True)
+                with open(full_output_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(full_payload, ensure_ascii=False) + "\n")
+            self._mark_runtime_activity(session_id=session_id)
+            self._append_jsonl(output_path, payload, progress_output_path, None)
+            self._emit_runtime_progress_log(payload, tag=tag, source="sse")
+
+        def handle_error(exc: Exception):
+            self._append_jsonl(output_path, {
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "event": "sse.error",
+                "data": {"error": str(exc)},
+            }, progress_output_path, full_output_path)
+
+        self._sse_client.capture_events(
+            stop_event=stop_event,
+            connected_event=connected_event,
+            parse_payload=self._parse_sse_event_payload,
+            handle_payload=handle_payload,
+            handle_error=handle_error,
+            timeout=10,
+            retry_delay=1,
+        )
 
     def _parse_sse_event_payload(self, event_name: Optional[str], data_lines: list[str]) -> Optional[dict]:
         if not event_name and not data_lines:
@@ -1187,14 +1402,82 @@ class OpenCodeAdapter(AgentAdapter):
             if payload:
                 self._emit_runtime_progress_log(payload, tag=tag, source=source)
 
-    def _mark_runtime_activity(self):
+    def _mark_runtime_activity(self, session_id: str = ""):
         # 只要当前 session 还有真实进展，运行态就应被刷新。
         # 这既包括 SSE 事件，也包括 HTTP message 轮询发现的新进展。
-        self._agent_runtime_state.mark_activity()
+        self._agent_runtime_state.mark_activity(session_id=session_id)
 
     def _mark_message_polling_progress(self, payload: dict, prompt_text: str, session_id: str = "") -> bool:
         signature = self._build_message_progress_signature(payload, prompt_text)
         return self._agent_runtime_state.mark_message_progress(signature, session_id=session_id)
+
+    @staticmethod
+    def _short_session_id(session_id: str) -> str:
+        text = str(session_id or "").strip()
+        if len(text) <= 16:
+            return text
+        return text[:16] + "..."
+
+    def _summarize_child_sessions(self, child_session_ids: set[str]) -> str:
+        if not child_session_ids:
+            return "无子会话"
+        ordered = [self._short_session_id(item) for item in sorted(child_session_ids)[:5]]
+        suffix = "" if len(child_session_ids) <= 5 else " ..."
+        return f"{len(child_session_ids)}个: {', '.join(ordered)}{suffix}"
+
+    def _build_todo_response_signature(self, payload) -> str:
+        if payload is None:
+            return ""
+        try:
+            return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return str(payload)
+
+    def _summarize_todo_payload(self, payload) -> str:
+        if not payload:
+            return "无 todo"
+        items = []
+        if isinstance(payload, list):
+            items = payload
+        elif isinstance(payload, dict):
+            for key in ("items", "todos", "data", "result"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    items = value
+                    break
+        summary_parts = []
+        for item in items[:5]:
+            if not isinstance(item, dict):
+                continue
+            content = self._clip_large_text(str(item.get("content") or item.get("title") or "").strip(), 36)
+            status = str(item.get("status") or item.get("state") or "").strip().lower()
+            if content or status:
+                summary_parts.append(f"{status or 'unknown'}:{content or '-'}")
+        if not summary_parts:
+            return self._clip_large_text(str(payload), 80)
+        suffix = "" if len(items) <= 5 else " ..."
+        return "; ".join(summary_parts) + suffix
+
+    def _build_http_message_response_signature(self, raw_data, payload: Optional[dict], prompt_text: str) -> str:
+        candidate = payload if isinstance(payload, dict) else self._coerce_message_payload(raw_data, prompt_text)
+        if isinstance(candidate, dict):
+            progress_signature = self._build_message_progress_signature(candidate, prompt_text)
+            if progress_signature:
+                return progress_signature
+            info = candidate.get("info") if isinstance(candidate.get("info"), dict) else {}
+            parts = candidate.get("parts") if isinstance(candidate.get("parts"), list) else []
+            summary = {
+                "message_id": self._extract_message_id(candidate) or "",
+                "finish": str(info.get("finish") or ""),
+                "created": info.get("time", {}).get("created") if isinstance(info.get("time"), dict) else "",
+                "completed": info.get("time", {}).get("completed") if isinstance(info.get("time"), dict) else "",
+                "part_count": len(parts),
+            }
+            return json.dumps(summary, ensure_ascii=False, sort_keys=True)
+        try:
+            return json.dumps(raw_data, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return str(raw_data or "")
 
     def _build_message_progress_signature(self, payload: dict, prompt_text: str) -> str:
         if not isinstance(payload, dict):
@@ -1294,7 +1577,7 @@ class OpenCodeAdapter(AgentAdapter):
             if summary and (now - last_progress_at) >= DELTA_PROGRESS_THROTTLE_SECONDS:
                 self._last_delta_progress_text = summary
                 self._last_delta_progress_at = now
-                self._log("INFO", f"{source_prefix} OpenCode 当前模型还在输出{summary}", tag=tag)
+                self._log("INFO", f"{source_prefix} OpenCode 当前模型还在输出Delta：{summary}", tag=tag)
             return
 
         mapped = self._map_sse_payload(payload)
@@ -1328,7 +1611,12 @@ class OpenCodeAdapter(AgentAdapter):
             log_message = f"{source_prefix} OpenCode 已收到任务，开始执行"
         elif event_type == "reasoning":
             signature = ("reasoning",) + event_identity
-            log_message = f"{source_prefix} OpenCode 模型开始思考"
+            reasoning_summary = self._clip_large_text(" ".join(str(message or "").strip().split()), 60)
+            log_message = (
+                f"{source_prefix} OpenCode 模型正在思考: {reasoning_summary}"
+                if reasoning_summary
+                else f"{source_prefix} OpenCode 模型正在思考"
+            )
         elif event_type == "tool_call":
             lowered = message.lower()
             tool_name = lowered.split(" ", 1)[0]
@@ -1411,53 +1699,55 @@ class OpenCodeAdapter(AgentAdapter):
 
     def _fetch_message_info(self, session_id: str, message_id: str) -> Optional[dict]:
         try:
-            req = urllib.request.Request(
-                f"{self.api_base}/session/{session_id}/message/{message_id}",
-                method="GET"
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode("utf-8"))
-                return self._coerce_message_payload(data, "") or data
+            data = self._http_client.get_message(session_id, message_id, timeout=10)
+            return self._coerce_message_payload(data, "") or data
         except Exception as e:
             self._log("DEBUG", f"读取消息详情失败: {e}")
             return None
 
-    def _fetch_latest_message(self, session_id: str, prompt_text: str) -> Optional[dict]:
-        try:
-            req = urllib.request.Request(
-                f"{self.api_base}/session/{session_id}/message",
-                method="GET"
+    def _fetch_latest_message(self,
+                              session_id: str,
+                              prompt_text: str,
+                              http_polling_log_path: Optional[str] = None) -> Optional[dict]:
+        payload, raw_data = self._fetch_latest_message_with_raw(session_id, prompt_text)
+        if raw_data is not None:
+            self._append_http_polling_log(
+                http_polling_log_path,
+                "message",
+                session_id,
+                f"/session/{session_id}/message?limit=1",
+                raw_data,
             )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode("utf-8"))
+        return payload
+
+    def _fetch_latest_message_with_raw(self,
+                                       session_id: str,
+                                       prompt_text: str):
+        try:
+            data = self._http_client.list_messages(session_id, limit=1, timeout=10)
             direct = self._coerce_message_payload(data, prompt_text)
             if direct and self._has_effective_assistant_progress(direct):
-                return direct
+                return direct, data
             messages = []
             if isinstance(data, list):
                 messages = data
             elif isinstance(data, dict):
                 messages = self._extract_message_list(data)
                 if not messages:
-                    return None
+                    return None, data
 
             for message in reversed(messages):
                 candidate = self._coerce_message_payload(message, prompt_text)
                 if candidate and self._has_effective_assistant_progress(candidate):
-                    return candidate
-            return None
+                    return candidate, data
+            return None, data
         except Exception as e:
             self._log("DEBUG", f"回查 session 最新消息失败: {e}")
-            return None
+            return None, None
 
     def _fetch_assistant_messages(self, session_id: str, prompt_text: str) -> list[dict]:
         try:
-            req = urllib.request.Request(
-                f"{self.api_base}/session/{session_id}/message",
-                method="GET"
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode("utf-8"))
+            data = self._http_client.list_messages(session_id, timeout=10)
             messages = []
             if isinstance(data, list):
                 messages = data
@@ -1728,15 +2018,8 @@ class OpenCodeAdapter(AgentAdapter):
     def _create_session(self) -> Optional[str]:
         """创建新 session，返回 session_id"""
         try:
-            req = urllib.request.Request(
-                f"{self.api_base}/session",
-                data=json.dumps({}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                session = json.loads(response.read().decode("utf-8"))
-                return session.get("id")
+            session = self._http_client.create_session(timeout=10)
+            return session.get("id") if isinstance(session, dict) else None
         except Exception as e:
             self._last_error_message = f"创建 Session 异常: {e}"
             self._log("ERROR", f"创建 Session 异常: {e}")
