@@ -382,50 +382,6 @@ class OpenCodeAdapter(AgentAdapter):
         except Exception as e:
             self._log("ERROR", f"注册 MCP Server [{name}] 失败: {e}")
 
-    def _detect_skill_tool_visibility(self) -> Optional[dict]:
-        if not self.model or "/" not in self.model:
-            return None
-        provider_id, model_id = self.model.split("/", 1)
-        query = urllib.parse.urlencode({
-            "provider": provider_id,
-            "model": model_id,
-        })
-        try:
-            req = urllib.request.Request(
-                f"{self.api_base}/experimental/tool?{query}",
-                method="GET",
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except Exception as exc:
-            return {
-                "ok": False,
-                "error": str(exc),
-                "has_skill_tool": False,
-                "target_skills": self.target_skills,
-                "detected_skills": {},
-            }
-
-        entries = payload if isinstance(payload, list) else []
-        has_skill_tool = False
-        detected_skills = {skill: False for skill in self.target_skills}
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            serialized = json.dumps(entry, ensure_ascii=False).lower()
-            name = str(entry.get("name") or entry.get("tool") or "").strip().lower()
-            if name == "skill" or "\"name\": \"skill\"" in serialized:
-                has_skill_tool = True
-            for skill_name in detected_skills:
-                if skill_name.lower() in serialized:
-                    detected_skills[skill_name] = True
-        return {
-            "ok": True,
-            "has_skill_tool": has_skill_tool,
-            "target_skills": self.target_skills,
-            "detected_skills": detected_skills,
-        }
-
     # ── execute ──────────────────────────────────────────────
 
     def execute(self, prompt: str, tag: str = "", workspace_dir: Optional[str] = None) -> str:
@@ -437,25 +393,6 @@ class OpenCodeAdapter(AgentAdapter):
 
             # 1. 创建 session
             self._log("INFO", "准备创建 OpenCode 会话...", tag=tag)
-            visibility = self._detect_skill_tool_visibility()
-            if visibility:
-                if not visibility.get("ok"):
-                    self._log("WARNING", f"OpenCode tool 探测失败: {visibility.get('error')}", tag=tag)
-                else:
-                    self._log(
-                        "INFO",
-                        "OpenCode tool 探测结果: "
-                        f"skill_tool={'yes' if visibility.get('has_skill_tool') else 'no'}"
-                        + (
-                            ", " + ", ".join(
-                                f"{skill_name.replace('-', '_')}={'yes' if matched else 'no'}"
-                                for skill_name, matched in (visibility.get('detected_skills') or {}).items()
-                            )
-                            if visibility.get("detected_skills")
-                            else ""
-                        ),
-                        tag=tag,
-                    )
             t0 = time.time()
             session_id = self._create_session()
             if not session_id:

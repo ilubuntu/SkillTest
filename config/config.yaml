@@ -46,6 +46,14 @@ task_manager:
 
 # OpenCode SSE 落盘配置。
 opencode:
+  # OpenCode Server 地址。
+  # 当前执行器和 agent 统一使用这个地址访问 OpenCode HTTP Server。
+  opencode_server_url: "http://127.0.0.1:4096"
+
+  # 单个 Agent 任务超时时间（秒）。
+  # 当前统一走全局配置，不再按 agents.yaml 单独配置。
+  timeout: 600
+
   # OpenCode 全局配置文件路径，用于自动启动 opencode server 前复制到隔离 XDG 目录。
   # 读取顺序：
   # 1. 优先读取当前平台对应的 opencode_config_path

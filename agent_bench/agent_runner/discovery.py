@@ -10,6 +10,7 @@ import socket
 import subprocess
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from typing import Optional
 
@@ -18,6 +19,7 @@ from agent_bench.agent_runner.opencode_env import resolve_opencode_command
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVICE_LOG_PATH = os.path.join(tempfile.gettempdir(), "agent_bench_service.log")
 logger = logging.getLogger(__name__)
+DEFAULT_OPENCODE_SERVER_URL = "http://127.0.0.1:4096"
 
 
 def _runtime_root_dir() -> str:
@@ -75,6 +77,25 @@ def _configured_opencode_config_candidate() -> tuple[Optional[str], str]:
     return _normalize_config_path(str(raw_path)), source
 
 
+def configured_opencode_server_url() -> str:
+    try:
+        from agent_bench.pipeline.loader import load_config
+
+        config = load_config() or {}
+    except Exception as exc:
+        logger.warning("读取 config.yaml 失败，回退默认 OpenCode Server 地址: %s", exc)
+        return DEFAULT_OPENCODE_SERVER_URL
+
+    opencode_config = config.get("opencode") if isinstance(config, dict) else {}
+    if not isinstance(opencode_config, dict):
+        return DEFAULT_OPENCODE_SERVER_URL
+
+    value = opencode_config.get("opencode_server_url")
+    if value is None or str(value).strip() == "":
+        return DEFAULT_OPENCODE_SERVER_URL
+    return str(value).strip().rstrip("/")
+
+
 def _user_opencode_config_candidates() -> list[tuple[str, str]]:
     home_dir = os.path.expanduser("~")
     appdata_dir = os.environ.get("APPDATA") or os.path.join(home_dir, "AppData", "Roaming")
@@ -128,31 +149,42 @@ def check_api_available(api_base: str) -> bool:
 
 def find_opencode_port() -> Optional[str]:
     """查找当前运行的 OpenCode server 端口。"""
-    common_ports = ["4096"]
+    target_base = configured_opencode_server_url()
+    parsed = urllib.parse.urlparse(target_base)
+    host = (parsed.hostname or "").strip().lower()
+    port = parsed.port
 
-    for port in common_ports:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        try:
-            result = sock.connect_ex(("localhost", int(port)))
-            sock.close()
-            if result == 0:
-                if check_api_available(f"http://localhost:{port}"):
-                    return port
-        except Exception:
-            pass
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        return None
+    if not port:
+        port = 443 if parsed.scheme == "https" else 80
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    try:
+        result = sock.connect_ex((host, int(port)))
+        sock.close()
+        if result == 0 and check_api_available(target_base):
+            return str(port)
+    except Exception:
+        pass
 
     return None
 
 
 def ensure_opencode_server(timeout: int = 30) -> str:
     """确保 OpenCode API 服务可用，必要时自动启动。"""
-    port = find_opencode_port()
-    if port:
-        return f"http://localhost:{port}"
+    target_base = configured_opencode_server_url()
+    if check_api_available(target_base):
+        return target_base
 
-    target_base = "http://localhost:4096"
-    command = resolve_opencode_command() + ["serve", "--port", "4096"]
+    parsed = urllib.parse.urlparse(target_base)
+    host = (parsed.hostname or "").strip().lower()
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        return target_base
+
+    command = resolve_opencode_command() + ["serve", "--port", str(port)]
     child_env = os.environ.copy()
     xdg_config_home = _default_opencode_xdg_config_home()
     os.makedirs(xdg_config_home, exist_ok=True)

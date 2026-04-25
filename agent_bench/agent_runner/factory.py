@@ -27,7 +27,7 @@ def create_adapter(agent: dict,
         emit("ERROR", f"OpenCode 服务不可用: {api_base}")
         raise RuntimeError(f"OpenCode 服务不可用: {api_base}")
     return OpenCodeAdapter(
-        api_base=api_base or agent.get("api_base", "http://localhost:4096"),
+        api_base=api_base,
         agent=agent.get("opencode_agent"),
         model=agent.get("model"),
         target_skills=[

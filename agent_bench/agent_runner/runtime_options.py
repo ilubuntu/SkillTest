@@ -92,7 +92,9 @@ def build_agent_runtime_options(agent: Optional[dict]) -> dict:
     result = {
         "skills": [],
         "mcp_servers": list(agent.get("mcp_servers") or []),
-        "tools": agent.get("tools"),
+        "tools": {
+            "skill": True,
+        },
     }
 
     for skill in agent.get("mounted_skills", []) or []:

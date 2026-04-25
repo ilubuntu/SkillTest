@@ -88,13 +88,6 @@ def _directory_fingerprint(path: str) -> str:
     return digest.hexdigest()
 
 
-def _skill_tool_enabled(agent_spec: AgentSpec) -> bool:
-    tools = agent_spec.raw.get("tools") if isinstance(agent_spec.raw, dict) else {}
-    if not isinstance(tools, dict):
-        return False
-    return bool(tools.get("skill"))
-
-
 def _seed_workspace_opencode_runtime(workspace_dir: str, on_progress) -> bool:
     source_dir = _xdg_opencode_runtime_template_dir()
     target_dir = _workspace_opencode_dir(workspace_dir)
@@ -130,7 +123,6 @@ def _write_workspace_opencode_config(agent_spec: AgentSpec, workspace_dir: str, 
     """
     config_path = _workspace_opencode_config_path(workspace_dir)
     allowed_skills = [name for name in agent_spec.mounted_skill_names if name]
-    skill_enabled = _skill_tool_enabled(agent_spec)
 
     config = {
         "$schema": "https://opencode.ai/config.json",
@@ -140,7 +132,7 @@ def _write_workspace_opencode_config(agent_spec: AgentSpec, workspace_dir: str, 
             },
         },
         "tools": {
-            "skill": skill_enabled,
+            "skill": True,
         },
     }
     for skill_name in allowed_skills:
@@ -149,7 +141,7 @@ def _write_workspace_opencode_config(agent_spec: AgentSpec, workspace_dir: str, 
         config["agent"] = {
             agent_spec.opencode_agent: {
                 "tools": {
-                    "skill": skill_enabled,
+                    "skill": True,
                 },
             },
         }

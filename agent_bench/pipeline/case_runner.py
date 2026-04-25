@@ -82,14 +82,67 @@ def _metrics_message_parts(metrics: dict) -> list[dict]:
     return parts if isinstance(parts, list) else []
 
 
-def _format_usage_suffix(metrics: dict) -> str:
+def _extract_cumulative_usage(metrics: dict) -> dict:
+    http = _metrics_http(metrics)
+    message_history = http.get("message_history") if isinstance(http.get("message_history"), list) else []
+    if message_history:
+        totals = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+        }
+        seen_any = False
+        for msg in message_history:
+            if not isinstance(msg, dict):
+                continue
+            info = msg.get("info") if isinstance(msg.get("info"), dict) else {}
+            tokens = info.get("tokens") if isinstance(info.get("tokens"), dict) else {}
+            if not tokens:
+                continue
+            seen_any = True
+            totals["input_tokens"] += int(tokens.get("input", 0) or 0)
+            totals["output_tokens"] += int(tokens.get("output", 0) or 0)
+            totals["reasoning_tokens"] += int(tokens.get("reasoning", 0) or 0)
+            cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+            totals["cache_read_tokens"] += int(cache.get("read", 0) or 0)
+            totals["cache_write_tokens"] += int(cache.get("write", 0) or 0)
+        if seen_any:
+            return totals
+
     usage = _metrics_derived(metrics).get("usage") if isinstance(metrics, dict) else {}
     if not isinstance(usage, dict):
+        return {}
+    return {
+        "input_tokens": _coerce_int(usage.get("input_tokens")),
+        "output_tokens": _coerce_int(usage.get("output_tokens")),
+        "reasoning_tokens": _coerce_int(usage.get("reasoning_tokens")),
+        "cache_read_tokens": _coerce_int(usage.get("cache_read_tokens")),
+        "cache_write_tokens": _coerce_int(usage.get("cache_write_tokens")),
+    }
+
+
+def _format_usage_suffix(metrics: dict) -> str:
+    usage = _extract_cumulative_usage(metrics)
+    if not isinstance(usage, dict) or not usage:
         return ""
     input_tokens = _coerce_int(usage.get("input_tokens"))
     output_tokens = _coerce_int(usage.get("output_tokens"))
     reasoning_tokens = _coerce_int(usage.get("reasoning_tokens"))
-    values = [value for value in (input_tokens, output_tokens, reasoning_tokens) if value is not None]
+    cache_read_tokens = _coerce_int(usage.get("cache_read_tokens"))
+    cache_write_tokens = _coerce_int(usage.get("cache_write_tokens"))
+    values = [
+        value
+        for value in (
+            input_tokens,
+            output_tokens,
+            reasoning_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+        )
+        if value is not None
+    ]
     if not values:
         return ""
     total_tokens = sum(values)
@@ -100,6 +153,10 @@ def _format_usage_suffix(metrics: dict) -> str:
         segments.append(f"out={output_tokens}")
     if reasoning_tokens is not None:
         segments.append(f"reasoning={reasoning_tokens}")
+    if cache_read_tokens is not None:
+        segments.append(f"cache_read={cache_read_tokens}")
+    if cache_write_tokens is not None:
+        segments.append(f"cache_write={cache_write_tokens}")
     return ", " + ", ".join(segments)
 
 

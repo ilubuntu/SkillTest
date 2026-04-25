@@ -1195,7 +1195,8 @@ class CloudExecutionManager:
                 agent = load_agent(agents[0].get("id")) if agents else None
             if not agent:
                 raise ValueError("必须选择一个可用 agent")
-            default_timeout = int(agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
+            from agent_bench.agent_runner.spec import configured_agent_timeout
+            default_timeout = configured_agent_timeout()
             default_temperature = agent.get("temperature")
             with self._lock:
                 self._append_conversation(
@@ -1387,7 +1388,8 @@ class CloudExecutionManager:
             if not agent:
                 raise ValueError("必须选择一个可用 agent")
 
-            default_timeout = int(agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
+            from agent_bench.agent_runner.spec import configured_agent_timeout
+            default_timeout = configured_agent_timeout()
             default_temperature = agent.get("temperature")
 
             result = run_single_case(
@@ -1614,7 +1616,8 @@ class CloudExecutionManager:
             if not run_agent:
                 raise ValueError("未找到 agent_default 配置")
 
-            default_timeout = int(run_agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
+            from agent_bench.agent_runner.spec import configured_agent_timeout
+            default_timeout = configured_agent_timeout()
             default_temperature = run_agent.get("temperature")
             with self._lock:
                 current = self._states[execution_id]
@@ -1757,7 +1760,8 @@ class CloudExecutionManager:
             if not run_agent:
                 raise ValueError(f"未找到 {payload.agentId or 'agent_default'} 配置")
 
-            default_timeout = int(run_agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS)
+            from agent_bench.agent_runner.spec import configured_agent_timeout
+            default_timeout = configured_agent_timeout()
             default_temperature = run_agent.get("temperature")
             result = run_single_case(
                 case=case,

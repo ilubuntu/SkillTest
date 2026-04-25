@@ -2,7 +2,7 @@
 """Agent 配置规格化。"""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
@@ -17,11 +17,9 @@ class MountedSkillSpec:
 class AgentSpec:
     id: str = ""
     name: str = ""
-    api_base: str = ""
     opencode_agent: str = ""
     model: str = ""
     timeout: int = DEFAULT_TIMEOUT_SECONDS
-    tools: Any = None
     extra_prompt: str = ""
     transport: str = ""
     cli_path: str = ""
@@ -59,11 +57,9 @@ def build_agent_spec(agent: Optional[dict]) -> AgentSpec:
     return AgentSpec(
         id=str(agent.get("id") or "").strip(),
         name=str(agent.get("name") or "").strip(),
-        api_base=str(agent.get("api_base") or "").strip(),
         opencode_agent=str(agent.get("opencode_agent") or "").strip(),
         model=str(agent.get("model") or "").strip(),
-        timeout=int(agent.get("timeout") or DEFAULT_TIMEOUT_SECONDS),
-        tools=agent.get("tools"),
+        timeout=configured_agent_timeout(),
         extra_prompt=str(agent.get("extra_prompt") or "").strip(),
         transport=str(agent.get("transport") or "").strip(),
         cli_path=str(agent.get("cli_path") or "").strip(),
@@ -72,3 +68,24 @@ def build_agent_spec(agent: Optional[dict]) -> AgentSpec:
         mounted_skills=mounted_skills,
         raw=raw,
     )
+
+
+def configured_agent_timeout() -> int:
+    try:
+        from agent_bench.pipeline.loader import load_config
+
+        config = load_config() or {}
+    except Exception:
+        return DEFAULT_TIMEOUT_SECONDS
+
+    opencode_config = config.get("opencode") if isinstance(config, dict) else {}
+    if not isinstance(opencode_config, dict):
+        return DEFAULT_TIMEOUT_SECONDS
+
+    value = opencode_config.get("timeout")
+    if value is None or str(value).strip() == "":
+        return DEFAULT_TIMEOUT_SECONDS
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_TIMEOUT_SECONDS
