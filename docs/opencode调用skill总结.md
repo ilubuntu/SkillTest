@@ -7,8 +7,8 @@
 主流程中实际使用的 skill 包括：
 
 - `build-harmony-project`
-- `constraint-score-review`
-- `harmonyos-gen-code-evaluator`
+
+约束规则打分和静态代码打分 agent 已移除，对应 skill 不再挂载。
 
 ## 调用方式
 
@@ -66,8 +66,4 @@ OpenCode 请求体中显式携带：
 
 ### 输出文件路径
 
-关键结果文件路径由 prompt 和主链目录约束共同控制。
-
-例如静态评分结果固定写入：
-
-- `static/harmonyos_evaluation_result.json`
+主流程只保留代码生成、编译验证、产物上传相关文件。评分结果文件不再生成。

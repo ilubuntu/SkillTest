@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 
 from agent_bench.cloud_api.models import CloudExecutionStartRequest, LocalCaseRunRequest, LocalTextStartRequest
 from agent_bench.cloud_api.service import cloud_execution_manager
-from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, review_dir, static_dir
+from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir
 
 router = APIRouter(prefix="/api/cloud-api", tags=["cloud_api"])
 local_router = APIRouter(prefix="/api/local", tags=["local_execution"])
@@ -185,18 +185,6 @@ def _event_files_for_agent(case_dir: str, agent_name: str) -> tuple[str, str]:
             os.path.join(base_dir, "agent_opencode_progress_events.jsonl"),
             os.path.join(base_dir, "agent_opencode_sse_events.jsonl"),
         )
-    if agent_key == "constraint":
-        base_dir = review_dir(case_dir)
-        return (
-            os.path.join(base_dir, "constraint_review_opencode_progress_events.jsonl"),
-            os.path.join(base_dir, "constraint_review_opencode_sse_events.jsonl"),
-        )
-    if agent_key == "static":
-        base_dir = static_dir(case_dir)
-        return (
-            os.path.join(base_dir, "static_review_opencode_progress_events.jsonl"),
-            os.path.join(base_dir, "static_review_opencode_sse_events.jsonl"),
-        )
     raise HTTPException(status_code=400, detail="无效的 agent 名称")
 
 
@@ -231,11 +219,7 @@ def _agent_finished(state: dict, agent_name: str) -> bool:
     if status in {"completed", "failed"}:
         return True
     if agent_name == "generate":
-        return stage in {"validating", "constraint_scoring", "static_scoring", "completed"}
-    if agent_name == "constraint":
-        return stage in {"static_scoring", "completed"}
-    if agent_name == "static":
-        return stage == "completed"
+        return stage in {"validating", "completed"}
     return False
 
 

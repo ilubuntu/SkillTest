@@ -10,7 +10,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class RemoteExecutionStatus(str, Enum):
@@ -25,7 +25,12 @@ class CloudTestCasePayload(BaseModel):
     """云测平台下发的测试用例载荷。"""
     input: str = ""
     expectedOutput: str = ""
-    fileUrl: str
+    fileUrl: str = ""
+
+    @field_validator("fileUrl", mode="before")
+    @classmethod
+    def _normalize_file_url(cls, value):
+        return "" if value is None else value
 
 
 class CloudDispatchPayload(BaseModel):

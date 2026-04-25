@@ -14,7 +14,6 @@ import urllib.request
 import zipfile
 from datetime import datetime
 from typing import Any, Dict, Optional
-import yaml
 
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 from agent_bench.cloud_api.converter import (
@@ -25,7 +24,6 @@ from agent_bench.cloud_api.converter import (
 from agent_bench.cloud_api.models import CloudExecutionStartRequest, LocalCaseRunRequest, LocalTextStartRequest
 from agent_bench.case_generation import generate_case_from_text
 from agent_bench.pipeline.case_runner import run_single_case
-from agent_bench.pipeline.constraint_adapter import sanitize_constraints_for_semantic_review
 from agent_bench.pipeline.loader import load_agent, load_agents, load_config, load_logging_config
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir
 from agent_bench.task_manager.artifacts import TaskArtifactUploader
@@ -54,8 +52,6 @@ STAGE_PENDING = "pending"
 STAGE_PREPARING = "preparing"
 STAGE_GENERATING = "generating"
 STAGE_VALIDATING = "validating"
-STAGE_CONSTRAINT_SCORING = "constraint_scoring"
-STAGE_STATIC_SCORING = "static_scoring"
 STAGE_COMPLETED = "completed"
 
 
@@ -72,65 +68,6 @@ def _truncate_message(value: Any, limit: int = 100) -> str:
 def _emit_prepare_log(on_progress, message: str):
     if on_progress:
         on_progress("log", {"level": "INFO", "message": message})
-
-
-def _parse_constraints_from_expected_output(expected_output: str) -> list[dict]:
-    text = str(expected_output or "").strip()
-    if not text:
-        return []
-    try:
-        parsed = yaml.safe_load(text)
-    except Exception:
-        return []
-
-    if isinstance(parsed, dict):
-        constraints = parsed.get("constraints")
-        return sanitize_constraints_for_semantic_review(constraints) if isinstance(constraints, list) else []
-    if isinstance(parsed, list):
-        return sanitize_constraints_for_semantic_review(parsed)
-    return []
-
-
-def _infer_scenario_from_constraints(constraints: list[dict]) -> str:
-    if not isinstance(constraints, list):
-        return ""
-
-    for item in constraints:
-        if not isinstance(item, dict):
-            continue
-        constraint_id = str(item.get("id") or "").strip().upper()
-        if constraint_id.startswith("HM-BUG_FIX-") or constraint_id.startswith("HM-BUGFIX-"):
-            return "bug_fix"
-        if constraint_id.startswith("HM-PERF-"):
-            return "performance"
-        if constraint_id.startswith("HM-REQ-"):
-            return "requirement"
-    return ""
-
-
-def _log_constraints_summary(on_progress, constraints: list[dict]):
-    if not constraints:
-        return
-    public_count = sum(
-        1
-        for item in constraints
-        if isinstance(item, dict) and bool(item.get("is_public"))
-    )
-    if public_count > 0:
-        _emit_prepare_log(on_progress, f"已解析约束规则，共 {len(constraints)} 条，其中公共约束 {public_count} 条:")
-    else:
-        _emit_prepare_log(on_progress, f"已解析约束规则，共 {len(constraints)} 条:")
-    for item in constraints:
-        if not isinstance(item, dict):
-            continue
-        rule_id = str(item.get("id") or "").strip()
-        name = str(item.get("name") or "").strip()
-        description = str(item.get("description") or "").strip()
-        prefix = "[公共] " if bool(item.get("is_public")) else ""
-        summary = f"- {prefix}{rule_id} | {name}"
-        if description:
-            summary += f" | {description}"
-        _emit_prepare_log(on_progress, summary)
 
 
 def _cache_archive_path(file_url: str) -> str:
@@ -213,6 +150,10 @@ def _extract_zip_with_normalized_paths(archive_path: str, extract_dir: str, on_p
 
 def _prepare_project_from_file_url(file_url: str, target_dir: str, on_progress=None) -> str:
     os.makedirs(target_dir, exist_ok=True)
+    file_url = str(file_url or "").strip()
+    if not file_url:
+        _emit_prepare_log(on_progress, "未提供 fileUrl，使用空工程目录作为 workspace 初始内容")
+        return target_dir
     parsed = urllib.parse.urlparse(file_url)
     _emit_prepare_log(on_progress, f"测试用例工程地址: {file_url}")
 
@@ -430,8 +371,6 @@ class CloudExecutionManager:
                         "preparing": STAGE_PREPARING,
                         "post_compile_check": STAGE_VALIDATING,
                         "validating": STAGE_VALIDATING,
-                        "constraint_scoring": STAGE_CONSTRAINT_SCORING,
-                        "static_scoring": STAGE_STATIC_SCORING,
                     }
                     mapped_stage = stage_map.get(stage_name)
                     if mapped_stage:
@@ -511,22 +450,13 @@ class CloudExecutionManager:
             if not input_text.strip():
                 raise ValueError("缺少真实的任务输入，已终止执行")
             prompt = build_prompt(input_text, expected_output)
-            constraints = _parse_constraints_from_expected_output(expected_output)
-            inferred_scenario = _infer_scenario_from_constraints(constraints) or "cloud_api"
             case_spec = {
-                "case": {
-                    "id": f"cloud_execution_{execution_id}",
-                    "title": f"Cloud Execution {execution_id}",
-                    "scenario": inferred_scenario,
-                    "prompt": prompt,
-                },
-                "constraints": constraints,
-            } if constraints else {
                 "case": {
                     "id": f"cloud_execution_{execution_id}",
                     "title": f"Cloud Execution {execution_id}",
                     "scenario": "cloud_api",
                     "prompt": prompt,
+                    "skip_pre_compile_check": not bool(str(payload.testCase.fileUrl or "").strip()),
                 },
             }
             case = build_case(
@@ -535,7 +465,6 @@ class CloudExecutionManager:
                 prompt,
                 case_spec=case_spec,
             )
-            _log_constraints_summary(on_progress, constraints)
 
             with self._lock:
                 state["run_dir"] = run_dir
@@ -598,8 +527,6 @@ class CloudExecutionManager:
                 execution_time_s=agent_elapsed_s,
                 output_code_url=output_code_url,
                 diff_file_url=diff_file_url,
-                code_quality_score=None,
-                expected_output_score=None,
             )
 
             with self._lock:

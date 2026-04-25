@@ -20,8 +20,6 @@ STAGE_PENDING = "pending"
 STAGE_PREPARING = "preparing"
 STAGE_GENERATING = "generating"
 STAGE_VALIDATING = "validating"
-STAGE_CONSTRAINT_SCORING = "constraint_scoring"
-STAGE_STATIC_SCORING = "static_scoring"
 STAGE_COMPLETED = "completed"
 
 logger = logging.getLogger("agent_bench.executor")
@@ -76,7 +74,7 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
     text = str(message or "").strip()
     if not text:
         return None
-    if stage in {STAGE_GENERATING, STAGE_CONSTRAINT_SCORING, STAGE_STATIC_SCORING}:
+    if stage == STAGE_GENERATING:
         if "任务已发送" in text:
             return "任务已发送"
         if "已收到任务" in text:
@@ -90,11 +88,6 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
             "输出预览",
         )):
             return _truncate_message(text, 160)
-        if any(token in text for token in (
-            "约束规则打分结果:",
-            "静态代码打分结果:",
-        )):
-            return _truncate_message(text, 180)
         if any(token in text for token in (
             "开始处理任务",
             "模型正在思考",
@@ -165,8 +158,6 @@ class TaskProgressTracker:
             STAGE_PREPARING: "环境准备",
             STAGE_GENERATING: "Agent处理",
             STAGE_VALIDATING: "结果验证",
-            STAGE_CONSTRAINT_SCORING: "约束打分",
-            STAGE_STATIC_SCORING: "代码打分",
             STAGE_COMPLETED: "完成",
         }
         return mapping.get(local_stage, "任务处理中")

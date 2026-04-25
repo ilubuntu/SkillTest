@@ -24,13 +24,6 @@ def stage_dir(case_dir: str, stage: str) -> str:
     return d
 
 
-def stage_meta_dir(case_dir: str, stage: str) -> str:
-    """返回阶段元数据目录并确保存在。"""
-    d = os.path.join(case_dir, f"{stage}_meta")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
 def agent_workspace_dir(case_dir: str) -> str:
     return stage_dir(case_dir, "workspace")
 
@@ -43,18 +36,8 @@ def original_project_dir(case_dir: str) -> str:
     return stage_dir(case_dir, "original")
 
 
-def review_dir(case_dir: str) -> str:
-    # 约束评分已移出主流程，这里只返回路径，不再因为读取目录路径而自动创建目录。
-    return os.path.join(case_dir, "constraint")
-
-
 def diff_dir(case_dir: str) -> str:
     return stage_dir(case_dir, "diff")
-
-
-def static_dir(case_dir: str) -> str:
-    # 静态评分已移出主流程，这里只返回路径，不再因为读取目录路径而自动创建目录。
-    return os.path.join(case_dir, "static")
 
 
 def checks_dir(case_dir: str) -> str:
@@ -75,30 +58,6 @@ def save_runner_artifacts(case_dir: str,
             f.write(task_prompt)
 
 
-def save_review_agent_artifacts(case_dir: str,
-                                stage: str,
-                                output: str,
-                                task_prompt: str = "",
-                                metrics: dict | None = None):
-    """保存评审/打分 agent 产物到对应阶段目录。"""
-    prefix = (stage or "review").strip()
-    if prefix == "constraint_review":
-        target_dir = review_dir(case_dir)
-    elif prefix == "static_review":
-        target_dir = static_dir(case_dir)
-    else:
-        target_dir = stage_dir(case_dir, prefix or "review")
-    os.makedirs(target_dir, exist_ok=True)
-    with open(os.path.join(target_dir, f"{prefix}_output.txt"), "w", encoding="utf-8") as f:
-        f.write(output or "")
-    if task_prompt:
-        with open(os.path.join(target_dir, f"{prefix}_input.txt"), "w", encoding="utf-8") as f:
-            f.write(task_prompt)
-    if metrics:
-        with open(os.path.join(target_dir, f"{prefix}_interaction_metrics.json"), "w", encoding="utf-8") as f:
-            json.dump(metrics, f, ensure_ascii=False, indent=2)
-
-
 def save_interaction_metrics(case_dir: str, stage: str, metrics: dict):
     """保存统一交互指标文件。"""
     if not metrics:
@@ -107,25 +66,6 @@ def save_interaction_metrics(case_dir: str, stage: str, metrics: dict):
     filename = f"{stage}_interaction_metrics.json" if stage else "interaction_metrics.json"
     with open(os.path.join(target_dir, filename), "w", encoding="utf-8") as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
-
-
-def save_constraint_review_artifacts(case_dir: str,
-                                     stage: str,
-                                     raw_output: str,
-                                     display_output: str,
-                                     skill_content: str,
-                                     score_result: dict):
-    """保存约束评分 skill、评分结果，并将 output.txt 更新为带评分摘要的展示版本。"""
-    target_dir = stage_meta_dir(case_dir, stage)
-
-    with open(os.path.join(target_dir, "raw_output.txt"), "w", encoding="utf-8") as f:
-        f.write(raw_output or "")
-    with open(os.path.join(target_dir, "output.txt"), "w", encoding="utf-8") as f:
-        f.write(display_output or raw_output or "")
-    with open(os.path.join(target_dir, "constraint_review_skill.md"), "w", encoding="utf-8") as f:
-        f.write(skill_content or "")
-    with open(os.path.join(target_dir, "constraint_review_score.json"), "w", encoding="utf-8") as f:
-        json.dump(score_result or {}, f, ensure_ascii=False, indent=2)
 
 
 def save_compile_artifacts(case_dir: str, stage: str, compile_result: dict):
@@ -149,6 +89,7 @@ def load_runner_artifacts(case_dir: str) -> tuple:
     with open(raw_path if os.path.exists(raw_path) else display_path, "r", encoding="utf-8") as f:
         output = f.read()
     return output
+
 
 def save_case_result(case_dir: str, result: dict):
     """单独保存 case 汇总结果。"""

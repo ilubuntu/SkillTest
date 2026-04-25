@@ -47,9 +47,8 @@ POST /api/cloud-api/harmonyos-plugin
 - `executor_events.jsonl`
 - `cloud_api_events.jsonl`
 - `generate/*`
-- `constraint/*`
-- `static/*`
 - `diff/*`
+- `checks/*`
 
 ## 进度阶段
 
@@ -59,8 +58,6 @@ POST /api/cloud-api/harmonyos-plugin
 - `preparing`
 - `generating`
 - `validating`
-- `constraint_scoring`
-- `static_scoring`
 - `completed`
 
 ## 产物目录
@@ -72,8 +69,6 @@ results/execution_<id>_<timestamp>/
 ├── original/
 ├── workspace/
 ├── generate/
-├── constraint/
-├── static/
 ├── diff/
 ├── checks/
 ├── executor_events.jsonl
@@ -82,7 +77,7 @@ results/execution_<id>_<timestamp>/
 
 ## SSE 文件
 
-每个 Agent 阶段都有三类文件：
+主代码生成 Agent 阶段有三类文件：
 
 - `*_opencode_sse_full.jsonl`
 - `*_opencode_sse_events.jsonl`

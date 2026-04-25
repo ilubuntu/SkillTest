@@ -29,9 +29,8 @@ from agent_bench.cloud_api.converter import (
 from agent_bench.cloud_api.models import CloudExecutionStartRequest, LocalCaseRunRequest, LocalTextStartRequest, RemoteExecutionStatus
 from agent_bench.case_generation import generate_case_from_text
 from agent_bench.pipeline.case_runner import run_single_case
-from agent_bench.pipeline.constraint_adapter import sanitize_constraints_for_semantic_review
 from agent_bench.pipeline.loader import load_agent, load_agents, load_yaml
-from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir, review_dir, static_dir
+from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir
 try:
     from agent_bench.uploader import create_uploader
     HAS_STORAGE_UPLOADER = True
@@ -69,8 +68,6 @@ STAGE_PENDING = "pending"
 STAGE_PREPARING = "preparing"
 STAGE_GENERATING = "generating"
 STAGE_VALIDATING = "validating"
-STAGE_CONSTRAINT_SCORING = "constraint_scoring"
-STAGE_STATIC_SCORING = "static_scoring"
 STAGE_COMPLETED = "completed"
 
 
@@ -156,7 +153,7 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
     text = str(message or "").strip()
     if not text:
         return None
-    if stage in {STAGE_GENERATING, STAGE_CONSTRAINT_SCORING, STAGE_STATIC_SCORING}:
+    if stage == STAGE_GENERATING:
         if "任务已发送" in text:
             return "任务已发送"
         if "已收到任务" in text:
@@ -170,11 +167,6 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
             "输出预览",
         )):
             return _truncate_message(text, 160)
-        if any(token in text for token in (
-            "约束规则打分结果:",
-            "静态代码打分结果:",
-        )):
-            return _truncate_message(text, 180)
         if any(token in text for token in (
             "模型正在思考",
             "开始分析",
@@ -293,65 +285,6 @@ def _emit_prepare_log(on_progress, message: str):
         on_progress("log", {"level": "INFO", "message": message})
 
 
-def _parse_constraints_from_expected_output(expected_output: str) -> list[dict]:
-    text = str(expected_output or "").strip()
-    if not text:
-        return []
-    try:
-        parsed = yaml.safe_load(text)
-    except Exception:
-        return []
-
-    if isinstance(parsed, dict):
-        constraints = parsed.get("constraints")
-        return sanitize_constraints_for_semantic_review(constraints) if isinstance(constraints, list) else []
-    if isinstance(parsed, list):
-        return sanitize_constraints_for_semantic_review(parsed)
-    return []
-
-
-def _infer_scenario_from_constraints(constraints: list[dict]) -> str:
-    if not isinstance(constraints, list):
-        return ""
-
-    for item in constraints:
-        if not isinstance(item, dict):
-            continue
-        constraint_id = str(item.get("id") or "").strip().upper()
-        if constraint_id.startswith("HM-BUG_FIX-") or constraint_id.startswith("HM-BUGFIX-"):
-            return "bug_fix"
-        if constraint_id.startswith("HM-PERF-"):
-            return "performance"
-        if constraint_id.startswith("HM-REQ-"):
-            return "requirement"
-    return ""
-
-
-def _log_constraints_summary(on_progress, constraints: list[dict]):
-    if not constraints:
-        return
-    public_count = sum(
-        1
-        for item in constraints
-        if isinstance(item, dict) and bool(item.get("is_public"))
-    )
-    if public_count > 0:
-        _emit_prepare_log(on_progress, f"已解析约束规则，共 {len(constraints)} 条，其中公共约束 {public_count} 条:")
-    else:
-        _emit_prepare_log(on_progress, f"已解析约束规则，共 {len(constraints)} 条:")
-    for item in constraints:
-        if not isinstance(item, dict):
-            continue
-        rule_id = str(item.get("id") or "").strip()
-        name = str(item.get("name") or "").strip()
-        description = str(item.get("description") or "").strip()
-        prefix = "[公共] " if bool(item.get("is_public")) else ""
-        summary = f"- {prefix}{rule_id} | {name}"
-        if description:
-            summary += f" | {description}"
-        _emit_prepare_log(on_progress, summary)
-
-
 def _cache_archive_path(file_url: str) -> str:
     parsed = urllib.parse.urlparse(file_url)
     suffix = os.path.splitext(parsed.path or "")[1] or ".zip"
@@ -403,6 +336,10 @@ def _find_project_root(search_root: str) -> str:
 
 def _prepare_project_from_file_url(file_url: str, target_dir: str, on_progress=None) -> str:
     os.makedirs(target_dir, exist_ok=True)
+    file_url = str(file_url or "").strip()
+    if not file_url:
+        _emit_prepare_log(on_progress, "未提供 fileUrl，使用空工程目录作为 workspace 初始内容")
+        return target_dir
     parsed = urllib.parse.urlparse(file_url)
     _emit_prepare_log(on_progress, f"测试用例工程地址: {file_url}")
 
@@ -493,8 +430,6 @@ class CloudExecutionManager:
             STAGE_PREPARING: "执行环境准备中",
             STAGE_GENERATING: "Agent正在处理",
             STAGE_VALIDATING: "结果验证中",
-            STAGE_CONSTRAINT_SCORING: "约束规则打分中",
-            STAGE_STATIC_SCORING: "静态代码打分中",
             STAGE_COMPLETED: "任务执行完成",
         }
         return mapping.get(local_stage, "任务处理中")
@@ -633,11 +568,9 @@ class CloudExecutionManager:
             case_dir=case_dir,
             result=result,
             expected_output=expected_output,
-            execution_time_ms=execution_time_ms,
+            execution_time_s=execution_time_ms,
             output_code_url=output_code_url,
             diff_file_url=diff_file_url,
-            code_quality_score=None,
-            expected_output_score=None,
         )
 
         state["output_code_url"] = output_code_url
@@ -1158,12 +1091,8 @@ class CloudExecutionManager:
                     stage_name = str(data.get("stage", "")).strip()
                     stage_map = {
                         "Agent运行": STAGE_GENERATING,
-                        "constraint_review": STAGE_CONSTRAINT_SCORING,
-                        "约束规则打分": STAGE_CONSTRAINT_SCORING,
                         "post_compile_check": STAGE_VALIDATING,
                         "结果验证": STAGE_VALIDATING,
-                        "static_review": STAGE_STATIC_SCORING,
-                        "静态代码打分": STAGE_STATIC_SCORING,
                     }
                     mapped_stage = stage_map.get(stage_name)
                     if mapped_stage:
@@ -1234,22 +1163,13 @@ class CloudExecutionManager:
             if not input_text.strip():
                 raise ValueError("缺少真实的任务输入，已终止执行")
             prompt = build_prompt(input_text, expected_output)
-            constraints = _parse_constraints_from_expected_output(expected_output)
-            inferred_scenario = _infer_scenario_from_constraints(constraints) or "cloud_api"
             case_spec = {
-                "case": {
-                    "id": f"cloud_execution_{execution_id}",
-                    "title": f"Cloud Execution {execution_id}",
-                    "scenario": inferred_scenario,
-                    "prompt": prompt,
-                },
-                "constraints": constraints,
-            } if constraints else {
                 "case": {
                     "id": f"cloud_execution_{execution_id}",
                     "title": f"Cloud Execution {execution_id}",
                     "scenario": "cloud_api",
                     "prompt": prompt,
+                    "skip_pre_compile_check": not bool(str(payload.testCase.fileUrl or "").strip()),
                 },
             }
             case = build_case(
@@ -1258,7 +1178,6 @@ class CloudExecutionManager:
                 prompt,
                 case_spec=case_spec,
             )
-            _log_constraints_summary(on_progress, constraints)
 
             with self._lock:
                 state["run_dir"] = run_dir
@@ -1318,11 +1237,9 @@ class CloudExecutionManager:
                 case_dir=case_dir,
                 result=result,
                 expected_output=expected_output,
-                execution_time_ms=int((time.time() - started_at) * 1000),
+                execution_time_s=int((time.time() - started_at) * 1000),
                 output_code_url=output_code_url,
                 diff_file_url=diff_file_url,
-                code_quality_score=None,
-                expected_output_score=None,
             )
 
             with self._lock:
@@ -1405,9 +1322,7 @@ class CloudExecutionManager:
                     stage_name = str(data.get("stage", "")).strip()
                     stage_map = {
                         "Agent运行": STAGE_GENERATING,
-                        "constraint_review": STAGE_CONSTRAINT_SCORING,
                         "结果验证": STAGE_VALIDATING,
-                        "static_review": STAGE_STATIC_SCORING,
                     }
                     mapped_stage = stage_map.get(stage_name)
                     if mapped_stage:
@@ -1543,8 +1458,6 @@ class CloudExecutionManager:
                         "pre_compile_check": STAGE_VALIDATING,
                         "post_compile_check": STAGE_VALIDATING,
                         "结果验证": STAGE_VALIDATING,
-                        "constraint_review": STAGE_CONSTRAINT_SCORING,
-                        "static_review": STAGE_STATIC_SCORING,
                         "用例生成": STAGE_PREPARING,
                     }
                     mapped_stage = stage_map.get(stage_name)
@@ -1736,7 +1649,7 @@ class CloudExecutionManager:
                     execution_time_ms=int((time.time() - started_at) * 1000),
                     on_progress=on_progress,
                 )
-                self._append_conversation(current, "status", "测试用例执行与评分完成")
+                self._append_conversation(current, "status", "测试用例执行完成")
                 self._append_execution_detail(current, STAGE_COMPLETED, "完整流水线执行完成")
             update_local_status("completed", STAGE_COMPLETED)
         except Exception as exc:
@@ -1781,8 +1694,6 @@ class CloudExecutionManager:
                         "pre_compile_check": STAGE_VALIDATING,
                         "post_compile_check": STAGE_VALIDATING,
                         "缁撴灉楠岃瘉": STAGE_VALIDATING,
-                        "constraint_review": STAGE_CONSTRAINT_SCORING,
-                        "static_review": STAGE_STATIC_SCORING,
                     }
                     mapped_stage = stage_map.get(stage_name)
                     if mapped_stage:
@@ -1873,7 +1784,7 @@ class CloudExecutionManager:
                     execution_time_ms=int((time.time() - started_at) * 1000),
                     on_progress=on_progress,
                 )
-                self._append_conversation(current, "status", "测试用例执行与评分完成")
+                self._append_conversation(current, "status", "测试用例执行完成")
                 self._append_execution_detail(current, STAGE_COMPLETED, "完整流水线执行完成")
             update_local_status("completed", STAGE_COMPLETED)
         except Exception as exc:
