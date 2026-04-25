@@ -1231,8 +1231,8 @@ class CloudExecutionManager:
             raw_expected_output = (payload.testCase.expectedOutput or "").strip()
             input_text = raw_input
             expected_output = raw_expected_output
-            if not input_text.strip() or not expected_output.strip():
-                raise ValueError("缺少真实的任务输入或期望结果，已终止执行")
+            if not input_text.strip():
+                raise ValueError("缺少真实的任务输入，已终止执行")
             prompt = build_prompt(input_text, expected_output)
             constraints = _parse_constraints_from_expected_output(expected_output)
             inferred_scenario = _infer_scenario_from_constraints(constraints) or "cloud_api"
