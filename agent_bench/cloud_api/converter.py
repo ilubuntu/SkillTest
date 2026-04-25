@@ -8,7 +8,6 @@
 4. 从本地 Agent 产物中提取 metrics、评分等数据
 """
 
-import difflib
 import json
 import os
 from typing import Any, Dict, List, Optional
@@ -21,7 +20,6 @@ from agent_bench.cloud_api.models import (
     RemoteExecutionStatus,
 )
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir
-from agent_bench.pipeline.constraint_adapter import sanitize_constraints_for_semantic_review
 
 
 # ── 任务数据转换 ──────────────────────────────────────────────
@@ -39,9 +37,6 @@ def build_case(execution_id: int,
                case_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """将云测任务数据转换为本地 case 字典，供 pipeline 消费。"""
     normalized_case_spec = dict(case_spec or {})
-    constraints = normalized_case_spec.get("constraints")
-    if isinstance(constraints, list):
-        normalized_case_spec["constraints"] = sanitize_constraints_for_semantic_review(constraints)
     case_meta = normalized_case_spec.get("case")
     if not isinstance(case_meta, dict):
         case_meta = {}
@@ -189,44 +184,6 @@ def _extract_iteration_count(metrics: Dict[str, Any], output_text: str = "") -> 
     )
 
 
-# ── 评分计算 ──────────────────────────────────────────────────
-
-
-def _score_expected_output(expected_output: str, actual_output: str) -> int:
-    """计算期望结果匹配分：精确包含得 100，否则按序列相似度百分比。"""
-    expected = " ".join((expected_output or "").split()).strip()
-    actual = " ".join((actual_output or "").split()).strip()
-    if not expected:
-        return 0
-    if not actual:
-        return 0
-    if expected in actual:
-        return 100
-    ratio = difflib.SequenceMatcher(None, expected, actual).ratio()
-    return max(0, min(100, int(round(ratio * 100))))
-
-
-def _score_code_quality(is_build_success: bool) -> int:
-    """编译通过则代码质量分 100，否则 0。"""
-    return 100 if is_build_success else 0
-
-
-def _normalize_score_value(value: Any) -> Optional[int]:
-    """将评分值归一化到 0-100 整数，支持 "85/100" 格式；无法解析时返回 None。"""
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    if "/" in text:
-        text = text.split("/", 1)[0].strip()
-    try:
-        score = float(text)
-    except (TypeError, ValueError):
-        return None
-    return max(0, min(100, int(round(score))))
-
-
 # ── 最终结果载荷 ──────────────────────────────────────────────
 
 
@@ -236,12 +193,10 @@ def build_execution_result_payload(execution_id: int,
                                    expected_output: str,
                                    execution_time_s: int,
                                    output_code_url: str,
-                                   diff_file_url: str,
-                                   code_quality_score: Optional[int] = None,
-                                   expected_output_score: Optional[int] = None) -> Dict[str, Any]:
+                                   diff_file_url: str) -> Dict[str, Any]:
     """组装最终结果上报载荷。
 
-    当前执行链已移除约束打分与静态代码打分，两个评分字段固定按 0 上报。
+    当前执行链只负责代码生成与编译验证，评分字段固定按 0 上报。
     """
     metrics = load_agent_metrics(case_dir)
     output_text = load_agent_output(case_dir)

@@ -43,7 +43,9 @@
 - `token`
   - 云端认证 token
 - `testCase.fileUrl`
-  - 原始工程压缩包地址
+  - 原始工程压缩包地址，可为空；为空时使用空 workspace 初始内容继续执行
+- `testCase.expectedOutput`
+  - 当前主流程不再解析或打分，可为空
 
 ## 2. 上报执行进度
 
@@ -77,8 +79,6 @@
 - `preparing`
 - `generating`
 - `validating`
-- `constraint_scoring`
-- `static_scoring`
 - `completed`
 
 ## 3. 上报最终结果
@@ -95,8 +95,8 @@
     "executionTime": 402835,
     "tokenConsumption": 38804,
     "iterationCount": 1,
-    "codeQualityScore": 87,
-    "expectedOutputScore": 9,
+    "codeQualityScore": 0,
+    "expectedOutputScore": 0,
     "outputCodeUrl": "https://example.com/output.zip",
     "diffFileUrl": "https://example.com/changes.patch"
   }
@@ -109,6 +109,8 @@
   - `workspace/` 打包上传后的地址
 - `diffFileUrl`
   - `diff/changes.patch` 上传后的地址
+- `codeQualityScore` / `expectedOutputScore`
+  - 约束规则打分和静态代码打分 agent 已移除，当前固定按 `0` 上报
 
 ## 本地审计文件
 

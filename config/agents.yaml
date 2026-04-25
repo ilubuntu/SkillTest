@@ -66,36 +66,6 @@ agents:
         path: "config/skills/harmonyos-prd-design"
     extra_prompt: "你已挂载 build-harmony-project skill。完成一轮代码修改并准备结束时，必须先调用这个 skill 对当前工程执行一次编译验证；如果编译失败，必须根据完整编译错误继续修改代码并再次验证，最多重试 5 轮。最终输出中必须明确说明是否调用了build-harmony-project、总体编译次数、是否执行成功；如果失败，必须说明失败阶段和错误原因。同时请明确说明你当前可见的 skill 名称清单，并逐项列出 skill 名称。"
 
-
-  - id: "static_code_score_agent"
-    name: "静态代码打分 Agent"
-    api_base: "http://127.0.0.1:4096"
-    opencode_agent: "plan"
-    model: "opencode-go/glm-5"
-    # model: "openai/gpt-5.4"
-    tools:
-      skill: true
-    timeout: 600
-    mounted_skills:
-      - name: "harmonyos-gen-code-evaluator"
-        path: "config/skills/harmonyos-gen-code-evaluator"
-    extra_prompt: "你有一个静态代码打分 skill：harmonyos-gen-code-evaluator。完成代码分析后，必须调用这个 skill 对当前工程进行静态代码质量打分。最终回答必须是一个标准 JSON 对象，首字符必须是 {，末字符必须是 }；不要输出说明文字，不要写文件，不要输出 Markdown 代码块，不要输出第二个 JSON 对象。最终回答中只允许出现以下顶层字段：overall_conclusion、strengths、main_issues、score_details。禁止输出或透传完整 schema 中的大字段，包括但不限于 basic_info、dimension_scores、submetric_details、rule_violations、rule_audit_results、risks、report_meta。若 skill 返回了完整大结果，你必须自行提炼后再输出，不要原样回放。JSON 中必须包含 overall_conclusion.total_score；同时补充少量有价值的评分细节：strengths（最多 3 条）、main_issues（最多 3 条）、score_details（最多 5 条）。score_details 中每项格式固定为 {\"item\":\"状态管理\",\"impact\":\"+\",\"score_delta\":4,\"reason\":\"fontSize 增加 Trace 后刷新链路恢复\"}，impact 只能是 + 或 -，reason 必须是单句短说明。最终回答必须严格符合以下结构：{\"overall_conclusion\":{\"total_score\":95},\"strengths\":[\"状态同步链路恢复\"],\"main_issues\":[\"仍保留旧路由写法\"],\"score_details\":[{\"item\":\"状态管理\",\"impact\":\"+\",\"score_delta\":4,\"reason\":\"fontSize 增加 Trace 后刷新链路恢复\"}]}"
-
-  - id: "constraint_score_agent"
-    name: "约束规则打分 Agent"
-    api_base: "http://127.0.0.1:4096"
-    opencode_agent: "plan"
-    model: "opencode-go/glm-5"
-    # model: "bailian-coding-plan/glm-5"
-    # model: "openai/gpt-5.4"
-    tools:
-      skill: true
-    timeout: 600
-    mounted_skills:
-      - name: "constraint-score-review"
-        path: "config/skills/constraint-score-review"
-    extra_prompt: "你有一个约束规则打分 skill：constraint-score-review。完成代码分析后，必须调用这个 skill 根据核心规则对当前修复后的工程进行评分。最终回答必须是一个标准 JSON 对象，首字符必须是 {，末字符必须是 }；不要输出说明文字，不要写文件，不要输出 Markdown 代码块，不要输出第二个 JSON 对象。最终回答中只允许出现以下顶层字段：overall_score、constraints_passed、constraints_total、passed_items、failed_items。JSON 中必须包含 overall_score、constraints_passed、constraints_total；同时补充少量有价值的评分细节：passed_items（最多 5 条）和 failed_items（最多 5 条）。每项格式固定为 {\"constraint_id\":\"HM-XXX-01\",\"score\":25,\"reason\":\"命中真实代码证据\"}，reason 必须是单句短说明。overall_score 必须是 0 到 100 的数字，constraints_passed 和 constraints_total 必须是整数。最终回答必须严格符合以下结构：{\"overall_score\":88,\"constraints_passed\":3,\"constraints_total\":4,\"passed_items\":[{\"constraint_id\":\"HM-001\",\"score\":25,\"reason\":\"命中真实代码证据\"}],\"failed_items\":[{\"constraint_id\":\"HM-004\",\"score\":0,\"reason\":\"未满足目标约束\"}]}"
-  
   - id: "case_generation_agent"
     name: "用例生成 Agent"
     api_base: "http://127.0.0.1:4096"

@@ -8,45 +8,7 @@ INPUT_TEXT="${INPUT_TEXT:-这是一个商品管理工程，首页展示商品列
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 TOKEN="${TOKEN:-}"
 
-if [ -z "${EXPECTED_OUTPUT+x}" ]; then
-  EXPECTED_OUTPUT="$(cat <<'EOF'
-constraints:
-  - id: HM-BUGFIX-001-01
-    name: 新增或编辑后必须同步刷新商品列表
-    description: 保存成功后必须将商品变更结果回传首页，并按商品ID执行新增或更新，避免列表展示旧数据或出现重复数据。
-    priority: P0
-    type: semantic_rule
-    rule: goods_list_refresh_after_save
-    params:
-      index_file: entry/src/main/ets/pages/Index.ets
-      detail_file: entry/src/main/ets/pages/DetailPage.ets
-  - id: HM-BUGFIX-001-02
-    name: 商品表单必须进行有效性校验
-    description: 保存前必须校验商品名称非空且价格为大于0的有效数值，非法输入应阻断提交并给出明确提示。
-    priority: P2
-    type: semantic_rule
-    rule: goods_form_validation
-    params:
-      file: entry/src/main/ets/pages/DetailPage.ets
-  - id: HM-BUGFIX-001-03
-    name: 异步保存失败必须恢复交互状态并提示
-    description: 数据更新失败时必须结束保存态、恢复按钮可点击状态，并向用户展示失败原因，避免页面卡死或无反馈。
-    priority: P0
-    type: semantic_rule
-    rule: goods_save_error_recovery
-    params:
-      file: entry/src/main/ets/pages/DetailPage.ets
-  - id: HM-BUGFIX-001-04
-    name: 编辑态必须正确回填商品详情
-    description: 进入详情编辑页时必须依据商品ID加载已有数据并回填表单，避免编辑页展示默认值或覆盖原始数据。
-    priority: P0
-    type: semantic_rule
-    rule: goods_edit_data_prefill
-    params:
-      file: entry/src/main/ets/pages/DetailPage.ets
-EOF
-)"
-fi
+EXPECTED_OUTPUT="${EXPECTED_OUTPUT:-}"
 
 AUTH_ARGS=()
 if [ -n "$TOKEN" ]; then

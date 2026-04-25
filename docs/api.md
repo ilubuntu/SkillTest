@@ -1,13 +1,15 @@
 conversation// 执行用例  y由云测下发任务
 http://127.0.0.1:8000/api/cloud-api/baseline
 Post 
-{
-   "executionId":10,
-   "testCase":{
+ {
+    "executionId":10,
+    "testCase":{
 	"input":"22",
-	"expectedOutput":"12",
-	"fileUrl":"22222"
+	"expectedOutput":"",
+	"fileUrl":""
 }}
+
+`fileUrl` 可为空；为空时不下载原始工程，workspace 初始内容为空。
 
 
 // 更新执行状态
@@ -29,13 +31,11 @@ Post https://xxxxx/api/execution-results
    data：{
      isBuildSuccess: boolean;
      executionTime: number;
-     tokenConsumption: number;
-     iterationCount: number;
-     codeQualityScore: number;
-     expectedOutputScore: number;
-     outputCodeUrl: string;
+	     tokenConsumption: number;
+	     iterationCount: number;
+	     codeQualityScore: number; // 当前固定为 0
+	     expectedOutputScore: number; // 当前固定为 0
+	     outputCodeUrl: string;
      diffFileUrl: string;
   }
 }
-
-
