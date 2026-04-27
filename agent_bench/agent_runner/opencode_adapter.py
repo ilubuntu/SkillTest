@@ -94,6 +94,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._agent_runtime_state = AgentRuntimeState()
         self._last_local_log_at = time.monotonic()
         self._current_workspace_dir = ""
+        self._idle_sessions = set()
         self._question_auto_reply = OpenCodeQuestionAutoReply(
             http_client=self._http_client,
             log_func=self._log,
@@ -336,6 +337,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_interaction_metrics = None
         self._last_error_message = ""
         self._seen_runtime_events = set()
+        self._idle_sessions = set()
         self._agent_runtime_state.reset()
         self._question_auto_reply.reset()
         self.sse_filter = self._normalize_sse_filter(self.sse_filter)
@@ -645,6 +647,9 @@ class OpenCodeAdapter(AgentAdapter):
         last_todo_response_signatures: dict[str, str] = {}
         child_message_signatures: dict[str, str] = {}
         child_session_ids: set[str] = set()
+        last_todo_payloads: dict[str, object] = {}
+        completed_message_signature = ""
+        completed_message_seen_count = 0
         if not self._agent_runtime_state.has_activity():
             self._mark_runtime_activity()
         while True:
@@ -704,8 +709,31 @@ class OpenCodeAdapter(AgentAdapter):
                     )
                     info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
                     finish_reason = str(info.get("finish") or "").strip().lower()
-                    if has_text and has_step_finish and finish_reason not in {"", "tool-calls"}:
-                        return payload
+                    if has_step_finish and finish_reason not in {"", "tool-calls", "unknown"}:
+                        completion_signature = self._build_http_message_response_signature(
+                            raw_message_data,
+                            payload,
+                            prompt_text,
+                        )
+                        idle_confirmed = session_id in self._idle_sessions
+                        latest_todo_payload = last_todo_payloads.get(session_id)
+                        has_active_todo = self._todos_indicate_activity(latest_todo_payload) if latest_todo_payload is not None else False
+                        if idle_confirmed and has_text:
+                            return payload
+                        if has_text and not has_active_todo:
+                            if completion_signature and completion_signature == completed_message_signature:
+                                completed_message_seen_count += 1
+                            else:
+                                completed_message_signature = completion_signature
+                                completed_message_seen_count = 1
+                            if completed_message_seen_count >= 2:
+                                return payload
+                        else:
+                            completed_message_signature = ""
+                            completed_message_seen_count = 0
+                    else:
+                        completed_message_signature = ""
+                        completed_message_seen_count = 0
 
             if now - last_child_poll_at >= child_poll_interval:
                 last_child_poll_at = now
@@ -769,6 +797,7 @@ class OpenCodeAdapter(AgentAdapter):
                         http_polling_log_path=http_polling_log_path,
                         tag=tag,
                     )
+                    last_todo_payloads[target_session_id] = todo_payload
                     todo_signature = self._build_todo_response_signature(todo_payload)
                     if todo_signature and todo_signature != last_todo_response_signatures.get(target_session_id, ""):
                         last_todo_response_signatures[target_session_id] = todo_signature
@@ -923,6 +952,20 @@ class OpenCodeAdapter(AgentAdapter):
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    def _mark_session_idle_from_sse(self, payload: dict, session_id: str):
+        data = self._extract_sse_event_data(payload)
+        if not isinstance(data, dict) or not session_id:
+            return
+        event_type = str(data.get("type") or "").strip().lower()
+        props = data.get("properties") if isinstance(data.get("properties"), dict) else {}
+        if event_type == "session.idle":
+            self._idle_sessions.add(session_id)
+            return
+        if event_type == "session.status":
+            status = str(props.get("status") or props.get("state") or "").strip().lower()
+            if status == "idle":
+                self._idle_sessions.add(session_id)
+
     def _should_write_full_sse_payload(self, payload: dict) -> bool:
         if self.sse_filter != "low":
             return self.sse_filter in VALID_SSE_FILTERS
@@ -949,6 +992,7 @@ class OpenCodeAdapter(AgentAdapter):
                 workspace_dir=workspace_dir,
                 tag=tag,
             )
+            self._mark_session_idle_from_sse(payload, session_id)
             # 每个任务独立启动一条 SSE 监听，但 full 文件只保留当前 session
             # 的完整原始事件，避免混入其他任务的事件后误导超时判断。
             if not self._event_matches_session(payload, session_id):
