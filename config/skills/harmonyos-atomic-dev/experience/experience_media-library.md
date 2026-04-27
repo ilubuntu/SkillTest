@@ -1,13 +1,14 @@
-# 使用Picker选择媒体库资源
+# MediaLibraryKit 开发经验
+
+## 使用Picker选择媒体库资源
 
 用户有时需要分享图片、视频等用户文件，开发者可以通过特定接口拉起系统图库，用户自行选择待分享的资源，然后最终分享出去。此接口本身无需申请权限，目前适用于界面UIAbility，使用窗口组件触发。
 
-## 示例代码
+### 示例代码
 
 ```typescript
-// 导入选择器模块(@ohos.file.photoAccessHelper)和文件管理模块(@ohos.file.fs)
-import photoAccessHelper from '@ohos.file.photoAccessHelper';
-import fs from '@ohos.file.fs';
+// 导入选择器模块(@ohos.file.photoAccessHelper)
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { BusinessError } from '@ohos.base';
 
 async function photoSelect() {
@@ -31,9 +32,9 @@ async function photoSelect() {
 
 ```
 
-## API参考
+### API参考
 
-### PhotoViewMIMETypes
+#### PhotoViewMIMETypes
 
 枚举，可选择的媒体文件类型。
 

@@ -402,7 +402,12 @@ PersistenceV2 → Persistent storage with async API
 
 ## See Also
 
+### Index Guides
+
+[index.md](index.md) —  Knowledge Index Doc
+
 ### Reference Guides
+
 - [reference/arkts.md](reference/arkts.md) — ArkTS language guide, restrictions
 - [reference/review.md](reference/review.md) — ArkTS common issues must follow
 

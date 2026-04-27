@@ -47,6 +47,12 @@
 - [experience/experience_scan.md](experience/experience_scan.md) — ScanKit 扫码能力开发实践
 - [experience/experience_scenario_fusion.md](experience/experience_scenario_fusion.md) — ScenarioFusionKit 融合场景服务开发实践
 - [experience/experience_share.md](experience/experience_share.md) — 元服务分享能力开发实践
+- [experience/experience_push.md](experience/experience_push.md) — 推送push kit开发实践经验
+- [experience/experience_ads.md](experience/experience_ads.md) — 广告ads kit开发实践经验
+- [experience/experience_payment.md](experience/experience_payment.md) — 支付payment kit开发实践经验
+- [experience/experience_camera.md](experience/experience_camera.md) — 相机选择器开发实践
+- [experience/experience_media-library.md](experience/experience_media-library.md) — 媒体库（使用Picker选择媒体库资源）开发实践
+- [experience/experience_navigation-router.md](experience/experience_navigation-router.md) — Navigation路由跳转（模块内页面路由、跨模块页面路由）开发实践
 
 ### Kit Capabilities (Code Examples)
 - [kit/account/account-silent-login.ets](kit/account/account-silent-login.ets) — 静默登录 (AccountKit)
@@ -76,6 +82,19 @@
 - [kit/scenario-fusion/scenario-fusion-choose-avatar.ets](kit/scenario-fusion/scenario-fusion-choose-avatar.ets) — 选择头像 (ScenarioFusionKit)
 - [kit/scenario-fusion/scenario-fusion-feedback.ets](kit/scenario-fusion/scenario-fusion-feedback.ets) — 反馈与投诉 (ScenarioFusionKit)
 - [kit/scenario-fusion/scenario-fusiont-choose-location.ets](kit/scenario-fusion/scenario-fusiont-choose-location.ets) — 地图选点 (ScenarioFusionKit)
-- [kit/camera-picker/camera-picker.md](kit/camera-picker/camera-picker.md) — 系统相机选择器（CameraPicker）
-- [kit/media-library-kit/picker.md](kit/media-library-kit/picker.md) — 使用 Picker 选择媒体库资源（图片、视频等）
-- [kit/push/push.md](kit/push/push.md) — Push Kit 推送服务开发指南
+- [kit/camera-picker/camera-picker.ets](kit/camera-picker/camera-picker.ets) — 系统相机选择器（CameraPicker）
+- [kit/media-liabrary/media-photo-picker.ets](kit/media-liabrary/media-photo-picker.ets) — 使用Picker选择媒体库资源（图片、视频等）
+- [kit/push/push-subscribe.ets](kit/push/push-subscribe.ets) — 服务通知订阅请求
+- [kit/push/push-receive.ets](kit/push/push-receive.ets) — 接收推送消息处理
+- [kit/ads/ads-banner.ets](kit/ads/ads-banner.ets) — 横幅广告（Banner Ad）
+- [kit/ads/ads-interstitial.ets](kit/ads/ads-interstitial.ets) — 插屏广告（Interstitial Ad）
+- [kit/ads/ads-native.ets](kit/ads/ads-native.ets) — 原生广告（Native Ad）
+- [kit/ads/ads-reward.ets](kit/ads/ads-reward.ets) — 激励广告（Reward Ad）
+- [kit/ads/ads-roll.ets](kit/ads/ads-roll.ets) — 贴片广告（Roll Ad）
+- [kit/payment/iap-purchase.ets](kit/payment/iap-purchase.ets) — 应用内支付（数字商品）
+- [kit/payment/payment-request.ets](kit/payment/payment-request.ets) — 华为支付（实物商品）
+- [kit/navigation-router/navigation-router-push-by-name.ets](kit/navigation-router/navigation-router-push-by-name.ets) — 模块内页面路由
+- [kit/navigation-router/navigation-router-cross-module.ets](kit/navigation-router/navigation-router-cross-module.ets) — 跨模块页面路由
+- [kit/app-linking/applinking-open.ets.ets](kit/app-linking/applinking-open.ets.ets) — openLink 拉起示例
+- [kit/app-linking/applinking-receive.ets](kit/app-linking/applinking-receive.ets) — 链接接收与解析示例
+- [kit/app-linking/open-atomic-service.ets](kit/app-linking/open-atomic-service.ets) — openAtomicService 拉起示例

@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档总结了 HarmonyOS ArkUI 手势系统的完整开发场景，包含 6 个可编译通过的实例，覆盖点击长按、拖拽、捏合旋转、组合手势、手势优先级、滑动触摸等核心场景。
+本文档总结了 HarmonyOS ArkUI 手势系统的完整开发场景，包含 7 个可编译通过的实例，覆盖点击长按、拖拽、捏合旋转、组合手势、手势优先级、滑动触摸、左滑删除卡片等核心场景。
 
 ---
 
@@ -194,6 +194,78 @@ SwipeGesture({ fingers: 1, direction: SwipeDirection.All, speed: 50 })
 
 ---
 
+## 场景 7：左滑删除卡片
+
+**文件**: `entry/src/main/ets/gesture/gesture-swipe-delete.ets`（struct: `GestureSwipeDelete`）
+
+### 核心思路
+
+使用 Stack 双层布局 + PanGesture 水平拖拽实现左滑删除：
+- **底层**：红色删除按钮（固定不动）
+- **上层**：卡片内容，通过 `.translate({ x })` 控制偏移露出删除按钮
+- **吸附阈值**：滑动超过阈值自动吸附到删除位，否则弹回原位
+
+### PanGesture 水平拖拽
+
+```typescript
+PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 5 })
+  .onActionStart(() => {
+    // 收起其他已展开的卡片
+  })
+  .onActionUpdate((event: GestureEvent | undefined) => {
+    if (event) {
+      // 限制偏移范围 [DELETE_THRESHOLD, 0]，不允许右滑
+      const offset = Math.min(0, Math.max(-160, event.offsetX))
+      // 更新对应卡片的 translate x
+    }
+  })
+  .onActionEnd((event: GestureEvent | undefined) => {
+    if (event) {
+      // 超过吸附阈值 → 展开删除位，否则弹回
+      if (event.offsetX < SNAP_THRESHOLD) {
+        offset = DELETE_THRESHOLD  // 吸附到 -120
+      } else {
+        offset = 0  // 弹回原位
+      }
+    }
+  })
+```
+
+### Stack 双层布局
+
+```typescript
+Stack({ alignContent: Alignment.End }) {
+  // 底层：删除按钮
+  Button('删除')
+    .backgroundColor('#F44336')
+    .onClick(() => { /* 从数组中移除卡片 */ })
+
+  // 上层：卡片内容
+  Row() {
+    // 图标 + 标题 + 描述
+  }
+  .translate({ x: offset })  // 关键：通过偏移露出底层按钮
+  .gesture(panGesture)       // 绑定拖拽手势
+}
+```
+
+### 关键参数
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| DELETE_THRESHOLD | -120vp | 删除按钮完全展开的偏移量 |
+| SNAP_THRESHOLD | -60vp | 吸附判定阈值，超过即展开 |
+| direction | PanDirection.Horizontal | 仅水平方向响应 |
+| distance | 5vp | 最小拖动距离 |
+
+### 设计要点
+
+- **互斥交互**：`onActionStart` 时重置所有卡片偏移，确保同时只有一张卡片展开
+- **不可变更新**：通过 `[...this.offsetXs]` 创建新数组更新状态
+- **ForEach 渲染**：使用卡片 `id` 作为 key，删除后正确触发 UI 更新
+
+---
+
 ## 编译踩坑记录
 
 | 问题 | 错误信息 | 解决方案 |
@@ -210,3 +282,4 @@ SwipeGesture({ fingers: 1, direction: SwipeDirection.All, speed: 50 })
 - [component/gesture/gesture-pinch.ets](component/gesture/gesture-pinch.ets) — PinchGesture 捏合手势
 - [component/gesture/gesture-swipe.ets](component/gesture/gesture-swipe.ets) — SwipeGesture 滑动手势
 - [component/gesture/gesture-group.ets](component/gesture/gesture-group.ets) — GestureGroup 手势组合
+- [component/gesture/gesture-swipe-delete.ets](component/gesture/gesture-swipe-delete.ets) — 左滑删除卡片

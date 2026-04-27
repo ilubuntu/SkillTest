@@ -83,6 +83,7 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
             "文件检查完成",
             "代码修改完成",
             "工具执行完成",
+            "TODO列表刷新",
             "已生成代码补丁",
             "开始输出结果:",
             "输出预览",

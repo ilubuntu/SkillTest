@@ -180,7 +180,7 @@ hvigorw --mode project -p product=default assembleApp --analyze=normal --paralle
 **参数说明**:
 - `--mode project`: 项目级构建模式
 - `-p product=default`: 使用 default product 配置
-- `assembleApp`: 构建整个应用（包括所有模块）
+- `assembleApp`: 构建整个应用（包括所有模块，项目集构建仅能是 assembleApp 不能是 assembleHap）
 - `--analyze=normal`: 启用普通构建分析
 - `--parallel`: 并行构建（加速）
 - `--incremental`: 增量构建（加速）
@@ -260,16 +260,6 @@ ohpm install && hvigorw --mode project -p product=default assembleApp --analyze=
 | `--stacktrace` | 打印堆栈 |
 | `--no-stacktrace` | 不打印堆栈 |
 
-### 性能参数
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--parallel` | 并行构建 | 启用 |
-| `--no-parallel` | 禁用并行 | - |
-| `--incremental` | 增量构建 | 启用 |
-| `--no-incremental` | 禁用增量 | - |
-| `--optimization-strategy=performance` | 性能优先 | - |
-| `--optimization-strategy=memory` | 内存优先 | 启用 |
 
 ### Daemon 参数
 
