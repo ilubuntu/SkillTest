@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -30,6 +31,8 @@ from agent_bench.pipeline.prompts import (
 from agent_bench.agent_runner import AgentRunner, build_agent_spec
 
 MAX_LOGGED_OUTPUT_CHARS = 1000
+MAX_COMPILE_ERROR_PREVIEW_CHARS = 2000
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 WORKSPACE_GIT_EXCLUDE = """build/
 .hvigor/
 oh_modules/
@@ -50,6 +53,65 @@ def _notify(on_progress, event: str, data: dict):
 def _clip_text(text: str, limit: int) -> str:
     text = text or ""
     return text if len(text) <= limit else text[:limit] + "\n...<truncated>"
+
+
+def _strip_ansi_sequences(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", str(text or ""))
+
+
+def _take_lines_from_end(lines: list[str], limit: int) -> str:
+    if not lines:
+        return ""
+    selected = []
+    total = 0
+    for line in reversed(lines):
+        line_len = len(line)
+        extra = line_len if not selected else line_len + 1
+        if selected and total + extra > limit:
+            break
+        if not selected and line_len > limit:
+            return line[-limit:]
+        selected.append(line)
+        total += extra
+    return "\n".join(reversed(selected)).strip()
+
+
+def _take_lines_from_start(lines: list[str], limit: int) -> str:
+    if not lines:
+        return ""
+    selected = []
+    total = 0
+    for line in lines:
+        line_len = len(line)
+        extra = line_len if not selected else line_len + 1
+        if selected and total + extra > limit:
+            break
+        if not selected and line_len > limit:
+            return line[:limit]
+        selected.append(line)
+        total += extra
+    return "\n".join(selected).strip()
+
+
+def _extract_compile_error_preview(error_text: str, limit: int = MAX_COMPILE_ERROR_PREVIEW_CHARS) -> str:
+    sanitized = _strip_ansi_sequences(error_text).strip()
+    if not sanitized:
+        return ""
+
+    lines = sanitized.splitlines()
+    hvigor_error_index = None
+    for index in range(len(lines)):
+        if "hvigor ERROR" in lines[index]:
+            hvigor_error_index = index
+            break
+
+    if hvigor_error_index is not None:
+        tail_from_error = "\n".join(lines[hvigor_error_index:]).strip()
+        if len(tail_from_error) <= limit:
+            return tail_from_error
+        return _take_lines_from_start(lines[hvigor_error_index:], limit)
+
+    return _take_lines_from_end(lines, limit)
 
 
 def _coerce_int(value):
@@ -433,7 +495,7 @@ def _run_compile_check(case: dict,
             "level": "ERROR",
             "message": f"[结束] {stage_label}: 编译失败 ({elapsed:.1f}s)",
         })
-        error_preview = _clip_text(str(compile_result.get("error") or "").strip(), 1200)
+        error_preview = _extract_compile_error_preview(str(compile_result.get("error") or ""))
         if error_preview:
             _notify(on_progress, "log", {
                 "level": "ERROR",

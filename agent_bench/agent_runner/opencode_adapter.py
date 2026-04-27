@@ -24,6 +24,7 @@ from typing import Optional
 
 from agent_bench.pipeline.artifacts import agent_meta_dir
 from agent_bench.agent_runner.adapter import AgentAdapter
+from agent_bench.agent_runner.auto_reply import OpenCodeQuestionAutoReply
 from agent_bench.agent_runner.agent_runtime_state import AgentRuntimeState
 from agent_bench.agent_runner.communicate import OpenCodeHttpClient, OpenCodeSseClient
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
@@ -34,8 +35,8 @@ MAX_RAW_SSE_LINE_CHARS = 2000
 DELTA_PROGRESS_THROTTLE_SECONDS = 10.0
 VALID_SSE_FILTERS = {"full", "medium", "low"}
 MEDIUM_PATCH_LIMIT_CHARS = 100
-LOW_FULL_EVENT_TYPES = {"message.part.updated", "message.updated", "session.status", "session.idle", "session.updated"}
-LOW_RAW_EVENT_TYPES = {"message.part.updated", "session.status", "session.idle"}
+LOW_FULL_EVENT_TYPES = {"message.part.updated", "message.updated", "session.status", "session.idle", "session.updated", "question.asked"}
+LOW_RAW_EVENT_TYPES = {"message.part.updated", "session.status", "session.idle", "question.asked"}
 LOW_PART_TYPES = {"step-start", "reasoning", "tool", "patch", "text", "step-finish"}
 
 
@@ -91,6 +92,12 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_non_delta_progress_at = 0.0
         self._agent_runtime_state = AgentRuntimeState()
         self._last_local_log_at = time.monotonic()
+        self._current_workspace_dir = ""
+        self._question_auto_reply = OpenCodeQuestionAutoReply(
+            http_client=self._http_client,
+            log_func=self._log,
+            activity_func=self._mark_runtime_activity,
+        )
 
     def _log(self, level: str, message: str, tag: str = ""):
         self._last_local_log_at = time.monotonic()
@@ -329,6 +336,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_error_message = ""
         self._seen_runtime_events = set()
         self._agent_runtime_state.reset()
+        self._question_auto_reply.reset()
         self.sse_filter = self._normalize_sse_filter(self.sse_filter)
 
         if not runtime_options:
@@ -387,6 +395,7 @@ class OpenCodeAdapter(AgentAdapter):
     def execute(self, prompt: str, tag: str = "", workspace_dir: Optional[str] = None) -> str:
         """创建 session，发送消息（携带 system/tools 配置），返回响应"""
         try:
+            self._current_workspace_dir = str(workspace_dir or "").strip()
             self._last_interaction_metrics = None
             self._last_error_message = ""
             effective_prompt = prompt
@@ -541,7 +550,7 @@ class OpenCodeAdapter(AgentAdapter):
             self._mark_runtime_activity()
             sse_thread = threading.Thread(
                 target=self._capture_sse_events,
-                args=(session_id, sse_log_path, stop_event, connected_event, tag),
+                args=(session_id, workspace_dir or "", sse_log_path, stop_event, connected_event, tag),
                 daemon=True,
             )
             sse_thread.start()
@@ -675,6 +684,12 @@ class OpenCodeAdapter(AgentAdapter):
                         )
                 if payload:
                     last_seen = payload
+                    self._question_auto_reply.handle_message_payload(
+                        payload,
+                        session_id=session_id,
+                        workspace_dir=self._current_workspace_dir or "",
+                        tag=tag,
+                    )
                     if message_changed:
                         self._mark_message_polling_progress(payload, prompt_text, session_id=session_id)
                         parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
@@ -720,6 +735,12 @@ class OpenCodeAdapter(AgentAdapter):
                         prompt_text,
                     )
                     if child_payload:
+                        self._question_auto_reply.handle_message_payload(
+                            child_payload,
+                            session_id=child_session_id,
+                            workspace_dir=self._current_workspace_dir or "",
+                            tag=tag,
+                        )
                         child_signature = self._build_http_message_response_signature(
                             child_raw_message_data,
                             child_payload,
@@ -909,12 +930,24 @@ class OpenCodeAdapter(AgentAdapter):
         event_type = self._get_sse_event_type(payload)
         return event_type in LOW_FULL_EVENT_TYPES
 
-    def _capture_sse_events(self, session_id: str, output_path: str, stop_event: threading.Event, connected_event: threading.Event, tag: str = ""):
+    def _capture_sse_events(self,
+                            session_id: str,
+                            workspace_dir: str,
+                            output_path: str,
+                            stop_event: threading.Event,
+                            connected_event: threading.Event,
+                            tag: str = ""):
         self._log("WARNING", f"开始监听 OpenCode SSE 事件流: {output_path}", tag=tag)
         progress_output_path = self._resolve_sse_progress_log_path(output_path)
         full_output_path = self._resolve_sse_full_log_path(output_path)
 
         def handle_payload(payload: dict):
+            self._question_auto_reply.handle_sse_payload(
+                payload,
+                session_id=session_id,
+                workspace_dir=workspace_dir,
+                tag=tag,
+            )
             # 每个任务独立启动一条 SSE 监听，但 full 文件只保留当前 session
             # 的完整原始事件，避免混入其他任务的事件后误导超时判断。
             if not self._event_matches_session(payload, session_id):

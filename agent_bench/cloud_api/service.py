@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 import yaml
 
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
+from agent_bench.common.build_profile import sanitize_root_build_profile_signing_configs
 from agent_bench.cloud_api.client import report_status, upload_execution_result
 from agent_bench.cloud_api.converter import (
     build_case,
@@ -379,6 +380,14 @@ def _cleanup_download_source_dir(source_dir: str, on_progress=None):
         return
     shutil.rmtree(source_dir, ignore_errors=True)
     _emit_prepare_log(on_progress, f"已清理下载中转目录: {source_dir}")
+
+
+def _sanitize_original_project_signing_configs(original_dir: str, on_progress=None):
+    result = sanitize_root_build_profile_signing_configs(original_dir)
+    if result == "updated":
+        _emit_prepare_log(on_progress, "清空原始工程签名信息成功，默认为[]")
+    elif result == "already_empty":
+        _emit_prepare_log(on_progress, "原始签名信息为空，无需清理")
 
 
 class CloudExecutionManager:
@@ -1154,6 +1163,7 @@ class CloudExecutionManager:
             if os.path.exists(original_dir):
                 shutil.rmtree(original_dir)
             shutil.copytree(downloaded_project_root, original_dir)
+            _sanitize_original_project_signing_configs(original_dir, on_progress=on_progress)
             _emit_prepare_log(on_progress, f"原始工程已准备完成: {original_dir}")
             _cleanup_download_source_dir(source_dir, on_progress=on_progress)
             raw_input = (payload.testCase.input or "").strip()

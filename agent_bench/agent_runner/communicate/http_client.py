@@ -2,6 +2,7 @@
 """OpenCode HTTP API 客户端。"""
 
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Optional
@@ -97,3 +98,62 @@ class OpenCodeHttpClient:
         )
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def list_questions(self,
+                       workspace_dir: Optional[str] = None,
+                       timeout: int = 10):
+        url = f"{self.api_base}/question"
+        headers = {}
+        if workspace_dir:
+            query = urllib.parse.urlencode({"directory": workspace_dir})
+            url = f"{url}?{query}"
+            headers["x-opencode-directory"] = str(workspace_dir)
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def reply_question(self,
+                       request_id: str,
+                       answers: list[list[str]],
+                       workspace_dir: Optional[str] = None,
+                       timeout: int = 30):
+        payload = {"answers": list(answers or [])}
+        url = f"{self.api_base}/question/{urllib.parse.quote(str(request_id or ''))}/reply"
+        headers = {"Content-Type": "application/json"}
+        if workspace_dir:
+            query = urllib.parse.urlencode({"directory": workspace_dir})
+            url = f"{url}?{query}"
+            headers["x-opencode-directory"] = str(workspace_dir)
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                body = response.read().decode("utf-8")
+                try:
+                    parsed = json.loads(body) if body else {}
+                except Exception:
+                    parsed = {"raw": body}
+                return {
+                    "ok": True,
+                    "status_code": getattr(response, "status", 200),
+                    "body": parsed,
+                }
+        except urllib.error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8")
+            except Exception:
+                body = ""
+            try:
+                parsed = json.loads(body) if body else {}
+            except Exception:
+                parsed = {"raw": body}
+            return {
+                "ok": False,
+                "status_code": int(getattr(exc, "code", 0) or 0),
+                "body": parsed,
+            }
