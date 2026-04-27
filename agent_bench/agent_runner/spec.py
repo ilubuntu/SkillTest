@@ -2,7 +2,7 @@
 """Agent 配置规格化。"""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
