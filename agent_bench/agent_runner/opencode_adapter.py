@@ -31,6 +31,7 @@ from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
 DEFAULT_API_BASE = "http://localhost:4096"
 TIMEOUT = DEFAULT_TIMEOUT_SECONDS
+SESSION_CREATE_TIMEOUT_SECONDS = 60
 MAX_RAW_SSE_LINE_CHARS = 2000
 DELTA_PROGRESS_THROTTLE_SECONDS = 10.0
 VALID_SSE_FILTERS = {"full", "medium", "low"}
@@ -1936,7 +1937,8 @@ class OpenCodeAdapter(AgentAdapter):
     def _create_session(self) -> Optional[str]:
         """创建新 session，返回 session_id"""
         try:
-            session = self._http_client.create_session(timeout=10)
+            # 首次实例拉起会触发 plugin 加载，10 秒在云测上容易被提前超时。
+            session = self._http_client.create_session(timeout=SESSION_CREATE_TIMEOUT_SECONDS)
             return session.get("id") if isinstance(session, dict) else None
         except Exception as e:
             self._last_error_message = f"创建 Session 异常: {e}"

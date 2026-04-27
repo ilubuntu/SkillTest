@@ -24,7 +24,7 @@ class OpenCodeHttpClient:
         query = urllib.parse.urlencode({"directory": workspace_dir})
         return f"{base_url}?{query}"
 
-    def create_session(self, timeout: int = 10) -> dict:
+    def create_session(self, timeout: int = 60) -> dict:
         req = urllib.request.Request(
             f"{self.api_base}/session",
             data=json.dumps({}).encode("utf-8"),
