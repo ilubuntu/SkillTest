@@ -28,8 +28,8 @@ curl -s http://localhost:8000/api/health
 ## 任务入口
 
 ```text
-POST /api/cloud-api/baseline
-POST /api/cloud-api/harmonyos-plugin
+POST /api/cloud-api/agent/baseline
+POST /api/cloud-api/agent/harmonyos-plugin
 ```
 
 ## 本地日志

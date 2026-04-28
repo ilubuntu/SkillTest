@@ -44,10 +44,3 @@ agents:
       - name: "harmonyos-prd-design"
         path: "config/skills/harmonyos-prd-design"
     extra_prompt: "在调用skill处理任务的过程中，请使用默认选项直接执行，不需要询问我，你自主决策。最终输出中必须明确说明你当前可见的skill名称清单，并逐项列出skill名称。"
-
-  - id: "case_generation_agent"
-    name: "用例生成 Agent"
-    opencode_agent: "plan"
-    model: "bailian-coding-plan/glm-5"
-    mounted_skills: []
-    extra_prompt: "你是测试用例生成专家，负责根据模板仓库和官方文档生成 HarmonyOS 测试用例。"

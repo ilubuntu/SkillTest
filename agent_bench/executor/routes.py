@@ -99,24 +99,6 @@ async def start_dynamic_agent_execution_compat(
     return await _start_named_agent_execution(agent_id, payload, request, authorization)
 
 
-@router.post("/baseline")
-async def start_baseline_execution(
-    payload: CloudExecutionStartRequest,
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    return await _start_named_agent_execution("baseline", payload, request, authorization)
-
-
-@router.post("/harmonyos-plugin")
-async def start_harmonyos_plugin_execution(
-    payload: CloudExecutionStartRequest,
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    return await _start_named_agent_execution("harmonyos-plugin", payload, request, authorization)
-
-
 @router.get("/status")
 async def get_cloud_execution_status(execution_id: int | None = Query(default=None)):
     if execution_id is None:

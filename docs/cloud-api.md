@@ -6,13 +6,13 @@
 
 ### baseline Agent
 
-`POST /api/cloud-api/baseline`
+`POST /api/cloud-api/agent/baseline`
 
 使用 `baseline` agent（opencode-build 模式）执行任务。
 
 ### harmonyos-plugin Agent
 
-`POST /api/cloud-api/harmonyos-plugin`
+`POST /api/cloud-api/agent/harmonyos-plugin`
 
 使用 `harmonyos-plugin` agent 执行任务。
 

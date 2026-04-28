@@ -20,8 +20,7 @@ from agent_bench.cloud_api.converter import (
     build_execution_result_payload,
     build_prompt,
 )
-from agent_bench.cloud_api.models import CloudExecutionStartRequest, LocalCaseRunRequest, LocalTextStartRequest
-from agent_bench.case_generation import generate_case_from_text
+from agent_bench.cloud_api.models import CloudExecutionStartRequest
 from agent_bench.common.build_profile import sanitize_root_build_profile_signing_configs
 from agent_bench.pipeline.case_runner import run_single_case
 from agent_bench.pipeline.loader import load_agent, load_agents, load_config, load_logging_config

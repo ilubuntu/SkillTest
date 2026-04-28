@@ -141,8 +141,6 @@ async def root():
         "service": "cloud_executor",
         "version": APP_VERSION,
         "health": "/api/health",
-        "baseline": "/api/cloud-api/baseline",
-        "harmonyos-plugin": "/api/cloud-api/harmonyos-plugin",
         "status": "/api/cloud-api/status",
     }
 

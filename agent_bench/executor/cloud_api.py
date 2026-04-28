@@ -3,122 +3,11 @@
 
 import json
 import os
-import shutil
-import tempfile
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse
-
-from agent_bench.cloud_api.models import CloudExecutionStartRequest, LocalCaseRunRequest, LocalTextStartRequest
+from fastapi import APIRouter, HTTPException, Query
 from agent_bench.cloud_api.service import cloud_execution_manager
-from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir
 
-router = APIRouter(prefix="/api/cloud-api", tags=["cloud_api"])
 local_router = APIRouter(prefix="/api/local", tags=["local_execution"])
-
-
-@router.post("/start")
-async def start_cloud_execution(
-    payload: CloudExecutionStartRequest,
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    local_base_url = str(request.base_url).rstrip("/")
-    if authorization and authorization.lower().startswith("bearer "):
-        payload.token = authorization[7:].strip()
-    success, message = cloud_execution_manager.start(payload, local_base_url)
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {
-        "accepted": True,
-        "executionId": payload.executionId,
-        "message": message,
-    }
-
-
-@router.get("/status")
-async def get_cloud_execution_status(execution_id: int | None = Query(default=None)):
-    if execution_id is None:
-        return {
-            "items": cloud_execution_manager.list_states(),
-        }
-    state = cloud_execution_manager.get_state(execution_id)
-    if not state:
-        return {
-            "status": "idle",
-            "executionId": execution_id,
-        }
-    return state
-
-
-@local_router.post("/start-text")
-async def start_local_text_execution(
-    payload: LocalTextStartRequest,
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    local_base_url = str(request.base_url).rstrip("/")
-    if authorization and authorization.lower().startswith("bearer ") and not (payload.token or "").strip():
-        payload.token = authorization[7:].strip()
-    success, message, execution_id = cloud_execution_manager.start_local_text_pipeline(payload, local_base_url)
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    state = cloud_execution_manager.get_state(execution_id) or {}
-    return {
-        "accepted": True,
-        "executionId": execution_id,
-        "message": message,
-        "statusUrl": f"{local_base_url}/api/local/status?execution_id={execution_id}",
-        "generateEventsUrl": f"{local_base_url}/api/local/executions/{execution_id}/generate/events",
-        "caseId": state.get("case_id") or "",
-        "caseDir": state.get("case_dir") or "",
-    }
-
-
-@local_router.post("/generate-case")
-async def generate_local_case(
-    payload: LocalTextStartRequest,
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    local_base_url = str(request.base_url).rstrip("/")
-    if authorization and authorization.lower().startswith("bearer ") and not (payload.token or "").strip():
-        payload.token = authorization[7:].strip()
-    success, message, execution_id = cloud_execution_manager.generate_local_text_case(payload, local_base_url)
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    state = cloud_execution_manager.get_state(execution_id) or {}
-    return {
-        "accepted": True,
-        "executionId": execution_id,
-        "message": message,
-        "statusUrl": f"{local_base_url}/api/local/status?execution_id={execution_id}",
-        "caseId": state.get("case_id") or "",
-        "caseDir": state.get("case_dir") or "",
-    }
-
-
-@local_router.post("/run-case")
-async def run_existing_local_case(
-    payload: LocalCaseRunRequest,
-    request: Request,
-    authorization: str | None = Header(default=None),
-):
-    local_base_url = str(request.base_url).rstrip("/")
-    if authorization and authorization.lower().startswith("bearer ") and not (payload.token or "").strip():
-        payload.token = authorization[7:].strip()
-    success, message, execution_id = cloud_execution_manager.start_local_case_execution(payload, local_base_url)
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    state = cloud_execution_manager.get_state(execution_id) or {}
-    return {
-        "accepted": True,
-        "executionId": execution_id,
-        "message": message,
-        "statusUrl": f"{local_base_url}/api/local/status?execution_id={execution_id}",
-        "caseId": state.get("case_id") or "",
-        "caseDir": state.get("generated_case_dir") or state.get("case_dir") or "",
-    }
 
 
 @local_router.get("/status")
@@ -134,29 +23,6 @@ async def get_local_execution_status(execution_id: int | None = Query(default=No
             "executionId": execution_id,
         }
     return state
-
-
-@router.get("/executions/{execution_id}/output-code")
-async def download_output_code(execution_id: int):
-    state = cloud_execution_manager.get_state(execution_id)
-    if not state:
-        raise HTTPException(status_code=404, detail="执行记录不存在")
-
-    case_dir = state.get("case_dir")
-    if not case_dir:
-        raise HTTPException(status_code=404, detail="执行目录不存在")
-
-    source_dir = agent_workspace_dir(case_dir)
-    if not os.path.isdir(source_dir):
-        raise HTTPException(status_code=404, detail="输出代码目录不存在")
-
-    archive_root = os.path.join(tempfile.gettempdir(), f"cloud_execution_{execution_id}_output")
-    archive_path = shutil.make_archive(archive_root, "zip", root_dir=source_dir)
-    return FileResponse(
-        archive_path,
-        media_type="application/zip",
-        filename=os.path.basename(archive_path),
-    )
 
 
 def _read_jsonl(path: str) -> list[dict]:

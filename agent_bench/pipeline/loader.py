@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-"""配置与数据加载
-
-职责：
-- 全局配置 (config.yaml)
-- 测试用例加载（test_cases.yaml 总表）
-- 通用文件读取
-"""
+"""配置与数据加载。"""
 
 import os
 import re
@@ -31,7 +25,6 @@ def _external_config_dir() -> str:
 
 CONFIG_PATH = os.path.join(_external_config_dir(), "config.yaml")
 AGENTS_DIR = _external_config_dir()
-TEST_CASES_REGISTRY_PATH = os.path.join(BASE_DIR, "test_cases", "test_cases.yaml")
 AGENTS_REGISTRY_PATH = os.path.join(AGENTS_DIR, "agents.yaml")
 
 DEFAULT_LOGGING_CONFIG = {
@@ -46,7 +39,6 @@ DEFAULT_LOGGING_CONFIG = {
 # ── 缓存（避免重复加载） ─────────────────────────────────────
 
 _registry_cache = {
-    "test_cases": None,       # test_cases.yaml 内容
     "agents": None,           # agents.yaml 内容
 }
 
@@ -73,120 +65,6 @@ def load_logging_config() -> dict:
     result["backup_count"] = int(result.get("backup_count") or 72)
     result["rotation_when"] = str(result.get("rotation_when") or "H").upper()
     return result
-
-
-def load_file(relative_path: str) -> str:
-    """加载测试用例关联的代码文件（相对于 agent_bench/ 目录）"""
-    path = os.path.join(BASE_DIR, relative_path)
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-def _resolve_case_dir(case: dict) -> str:
-    """解析测试用例目录（相对于 agent_bench/）"""
-    explicit_case_dir = case.get("case_dir", "")
-    if explicit_case_dir:
-        return explicit_case_dir
-
-    case_id = case.get("case_id", case.get("id", ""))
-    if not case_id or "_" not in case_id:
-        return ""
-
-    scenario_key, case_no = case_id.rsplit("_", 1)
-    if not scenario_key or not case_no:
-        return ""
-    return os.path.join("test_cases", scenario_key, case_no)
-
-
-def get_case_additional_files(case: dict) -> dict:
-    """收集 case 目录下用于补充上下文的额外 .ets 文件。
-
-    规则：
-    - pages/ 子目录下的 .ets 文件全部纳入
-    - case 根目录下的 .ets 文件纳入
-    """
-    case_dir = _resolve_case_dir(case)
-    if not case_dir:
-        return {}
-
-    absolute_case_dir = os.path.join(BASE_DIR, case_dir)
-    if not os.path.isdir(absolute_case_dir):
-        return {}
-
-    additional = {}
-
-    pages_dir = os.path.join(absolute_case_dir, "pages")
-    if os.path.isdir(pages_dir):
-        pages_files = {}
-        for filename in sorted(os.listdir(pages_dir)):
-            if not filename.endswith(".ets"):
-                continue
-            file_path = os.path.join(pages_dir, filename)
-            relative_path = os.path.relpath(file_path, BASE_DIR)
-            pages_files[filename] = load_file(relative_path)
-        if pages_files:
-            additional["pages"] = pages_files
-
-    sibling_files = {}
-    for filename in sorted(os.listdir(absolute_case_dir)):
-        if not filename.endswith(".ets"):
-            continue
-        file_path = os.path.join(absolute_case_dir, filename)
-        if not os.path.isfile(file_path):
-            continue
-        sibling_files[filename] = load_file(os.path.relpath(file_path, BASE_DIR))
-    if sibling_files:
-        additional["sibling_files"] = sibling_files
-
-    return additional
-
-
-def _load_case_spec(case: dict) -> dict:
-    """加载 case 目录下的 case.yaml，找不到时返回空 dict"""
-    case_dir = _resolve_case_dir(case)
-    if not case_dir:
-        return {}
-
-    case_yaml_path = os.path.join(BASE_DIR, case_dir, "case.yaml")
-    if not os.path.exists(case_yaml_path):
-        return {}
-
-    return load_yaml(case_yaml_path) or {}
-
-
-def _build_prompt_from_case_spec(case_spec: dict) -> str:
-    """根据最小 case.yaml 生成发给 agent 的任务描述。
-    当前只拼接两个字段：
-    - prompt
-    - output_requirements
-    """
-    case_meta = case_spec.get("case", {}) or {}
-    agent = case_spec.get("agent", {}) or {}
-
-    prompt = _format_prompt_value(case_meta.get("prompt") or case_spec.get("prompt"))
-    output_requirements = case_meta.get("output_requirements")
-    if output_requirements is None:
-        output_requirements = agent.get("output_requirements")
-
-    if not prompt:
-        return ""
-
-    lines = []
-    lines.append(prompt)
-
-    if output_requirements:
-        lines.extend(["", "## 结果输出要求"])
-        if isinstance(output_requirements, list):
-            for item in output_requirements:
-                formatted = _format_prompt_value(item)
-                if formatted:
-                    lines.append(f"- {formatted}")
-        else:
-            formatted = _format_prompt_value(output_requirements)
-            if formatted:
-                lines.append(f"- {formatted}")
-
-    return "\n".join(line for line in lines if line is not None).strip()
 
 
 def _format_prompt_value(value) -> str:
@@ -246,10 +124,6 @@ def resolve_case_original_project(case: dict) -> Optional[str]:
     if explicit_dir:
         return os.path.join(BASE_DIR, explicit_dir)
 
-    case_dir = case.get("case_dir", "") or _resolve_case_dir(case)
-    if case_dir:
-        return os.path.join(BASE_DIR, case_dir, "original_project")
-
     return None
 
 
@@ -260,18 +134,6 @@ def load_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
         raise FileNotFoundError(f"配置文件不存在: {CONFIG_PATH}")
     return load_yaml(CONFIG_PATH) or {}
-
-
-# ── Registry 加载 ─────────────────────────────────────────────
-
-def load_test_cases_registry() -> dict:
-    """加载 test_cases/test_cases.yaml 总表"""
-    if _registry_cache["test_cases"] is None:
-        if os.path.exists(TEST_CASES_REGISTRY_PATH):
-            _registry_cache["test_cases"] = load_yaml(TEST_CASES_REGISTRY_PATH) or {}
-        else:
-            _registry_cache["test_cases"] = {}
-    return _registry_cache["test_cases"]
 
 
 def load_agents_registry() -> dict:
@@ -357,48 +219,3 @@ def validate_runtime_config() -> None:
             if not isinstance(skill, dict):
                 continue
             resolve_skill_mount_path(skill.get("path", ""))
-def _transform_case(case: dict) -> dict:
-    """将 registry 格式转换为运行时格式
-
-    registry 格式: {case_id, prompt, ...}
-    运行时格式: {id, title, prompt, case_dir, case_spec, ...}
-    """
-    if "prompt" in case and "case_dir" in case and "case_spec" in case:
-        return case
-
-    case_dir = _resolve_case_dir(case)
-    case_spec = _load_case_spec(case)
-    case_meta = case_spec.get("case", {})
-    project_meta = case_spec.get("project", {})
-    additional_files = get_case_additional_files(case)
-
-    prompt = case.get("prompt", "")
-    if case_spec:
-        generated_prompt = _build_prompt_from_case_spec(case_spec)
-        if generated_prompt:
-            prompt = generated_prompt
-
-    original_project_dir = case.get("original_project_dir", "")
-    project_dir = project_meta.get("project_dir", "")
-    if case_dir and project_dir:
-        original_project_dir = os.path.join(case_dir, project_dir)
-    elif case_dir:
-        default_project_dir = os.path.join(case_dir, "original_project")
-        if os.path.isdir(os.path.join(BASE_DIR, default_project_dir)):
-            original_project_dir = default_project_dir
-
-    result = {
-        "id": case_meta.get("id", case.get("case_id", case.get("id", ""))),
-        "title": case_meta.get("title", case.get("title", "")),
-        "category": case.get("category", ""),
-        "scenario": case_meta.get("scenario", case.get("scenario", "")),
-        "case_dir": case_dir,
-        "case_spec": case_spec,
-        "original_project_dir": original_project_dir,
-        "prompt": prompt,
-    }
-
-    if additional_files:
-        result["additional_files"] = additional_files
-
-    return result
