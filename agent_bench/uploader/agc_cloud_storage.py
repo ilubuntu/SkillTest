@@ -377,6 +377,8 @@ class AgcCloudStorageClient:
             return True
         if normalized.endswith("opencode.json"):
             return True
+        if normalized == ".harmonyos/codebase.md":
+            return True
         if normalized.endswith("oh-package-lock.json5"):
             return True
         return False

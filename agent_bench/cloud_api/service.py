@@ -169,23 +169,18 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
             "输出预览",
         )):
             return _truncate_message(text, 160)
-        if any(token in text for token in (
-            "模型正在思考",
-            "开始分析",
-            "开始检查工程和读取文件",
-            "开始调用工具",
-            "开始输出结果",
-        )):
-            return "正在处理"
         if "Agent处理完成, output=" in text:
             return _truncate_message(text, 180)
         if any(token in text for token in (
             "运行完成",
             "处理完成",
             "打分完成",
-            "本轮执行结束: stop",
         )):
             return "Agent处理完成"
+        return None
+    if text.startswith("开始处理用例:"):
+        return None
+    if text.endswith("已开始") and not text.startswith("[开始]"):
         return None
     return text
 

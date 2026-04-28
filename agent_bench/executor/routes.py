@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """云测桥接接口。"""
 
+import logging
+
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from agent_bench.cloud_api.models import CloudExecutionStartRequest
@@ -8,6 +10,14 @@ from agent_bench.pipeline.loader import load_agent
 from agent_bench.task_manager import cloud_execution_manager
 
 router = APIRouter(prefix="/api/cloud-api", tags=["cloud_api"])
+logger = logging.getLogger(__name__)
+
+
+def _clip_cloud_request_text(value: str, limit: int = 100) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"...[已截断，原始长度={len(text)}]"
 
 
 async def _start_named_agent_execution(
@@ -20,13 +30,47 @@ async def _start_named_agent_execution(
     if authorization and authorization.lower().startswith("bearer "):
         payload.token = authorization[7:].strip()
     normalized_agent_id = str(agent_id or "").strip()
+    logger.info(
+        "云端任务下发请求: executionId=%s agent=%s input=%s expectedOutput=%s fileUrl=%s",
+        payload.executionId,
+        normalized_agent_id,
+        _clip_cloud_request_text(payload.testCase.input),
+        _clip_cloud_request_text(payload.testCase.expectedOutput),
+        payload.testCase.fileUrl or "",
+    )
     agent = load_agent(normalized_agent_id)
     if not agent:
-        raise HTTPException(status_code=400, detail=f"未找到 agent 配置: {normalized_agent_id}")
+        logger.warning("云端任务下发参数校验失败: executionId=%s agent=%s 未找到 agent 配置", payload.executionId, normalized_agent_id)
+        detail = f"未找到 agent 配置: {normalized_agent_id}"
+        logger.info(
+            "云端任务下发返回: executionId=%s agent=%s status=400 detail=%s",
+            payload.executionId,
+            normalized_agent_id,
+            detail,
+        )
+        raise HTTPException(status_code=400, detail=detail)
     payload.agentId = normalized_agent_id
     success, message = cloud_execution_manager.start(payload, local_base_url)
     if not success:
+        logger.warning(
+            "云端任务下发被拒绝: executionId=%s agent=%s reason=%s",
+            payload.executionId,
+            normalized_agent_id,
+            message,
+        )
+        logger.info(
+            "云端任务下发返回: executionId=%s agent=%s status=400 detail=%s",
+            payload.executionId,
+            normalized_agent_id,
+            message,
+        )
         raise HTTPException(status_code=400, detail=message)
+    logger.info(
+        "云端任务下发返回: executionId=%s agent=%s status=200 accepted=True message=%s",
+        payload.executionId,
+        normalized_agent_id,
+        message,
+    )
     return {
         "accepted": True,
         "executionId": payload.executionId,

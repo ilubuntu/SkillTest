@@ -268,6 +268,12 @@ class CloudExecutionManager:
             self._launch_execution_locked(payload, local_base_url)
 
     def start(self, payload: CloudExecutionStartRequest, local_base_url: str):
+        if not str(payload.testCase.input or "").strip():
+            logger.warning(
+                "任务启动前置校验失败 taskId=%s: 缺少真实的任务输入",
+                payload.executionId,
+            )
+            return False, "缺少真实的任务输入，已终止执行"
         with self._lock:
             existing_state = self._registry.get(payload.executionId)
             existing_handle = self._registry.get_handle_metadata(payload.executionId)
@@ -283,7 +289,7 @@ class CloudExecutionManager:
             logger.info(
                 "收到任务下发 taskId=%s 任务=%s 工程包=%s",
                 payload.executionId,
-                _truncate_message(payload.testCase.input, 300),
+                _truncate_message(payload.testCase.input, 100),
                 payload.testCase.fileUrl,
             )
             self._progress.ensure_stage_entry(state, STAGE_PENDING, "任务排队中")

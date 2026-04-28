@@ -40,6 +40,7 @@ node_modules/
 oh-package-lock.json5
 .opencode/
 opencode.json
+.harmonyos/codebase.md
 *.log
 BuildProfile.ets
 """

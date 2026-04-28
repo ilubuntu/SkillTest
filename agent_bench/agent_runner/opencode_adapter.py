@@ -440,7 +440,7 @@ class OpenCodeAdapter(AgentAdapter):
                 self._log("INFO", f"OpenCode HTTP 上下文目录: {workspace_dir}", tag=tag)
 
             self._log("INFO",
-                f"发给 OpenCode 的完整请求体:\n{json.dumps(message_payload, ensure_ascii=False, indent=2)}",
+                f"发给 OpenCode 的完整请求体:\n{json.dumps(self._build_request_log_payload(message_payload), ensure_ascii=False, indent=2)}",
                 tag=tag)
 
             if self._prefer_async_sse:
@@ -525,6 +525,41 @@ class OpenCodeAdapter(AgentAdapter):
             f"响应中无 text 部分, parts数={len(parts)}, 耗时={elapsed:.1f}s",
             tag=tag)
         return ""
+
+    def _build_request_log_payload(self, payload: dict, input_text_limit: int = 1000) -> dict:
+        """Return a log-safe copy of the OpenCode request payload.
+
+        The actual request is sent unchanged. Only the user input part before
+        the extra prompt marker is clipped, so execution requirements remain
+        visible in logs.
+        """
+        try:
+            log_payload = json.loads(json.dumps(payload, ensure_ascii=False))
+        except Exception:
+            return payload
+        parts = log_payload.get("parts")
+        if not isinstance(parts, list):
+            return log_payload
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if not isinstance(text, str):
+                continue
+            part["text"] = self._clip_logged_input_text(text, input_text_limit)
+        return log_payload
+
+    def _clip_logged_input_text(self, text: str, input_text_limit: int = 1000) -> str:
+        marker = "\n\n## 额外执行要求\n"
+        if marker in text:
+            input_text, suffix = text.split(marker, 1)
+            if len(input_text) <= input_text_limit:
+                return text
+            clipped_input = input_text[:input_text_limit] + f"...[input已截断，原始长度={len(input_text)}]"
+            return f"{clipped_input}{marker}{suffix}"
+        if len(text) <= input_text_limit:
+            return text
+        return text[:input_text_limit] + f"...[input已截断，原始长度={len(text)}]"
 
     def _execute_prompt_async_with_sse(self,
                                        session_id: str,
