@@ -38,6 +38,7 @@ VALID_SSE_FILTERS = {"full", "medium", "low"}
 MEDIUM_PATCH_LIMIT_CHARS = 100
 LOW_FULL_EVENT_TYPES = {"message.part.updated", "message.updated", "session.status", "session.idle", "session.updated", "question.asked"}
 LOW_RAW_EVENT_TYPES = {"message.part.updated", "session.status", "session.idle", "question.asked"}
+FORCE_CLOSE_STABLE_COMPLETION_SECONDS = 3600
 LOW_PART_TYPES = {"step-start", "reasoning", "tool", "patch", "text", "step-finish"}
 
 
@@ -685,6 +686,7 @@ class OpenCodeAdapter(AgentAdapter):
         last_todo_payloads: dict[str, object] = {}
         completed_message_signature = ""
         completed_message_seen_count = 0
+        completed_message_first_seen_at = 0.0
         if not self._agent_runtime_state.has_activity():
             self._mark_runtime_activity()
         while True:
@@ -720,7 +722,7 @@ class OpenCodeAdapter(AgentAdapter):
                         last_message_heartbeat_log_at = now
                         self._log(
                             "INFO",
-                            "【轮询心跳】message 接口请求成功，最新消息暂未变化，任务仍在进行中",
+                            "【轮询心跳】message 接口请求成功，最新消息暂未变化，继续轮询中",
                             tag=tag,
                         )
                 if payload:
@@ -761,14 +763,39 @@ class OpenCodeAdapter(AgentAdapter):
                             else:
                                 completed_message_signature = completion_signature
                                 completed_message_seen_count = 1
+                                completed_message_first_seen_at = now
                             if completed_message_seen_count >= 2:
+                                return payload
+                        elif has_text and completion_signature:
+                            if completion_signature == completed_message_signature:
+                                completed_message_seen_count += 1
+                            else:
+                                completed_message_signature = completion_signature
+                                completed_message_seen_count = 1
+                                completed_message_first_seen_at = now
+                            stable_completion_seconds = (
+                                now - completed_message_first_seen_at
+                                if completed_message_first_seen_at > 0
+                                else 0.0
+                            )
+                            if stable_completion_seconds >= FORCE_CLOSE_STABLE_COMPLETION_SECONDS and not child_session_ids:
+                                self._log(
+                                    "WARN",
+                                    (
+                                        "最终 message 已稳定 1 小时，OpenCode 未继续推进，"
+                                        "按兜底规则强制收口"
+                                    ),
+                                    tag=tag,
+                                )
                                 return payload
                         else:
                             completed_message_signature = ""
                             completed_message_seen_count = 0
+                            completed_message_first_seen_at = 0.0
                     else:
                         completed_message_signature = ""
                         completed_message_seen_count = 0
+                        completed_message_first_seen_at = 0.0
 
             if now - last_child_poll_at >= child_poll_interval:
                 last_child_poll_at = now
