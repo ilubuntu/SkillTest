@@ -13,7 +13,8 @@ agents:
   - id: "baseline-minimax"
     name: "默认OpenCode"
     opencode_agent: "build"
-    model: "bailian-token-plan/MiniMax-M2.5"
+    # model: "bailian-token-plan/MiniMax-M2.5"
+    model: "minimax/MiniMax-M2.7"
     mounted_skills:
       - name: "build-harmony-project"
         path: "config/skills/build-harmony-project"
@@ -35,7 +36,8 @@ agents:
   - id: "harmonyos-plugin-minimax"
     name: "鸿蒙开发 Agent"
     opencode_agent: "harmonyos-plugin"
-    model: "bailian-token-plan/MiniMax-M2.5"
+    # model: "bailian-token-plan/MiniMax-M2.5"
+    model: "minimax/MiniMax-M2.7"
     mounted_skills:
       - name: "harmonyos-atomic-dev"
         path: "config/skills/harmonyos-atomic-dev"

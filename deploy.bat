@@ -257,7 +257,6 @@ if errorlevel 1 (
 echo.
 call :info "Executor is ready."
 call :info "Task entry: http://localhost:%BACKEND_PORT%/api/cloud-api/agent/{agent_id}"
-call :info "Local text entry: http://localhost:%BACKEND_PORT%/api/local/start-text"
 if defined BACKEND_LOG call :info "Executor log: %BACKEND_LOG%"
 echo.
 
