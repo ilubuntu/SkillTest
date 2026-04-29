@@ -2,6 +2,7 @@
 """OpenCode SSE 客户端。"""
 
 import time
+import urllib.parse
 import urllib.request
 
 
@@ -19,6 +20,7 @@ class OpenCodeSseClient:
                        handle_payload,
                        handle_error,
                        timeout: int = 120,
+                       workspace_dir: str = "",
                        retry_delay: float = 1.0):
         while not stop_event.is_set():
             try:
@@ -26,7 +28,13 @@ class OpenCodeSseClient:
                 last_error = None
                 for endpoint in self.endpoints:
                     try:
-                        req = urllib.request.Request(f"{self.api_base}{endpoint}", method="GET")
+                        url = f"{self.api_base}{endpoint}"
+                        headers = {}
+                        if workspace_dir:
+                            query = urllib.parse.urlencode({"directory": workspace_dir})
+                            url = f"{url}?{query}"
+                            headers["x-opencode-directory"] = str(workspace_dir)
+                        req = urllib.request.Request(url, headers=headers, method="GET")
                         with urllib.request.urlopen(req, timeout=timeout) as response:
                             connected = True
                             connected_event.set()

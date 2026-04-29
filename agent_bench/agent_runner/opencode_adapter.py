@@ -1127,6 +1127,7 @@ class OpenCodeAdapter(AgentAdapter):
             parse_payload=self._parse_sse_event_payload,
             handle_payload=handle_payload,
             handle_error=handle_error,
+            workspace_dir=workspace_dir,
             retry_delay=1,
         )
 
@@ -1650,6 +1651,8 @@ class OpenCodeAdapter(AgentAdapter):
     def _runtime_progress_source_prefix(source: str) -> str:
         if str(source or "").strip().lower() == "session":
             return "【session】"
+        if str(source or "").strip().lower() == "child-session":
+            return "【session】 【subAgent】"
         return "【sse】"
 
     def _emit_runtime_progress_log(self, payload: dict, tag: str = "", source: str = "sse"):

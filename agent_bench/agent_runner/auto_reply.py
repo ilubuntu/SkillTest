@@ -8,7 +8,8 @@
 
 为了避开 OpenCode 服务端 question 注册和 reply 请求之间的竞态，
 自动应答不会在收到事件后立刻发送，而是延迟 5 秒并最多重试 3 次。
-每次 reply 后还会回查 session，确认对应 question 是否仍然处于 running。
+每次 reply 后优先相信 OpenCode 的 question.replied / completed 事件；
+SSE 不稳定时再回查 session message，并只按同一个 callID 的最新状态判断。
 """
 
 import json
@@ -36,6 +37,7 @@ class OpenCodeQuestionAutoReply:
         self._scheduled_request_ids: set[str] = set()
         self._replied_request_ids: set[str] = set()
         self._completed_call_ids: set[str] = set()
+        self._request_call_ids: dict[str, str] = {}
         self._generation = 0
         self._lock = threading.Lock()
 
@@ -45,6 +47,7 @@ class OpenCodeQuestionAutoReply:
             self._scheduled_request_ids.clear()
             self._replied_request_ids.clear()
             self._completed_call_ids.clear()
+            self._request_call_ids.clear()
             self._generation += 1
 
     def handle_sse_payload(self,
@@ -57,6 +60,8 @@ class OpenCodeQuestionAutoReply:
         返回值表示这条 payload 是否是可识别的 question 事件；即使后续 reply 失败，
         只要事件识别成功也返回 True，方便上层区分“没命中事件”和“命中了但回复失败”。
         """
+        self._mark_question_asked(payload)
+        self._mark_question_replied(payload)
         self._mark_question_completed(self._extract_completed_question_call_id(payload))
         if not self._is_question_asked_payload(payload):
             return False
@@ -135,6 +140,8 @@ class OpenCodeQuestionAutoReply:
             if request_id in self._scheduled_request_ids or request_id in self._replied_request_ids:
                 return True
             self._scheduled_request_ids.add(request_id)
+            if request_id and call_id:
+                self._request_call_ids[request_id] = call_id
             generation = self._generation
 
         self._log(
@@ -164,7 +171,7 @@ class OpenCodeQuestionAutoReply:
             time.sleep(self.REPLY_DELAY_SECONDS)
             if not self._is_generation_active(generation):
                 return
-            if self._is_call_completed(call_id):
+            if self._is_question_done(request_id, call_id):
                 self._finalize_success(request_id, session_id, answers, summary, tag)
                 return
 
@@ -194,7 +201,7 @@ class OpenCodeQuestionAutoReply:
             time.sleep(self.STATE_CHECK_DELAY_SECONDS)
             if not self._is_generation_active(generation):
                 return
-            if self._is_call_completed(call_id):
+            if self._is_question_done(request_id, call_id):
                 self._finalize_success(request_id, session_id, answers, summary, tag)
                 return
 
@@ -227,11 +234,38 @@ class OpenCodeQuestionAutoReply:
         with self._lock:
             return call_id in self._completed_call_ids
 
+    def _is_question_done(self, request_id: str, call_id: str) -> bool:
+        with self._lock:
+            return (
+                bool(request_id and request_id in self._replied_request_ids)
+                or bool(call_id and call_id in self._completed_call_ids)
+            )
+
     def _mark_question_completed(self, call_id: str):
         if not call_id:
             return
         with self._lock:
             self._completed_call_ids.add(call_id)
+
+    def _mark_question_asked(self, payload: dict):
+        if not self._is_question_asked_payload(payload):
+            return
+        request_id = self._extract_question_request_id(payload)
+        call_id = self._extract_question_call_id(payload)
+        if not request_id or not call_id:
+            return
+        with self._lock:
+            self._request_call_ids[request_id] = call_id
+
+    def _mark_question_replied(self, payload: dict):
+        request_id = self._extract_replied_question_request_id(payload)
+        if not request_id:
+            return
+        with self._lock:
+            self._replied_request_ids.add(request_id)
+            call_id = self._request_call_ids.get(request_id, "")
+            if call_id:
+                self._completed_call_ids.add(call_id)
 
     def _finalize_success(self,
                           request_id: str,
@@ -305,6 +339,15 @@ class OpenCodeQuestionAutoReply:
         if str(state.get("status") or "").strip().lower() != "completed":
             return ""
         return str(part.get("callID") or part.get("callId") or "").strip()
+
+    def _extract_replied_question_request_id(self, payload: dict) -> str:
+        data = self._extract_sse_event_data(payload)
+        if not isinstance(data, dict):
+            return ""
+        if str(data.get("type") or "").strip() != "question.replied":
+            return ""
+        props = data.get("properties") if isinstance(data.get("properties"), dict) else {}
+        return str(props.get("requestID") or props.get("requestId") or "").strip()
 
     def _extract_question_items(self, payload: dict) -> list[dict]:
         data = self._extract_sse_event_data(payload)
@@ -432,19 +475,18 @@ class OpenCodeQuestionAutoReply:
 
     def _is_question_still_running(self, session_id: str, call_id: str) -> bool:
         if not session_id or not call_id:
-            return True
+            return False
         try:
             payload = self._http_client.list_messages(session_id, limit=5, timeout=10)
         except Exception:
             return True
 
+        latest_status = ""
         for node in self._walk_nested_values(payload):
             if str(node.get("tool") or "").strip() != "question":
                 continue
             if str(node.get("callID") or node.get("callId") or "").strip() != call_id:
                 continue
             state = node.get("state") if isinstance(node.get("state"), dict) else {}
-            status = str(state.get("status") or "").strip().lower()
-            if status == "running":
-                return True
-        return False
+            latest_status = str(state.get("status") or "").strip().lower()
+        return latest_status == "running"
