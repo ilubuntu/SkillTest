@@ -1127,7 +1127,6 @@ class OpenCodeAdapter(AgentAdapter):
             parse_payload=self._parse_sse_event_payload,
             handle_payload=handle_payload,
             handle_error=handle_error,
-            timeout=10,
             retry_delay=1,
         )
 

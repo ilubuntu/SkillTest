@@ -18,7 +18,7 @@ class OpenCodeSseClient:
                        parse_payload,
                        handle_payload,
                        handle_error,
-                       timeout: int = 10,
+                       timeout: int = 120,
                        retry_delay: float = 1.0):
         while not stop_event.is_set():
             try:
