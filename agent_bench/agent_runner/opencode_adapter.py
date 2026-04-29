@@ -39,6 +39,7 @@ MEDIUM_PATCH_LIMIT_CHARS = 100
 LOW_FULL_EVENT_TYPES = {"message.part.updated", "message.updated", "session.status", "session.idle", "session.updated", "question.asked"}
 LOW_RAW_EVENT_TYPES = {"message.part.updated", "session.status", "session.idle", "question.asked"}
 FORCE_CLOSE_STABLE_COMPLETION_SECONDS = 3600
+CHILD_SESSION_PROGRESS_LOG_INTERVAL_SECONDS = 60
 LOW_PART_TYPES = {"step-start", "reasoning", "tool", "patch", "text", "step-finish"}
 
 
@@ -683,10 +684,13 @@ class OpenCodeAdapter(AgentAdapter):
         last_todo_response_signatures: dict[str, str] = {}
         child_message_signatures: dict[str, str] = {}
         child_session_ids: set[str] = set()
+        child_session_infos: dict[str, dict] = {}
+        child_session_progress_log_ats: dict[str, float] = {}
         last_todo_payloads: dict[str, object] = {}
         completed_message_signature = ""
         completed_message_seen_count = 0
         completed_message_first_seen_at = 0.0
+        last_message_change_at = time.monotonic()
         if not self._agent_runtime_state.has_activity():
             self._mark_runtime_activity()
         while True:
@@ -706,6 +710,7 @@ class OpenCodeAdapter(AgentAdapter):
                     last_message_response_signature = message_signature
                     same_message_poll_count = 0
                     message_poll_interval = 2.0
+                    last_message_change_at = now
                     self._append_http_polling_log(
                         http_polling_log_path,
                         "message",
@@ -720,9 +725,10 @@ class OpenCodeAdapter(AgentAdapter):
                 if raw_message_data is not None and not message_changed:
                     if now - self._last_local_log_at >= 60 and now - last_message_heartbeat_log_at >= 60:
                         last_message_heartbeat_log_at = now
+                        no_change_seconds = max(0, int(now - last_message_change_at))
                         self._log(
                             "INFO",
-                            "【轮询心跳】message 接口请求成功，最新消息暂未变化，继续轮询中",
+                            f"【轮询心跳】message 接口请求成功，连续{no_change_seconds}s无新消息，继续轮询中",
                             tag=tag,
                         )
                 if payload:
@@ -804,6 +810,9 @@ class OpenCodeAdapter(AgentAdapter):
                     http_polling_log_path=http_polling_log_path,
                     tag=tag,
                 )
+                latest_child_infos = self._extract_child_session_infos(
+                    self._last_child_sessions_payload if hasattr(self, "_last_child_sessions_payload") else None
+                )
                 child_response_signature = json.dumps(sorted(next_child_session_ids), ensure_ascii=False)
                 child_changed = child_response_signature != last_child_response_signature
                 if child_changed:
@@ -812,13 +821,33 @@ class OpenCodeAdapter(AgentAdapter):
                     child_poll_interval = 10.0
                     self._log(
                         "INFO",
-                        f"【session】 OpenCode 子会话列表有变化: {self._summarize_child_sessions(next_child_session_ids)}",
+                        f"【session】 【subAgent】 OpenCode subAgent 列表有变化: {self._summarize_child_sessions(next_child_session_ids)}",
                         tag=tag,
                     )
                 else:
                     same_child_poll_count += 1
                     if same_child_poll_count >= 3:
                         child_poll_interval = 60.0
+                for child_id, child_info in latest_child_infos.items():
+                    updated_at = int(child_info.get("updated_at") or 0)
+                    title = str(child_info.get("title") or "").strip()
+                    subagent_type = self._extract_subagent_type_from_title(title)
+                    prev_info = child_session_infos.get(child_id) or {}
+                    prev_updated_at = int(prev_info.get("updated_at") or 0)
+                    if updated_at > 0 and updated_at != prev_updated_at:
+                        last_log_at = float(child_session_progress_log_ats.get(child_id) or 0.0)
+                        if (now - last_log_at) >= CHILD_SESSION_PROGRESS_LOG_INTERVAL_SECONDS:
+                            child_session_progress_log_ats[child_id] = now
+                            type_text = subagent_type or (title if title else self._short_session_id(child_id))
+                            self._log(
+                                "INFO",
+                                (
+                                    f"【session】 【subAgent】 OpenCode subAgent 仍在执行: "
+                                    f"subAgent={type_text}"
+                                ),
+                                tag=tag,
+                            )
+                child_session_infos = latest_child_infos
                 child_session_ids = next_child_session_ids
                 for child_session_id in sorted(child_session_ids):
                     child_payload, child_raw_message_data = self._fetch_latest_message_with_raw(
@@ -880,6 +909,7 @@ class OpenCodeAdapter(AgentAdapter):
         endpoint = f"/session/{session_id}/children"
         try:
             payload = self._http_client.list_children(session_id, timeout=10)
+            self._last_child_sessions_payload = payload
             self._append_http_polling_log(
                 http_polling_log_path,
                 "children",
@@ -943,6 +973,22 @@ class OpenCodeAdapter(AgentAdapter):
 
         walk(payload)
         return result
+
+    def _extract_child_session_infos(self, payload) -> dict[str, dict]:
+        infos: dict[str, dict] = {}
+        items = payload if isinstance(payload, list) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            session_id = str(item.get("id") or "").strip()
+            if not session_id:
+                continue
+            time_info = item.get("time") if isinstance(item.get("time"), dict) else {}
+            infos[session_id] = {
+                "title": str(item.get("title") or "").strip(),
+                "updated_at": int(time_info.get("updated") or 0),
+            }
+        return infos
 
     def _todos_indicate_activity(self, payload) -> bool:
         active_statuses = {"pending", "in_progress", "in-progress", "running", "active", "doing", "todo"}
@@ -1445,10 +1491,28 @@ class OpenCodeAdapter(AgentAdapter):
 
     def _summarize_child_sessions(self, child_session_ids: set[str]) -> str:
         if not child_session_ids:
-            return "无子会话"
-        ordered = [self._short_session_id(item) for item in sorted(child_session_ids)[:5]]
+            return "无 subAgent"
+        child_infos = self._extract_child_session_infos(getattr(self, "_last_child_sessions_payload", None))
+        ordered = []
+        for item in sorted(child_session_ids)[:5]:
+            info = child_infos.get(item) or {}
+            title = str(info.get("title") or "").strip()
+            ordered.append(self._extract_subagent_type_from_title(title) or self._short_session_id(item))
         suffix = "" if len(child_session_ids) <= 5 else " ..."
         return f"{len(child_session_ids)}个: {', '.join(ordered)}{suffix}"
+
+    @staticmethod
+    def _extract_subagent_type_from_title(title: str) -> str:
+        text = str(title or "").strip()
+        if not text:
+            return ""
+        marker = "(@"
+        end_marker = " subagent)"
+        start = text.find(marker)
+        end = text.find(end_marker, start + len(marker))
+        if start >= 0 and end > start:
+            return text[start + len(marker):end].strip()
+        return ""
 
     def _build_todo_response_signature(self, payload) -> str:
         if payload is None:
@@ -1596,7 +1660,7 @@ class OpenCodeAdapter(AgentAdapter):
         if raw_event_type == "message.part.delta":
             props = raw_data.get("properties") if isinstance(raw_data.get("properties"), dict) else {}
             delta = str(props.get("delta") or "").strip()
-            summary = self._summarize_delta_progress_text(delta, 50)
+            summary = self._summarize_delta_progress_text(delta, 80)
             now = time.time()
             last_progress_at = max(self._last_non_delta_progress_at, self._last_delta_progress_at)
             if summary and (now - last_progress_at) >= DELTA_PROGRESS_THROTTLE_SECONDS:
@@ -1636,7 +1700,7 @@ class OpenCodeAdapter(AgentAdapter):
             log_message = f"{source_prefix} OpenCode 已收到任务，开始执行"
         elif event_type == "reasoning":
             signature = ("reasoning",) + event_identity
-            reasoning_summary = self._clip_large_text(" ".join(str(message or "").strip().split()), 60)
+            reasoning_summary = self._clip_large_text(" ".join(str(message or "").strip().split()), 120)
             log_message = (
                 f"{source_prefix} OpenCode 模型正在思考: {reasoning_summary}"
                 if reasoning_summary
@@ -1647,7 +1711,11 @@ class OpenCodeAdapter(AgentAdapter):
             tool_name = lowered.split(" ", 1)[0]
             if tool_name.startswith("task"):
                 signature = ("tool_call",) + event_identity
-                log_message = f"{source_prefix} OpenCode 启动子任务: {message}" if message else f"{source_prefix} OpenCode 启动子任务"
+                log_message = (
+                    f"{source_prefix} 【subAgent】 OpenCode subAgent 开始执行: {message}"
+                    if message else
+                    f"{source_prefix} 【subAgent】 OpenCode subAgent 开始执行"
+                )
             elif tool_name.startswith("glob") or tool_name.startswith("read") or tool_name.startswith("bash"):
                 signature = ("tool_call",) + event_identity
                 log_message = f"{source_prefix} OpenCode 开始检查工程和读取文件: {message}" if message else f"{source_prefix} OpenCode 开始检查工程和读取文件"
@@ -1662,7 +1730,11 @@ class OpenCodeAdapter(AgentAdapter):
             tool_name = lowered.split(" ", 1)[0]
             signature = ("tool_result",) + event_identity
             if tool_name.startswith("task"):
-                log_message = f"{source_prefix} OpenCode 子任务完成: {message}" if message else f"{source_prefix} OpenCode 子任务完成"
+                log_message = (
+                    f"{source_prefix} 【subAgent】 OpenCode subAgent 执行完成: {message}"
+                    if message else
+                    f"{source_prefix} 【subAgent】 OpenCode subAgent 执行完成"
+                )
             elif tool_name.startswith("bash") and any(token in lowered for token in ("hvigor", "assemblehap", "stop-daemon")):
                 log_message = f"{source_prefix} OpenCode 编译命令执行完成: {message}"
             elif tool_name.startswith("edit"):

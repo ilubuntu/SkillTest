@@ -52,6 +52,7 @@ AGC_PROJECT_CLIENT_CONFIG = {
 
 STATUS_PUSH_INTERVAL_SECONDS = 2.0
 STATUS_PUSH_DETAIL_FLUSH_SECONDS = 3.0
+RAW_LOG_FALLBACK_PUSH_SECONDS = 60.0
 logger = logging.getLogger("agent_bench.executor")
 
 STAGE_PENDING = "pending"
@@ -156,6 +157,7 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
             "已生成代码补丁",
             "开始输出结果:",
             "输出预览",
+            "【subAgent】",
         )):
             return _truncate_message(text, 160)
         if "Agent处理完成, output=" in text:
@@ -405,6 +407,8 @@ class CloudExecutionManager:
             "last_reported_stage": "",
             "last_reported_status": "",
             "last_detail_change_at": 0.0,
+            "last_raw_log_change_at": 0.0,
+            "last_raw_log_message": "",
             "last_reported_at_epoch": 0.0,
             "last_response_ok": None,
         }
@@ -469,6 +473,26 @@ class CloudExecutionManager:
             upload_state["last_detail_change_at"] = time.time()
             self._save_progress_upload_state(upload_state_path, upload_state)
 
+    def _append_execution_detail_raw(self, state: Dict[str, Any], stage: str, message: str):
+        text = str(message or "").strip()
+        if not text:
+            return
+        entry = self._ensure_stage_entry(state, stage)
+        details = entry.setdefault("detail", [])
+        text = _truncate_message(text, 160)
+        if details and str(details[-1].get("message") or "").strip() == text:
+            return
+        details.append({
+            "time": _now_stage_time(),
+            "message": text,
+        })
+        state["updated_at"] = _now_iso()
+        upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
+        if upload_state_path:
+            upload_state = self._load_progress_upload_state(upload_state_path)
+            upload_state["last_detail_change_at"] = time.time()
+            self._save_progress_upload_state(upload_state_path, upload_state)
+
     def _build_execution_log_snapshot(self, state: Dict[str, Any]) -> list[Dict[str, Any]]:
         return json.loads(json.dumps(state.get("execution_log") or []))
 
@@ -488,6 +512,14 @@ class CloudExecutionManager:
         if last_reported_at > 0 and (time.time() - last_reported_at) < STATUS_PUSH_DETAIL_FLUSH_SECONDS:
             return False
         if last_detail_change_at > last_reported_at and (time.time() - last_reported_at) >= STATUS_PUSH_DETAIL_FLUSH_SECONDS:
+            return True
+        last_raw_log_change_at = float(upload_state.get("last_raw_log_change_at") or 0.0)
+        if (
+            current_stage == STAGE_GENERATING
+            and last_raw_log_change_at > last_reported_at
+            and last_detail_change_at > 0
+            and (time.time() - last_detail_change_at) >= RAW_LOG_FALLBACK_PUSH_SECONDS
+        ):
             return True
         return False
 
@@ -625,8 +657,35 @@ class CloudExecutionManager:
         }
         state["conversation"].append(record)
         state["conversation"] = state["conversation"][-200:]
+        if item_type == "log" and "【轮询心跳】" not in str(message or ""):
+            now_epoch = time.time()
+            state["last_raw_log_change_at_epoch"] = now_epoch
+            state["last_raw_log_message"] = str(message or "").strip()
+            upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
+            if upload_state_path:
+                upload_state = self._load_progress_upload_state(upload_state_path)
+                upload_state["last_raw_log_change_at"] = now_epoch
+                upload_state["last_raw_log_message"] = str(message or "").strip()
+                self._save_progress_upload_state(upload_state_path, upload_state)
         self._log_runtime_event(state, record)
         self._append_local_event(state, "conversation", record)
+
+    def _inject_raw_log_fallback_detail(self, state: Dict[str, Any]):
+        if str(state.get("local_stage") or "") != STAGE_GENERATING:
+            return
+        upload_state_path = str(state.get("progress_upload_state_path") or "").strip()
+        upload_state = self._load_progress_upload_state(upload_state_path) if upload_state_path else self._default_progress_upload_state()
+        last_detail_change_at = float(upload_state.get("last_detail_change_at") or 0.0)
+        last_reported_at = float(upload_state.get("last_reported_at_epoch") or 0.0)
+        last_raw_log_change_at = float(upload_state.get("last_raw_log_change_at") or 0.0)
+        last_raw_log_message = str(upload_state.get("last_raw_log_message") or "").strip()
+        if not last_raw_log_message or "【轮询心跳】" in last_raw_log_message:
+            return
+        if last_raw_log_change_at <= last_reported_at:
+            return
+        if last_detail_change_at > 0 and (time.time() - last_detail_change_at) < RAW_LOG_FALLBACK_PUSH_SECONDS:
+            return
+        self._append_execution_detail_raw(state, STAGE_GENERATING, last_raw_log_message)
 
     def _log_runtime_event(self, state: Dict[str, Any], record: Dict[str, Any]):
         item_type = str(record.get("type") or "").strip() or "event"
@@ -679,6 +738,7 @@ class CloudExecutionManager:
         if not self._should_push_remote_status(state):
             return
         report_execution_id = self._get_report_execution_id(state)
+        self._inject_raw_log_fallback_detail(state)
         remote_status = map_internal_status_to_remote(state.get("local_status"))
         execution_log = self._build_execution_log_snapshot(state)
         payload = build_status_payload(
