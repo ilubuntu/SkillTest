@@ -441,7 +441,18 @@ class CloudExecutionManager:
             update_local_status("running", STAGE_PREPARING)
             with self._lock:
                 self._progress.append_conversation(state, "status", "任务开始执行")
-                self._progress.append_execution_detail(state, STAGE_PENDING, f"任务已接收，等待执行 (executor_id={state.get('execution_id')})")
+                executor_parts = [f"executor_id={state.get('execution_id')}"]
+                request_host = str(state.get("request_host") or "").strip()
+                executor_hostname = str(state.get("executor_hostname") or "").strip()
+                if request_host:
+                    executor_parts.append(f"request_host={request_host}")
+                if executor_hostname:
+                    executor_parts.append(f"hostname={executor_hostname}")
+                self._progress.append_execution_detail(
+                    state,
+                    STAGE_PENDING,
+                    f"任务已接收，等待执行 ({', '.join(executor_parts)})",
+                )
                 self._progress.append_execution_detail(state, STAGE_PREPARING, f"本地产物目录: {run_dir}")
                 executor_log = os.path.join(
                     run_dir,

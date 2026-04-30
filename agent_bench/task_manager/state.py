@@ -18,6 +18,8 @@ def create_task_state(payload: CloudExecutionStartRequest, cloud_base_url: str) 
         "execution_id": payload.executionId,
         "cloud_base_url": cloud_base_url.rstrip("/"),
         "agent_id": payload.agentId,
+        "request_host": (payload.requestHost or "").strip(),
+        "executor_hostname": (payload.executorHostname or "").strip(),
         "token": (payload.token or "").strip(),
         "test_case": payload.testCase.model_dump(),
         "local_status": "pending",

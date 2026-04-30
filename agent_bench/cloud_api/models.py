@@ -44,6 +44,8 @@ class CloudExecutionStartRequest(CloudDispatchPayload):
     cloudBaseUrl: str = ""
     agentId: str = ""
     token: str = ""
+    requestHost: str = ""
+    executorHostname: str = ""
 
 
 class CloudStatusReportPayload(BaseModel):

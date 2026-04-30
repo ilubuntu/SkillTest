@@ -2,6 +2,7 @@
 """云测桥接接口。"""
 
 import logging
+import socket
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
@@ -30,10 +31,14 @@ async def _start_named_agent_execution(
     if authorization and authorization.lower().startswith("bearer "):
         payload.token = authorization[7:].strip()
     normalized_agent_id = str(agent_id or "").strip()
+    payload.requestHost = str(request.headers.get("host") or request.url.netloc or "").strip()
+    payload.executorHostname = socket.gethostname()
     logger.info(
-        "云端任务下发请求: executionId=%s agent=%s input=%s expectedOutput=%s fileUrl=%s",
+        "云端任务下发请求: executionId=%s agent=%s requestHost=%s hostname=%s input=%s expectedOutput=%s fileUrl=%s",
         payload.executionId,
         normalized_agent_id,
+        payload.requestHost,
+        payload.executorHostname,
         _clip_cloud_request_text(payload.testCase.input),
         _clip_cloud_request_text(payload.testCase.expectedOutput),
         payload.testCase.fileUrl or "",
