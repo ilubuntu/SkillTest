@@ -43,6 +43,18 @@ opencode.json
 .harmonyos/codebase.md
 *.log
 BuildProfile.ets
+nul
+NUL
+con
+CON
+prn
+PRN
+aux
+AUX
+com[1-9]
+COM[1-9]
+lpt[1-9]
+LPT[1-9]
 """
 
 

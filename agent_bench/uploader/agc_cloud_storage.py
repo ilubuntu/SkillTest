@@ -362,11 +362,22 @@ class AgcCloudStorageClient:
             )
 
     @staticmethod
+    def _is_reserved_windows_name(name: str) -> bool:
+        base_name = os.path.splitext(str(name or "").strip())[0].lower()
+        if base_name in {"con", "prn", "aux", "nul"}:
+            return True
+        if len(base_name) == 4 and base_name[:3] in {"com", "lpt"} and base_name[3:].isdigit():
+            return 1 <= int(base_name[3:]) <= 9
+        return False
+
+    @staticmethod
     def _should_exclude_from_package(relative_path: str) -> bool:
         normalized = str(relative_path or "").replace("\\", "/").strip("/")
         if not normalized:
             return False
         parts = normalized.split("/")
+        if any(AgcCloudStorageClient._is_reserved_windows_name(part) for part in parts):
+            return True
         if "build" in parts:
             return True
         if ".hvigor" in parts:
