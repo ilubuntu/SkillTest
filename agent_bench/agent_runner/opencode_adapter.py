@@ -821,7 +821,7 @@ class OpenCodeAdapter(AgentAdapter):
                     child_poll_interval = 10.0
                     self._log(
                         "INFO",
-                        f"【session】 【subAgent】 OpenCode subAgent 列表有变化: {self._summarize_child_sessions(next_child_session_ids)}",
+                        f"【session】 【subAgent】 Agent subAgent 列表有变化: {self._summarize_child_sessions(next_child_session_ids)}",
                         tag=tag,
                     )
                 else:
@@ -842,7 +842,7 @@ class OpenCodeAdapter(AgentAdapter):
                             self._log(
                                 "INFO",
                                 (
-                                    f"【session】 【subAgent】 OpenCode subAgent 仍在执行: "
+                                    f"【session】 【subAgent】 Agent subAgent 仍在执行: "
                                     f"subAgent={type_text}"
                                 ),
                                 tag=tag,
@@ -1400,7 +1400,7 @@ class OpenCodeAdapter(AgentAdapter):
                 mapped["message"] = joined
         elif part_type == "text":
             mapped["eventType"] = "text"
-            mapped["label"] = "模型输出结果"
+            mapped["label"] = "模型输出"
             text = str(part.get("text") or "").strip()
             mapped["message"] = self._clip_text_for_log(text, 160)
         elif part_type == "step-finish":
@@ -1668,7 +1668,7 @@ class OpenCodeAdapter(AgentAdapter):
             if summary and (now - last_progress_at) >= DELTA_PROGRESS_THROTTLE_SECONDS:
                 self._last_delta_progress_text = summary
                 self._last_delta_progress_at = now
-                self._log("INFO", f"{source_prefix} OpenCode 当前模型还在输出Delta：{summary}", tag=tag)
+                self._log("INFO", f"{source_prefix} Agent 当前模型还在输出Delta：{summary}", tag=tag)
             return
 
         mapped = self._map_sse_payload(payload)
@@ -1699,14 +1699,14 @@ class OpenCodeAdapter(AgentAdapter):
 
         if event_type == "step_start":
             signature = ("step_start",) + event_identity
-            log_message = f"{source_prefix} OpenCode 已收到任务，开始执行"
+            log_message = f"{source_prefix} Agent 已收到任务，开始执行"
         elif event_type == "reasoning":
             signature = ("reasoning",) + event_identity
             reasoning_summary = self._clip_large_text(" ".join(str(message or "").strip().split()), 120)
             log_message = (
-                f"{source_prefix} OpenCode 模型正在思考: {reasoning_summary}"
+                f"{source_prefix} Agent 模型正在思考: {reasoning_summary}"
                 if reasoning_summary
-                else f"{source_prefix} OpenCode 模型正在思考"
+                else f"{source_prefix} Agent 模型正在思考"
             )
         elif event_type == "tool_call":
             lowered = message.lower()
@@ -1714,48 +1714,48 @@ class OpenCodeAdapter(AgentAdapter):
             if tool_name.startswith("task"):
                 signature = ("tool_call",) + event_identity
                 log_message = (
-                    f"{source_prefix} 【subAgent】 OpenCode subAgent 开始执行: {message}"
+                    f"{source_prefix} 【subAgent】 Agent subAgent 开始执行: {message}"
                     if message else
-                    f"{source_prefix} 【subAgent】 OpenCode subAgent 开始执行"
+                    f"{source_prefix} 【subAgent】 Agent subAgent 开始执行"
                 )
             elif tool_name.startswith("glob") or tool_name.startswith("read") or tool_name.startswith("bash"):
                 signature = ("tool_call",) + event_identity
-                log_message = f"{source_prefix} OpenCode 开始检查工程和读取文件: {message}" if message else f"{source_prefix} OpenCode 开始检查工程和读取文件"
+                log_message = f"{source_prefix} Agent 开始检查工程和读取文件: {message}" if message else f"{source_prefix} Agent 开始检查工程和读取文件"
             elif tool_name.startswith("edit") or tool_name.startswith("write"):
                 signature = ("tool_call",) + event_identity
-                log_message = f"{source_prefix} OpenCode 开始修改代码: {message}" if message else f"{source_prefix} OpenCode 开始修改代码"
+                log_message = f"{source_prefix} Agent 开始修改代码: {message}" if message else f"{source_prefix} Agent 开始修改代码"
             else:
                 signature = ("tool_call",) + event_identity
-                log_message = f"{source_prefix} OpenCode 开始调用工具: {message}"
+                log_message = f"{source_prefix} Agent 开始调用工具: {message}"
         elif event_type == "tool_result":
             lowered = message.lower()
             tool_name = lowered.split(" ", 1)[0]
             signature = ("tool_result",) + event_identity
             if tool_name.startswith("task"):
                 log_message = (
-                    f"{source_prefix} 【subAgent】 OpenCode subAgent 执行完成: {message}"
+                    f"{source_prefix} 【subAgent】 Agent subAgent 执行完成: {message}"
                     if message else
-                    f"{source_prefix} 【subAgent】 OpenCode subAgent 执行完成"
+                    f"{source_prefix} 【subAgent】 Agent subAgent 执行完成"
                 )
             elif tool_name.startswith("bash") and any(token in lowered for token in ("hvigor", "assemblehap", "stop-daemon")):
-                log_message = f"{source_prefix} OpenCode 编译命令执行完成: {message}"
+                log_message = f"{source_prefix} Agent 编译命令执行完成: {message}"
             elif tool_name.startswith("edit"):
-                log_message = f"{source_prefix} OpenCode 代码修改完成: {message}"
+                log_message = f"{source_prefix} Agent 代码修改完成: {message}"
             elif tool_name.startswith("read") or tool_name.startswith("glob"):
-                log_message = f"{source_prefix} OpenCode 文件检查完成: {message}"
+                log_message = f"{source_prefix} Agent 文件检查完成: {message}"
             else:
-                log_message = f"{source_prefix} OpenCode 工具执行完成: {message}" if message else f"{source_prefix} OpenCode 工具执行完成"
+                log_message = f"{source_prefix} Agent 工具执行完成: {message}" if message else f"{source_prefix} Agent 工具执行完成"
         elif event_type == "patch":
             signature = ("patch",) + event_identity
-            log_message = f"{source_prefix} OpenCode 已生成代码补丁: {message}" if message else f"{source_prefix} OpenCode 已生成代码补丁"
+            log_message = f"{source_prefix} Agent 已生成代码补丁: {message}" if message else f"{source_prefix} Agent 已生成代码补丁"
         elif event_type == "text":
             signature = ("text",) + event_identity
-            log_message = f"{source_prefix} OpenCode 开始输出结果: {message}" if message else f"{source_prefix} OpenCode 开始输出结果"
+            log_message = f"{source_prefix} Agent 模型输出: {message}" if message else f"{source_prefix} Agent 模型输出"
         elif event_type == "step_finish":
             if (message or "").strip().lower() == "other":
                 return
             signature = ("step_finish",) + event_identity
-            log_message = f"{source_prefix} OpenCode 本轮执行结束: {message}" if message else f"{source_prefix} OpenCode 本轮执行结束"
+            log_message = f"{source_prefix} Agent 本轮执行结束: {message}" if message else f"{source_prefix} Agent 本轮执行结束"
 
         if not signature or not log_message:
             return

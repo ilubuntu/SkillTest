@@ -75,18 +75,24 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
     text = str(message or "").strip()
     if not text:
         return None
+    if any(token in text for token in (
+        "工程包已解压到任务执行沙箱:",
+        "已清理下载中转目录:",
+        "工作区 Git 基线已建立:",
+    )):
+        return None
     if stage == STAGE_GENERATING:
         if "任务已发送" in text:
             return "任务已发送"
         if "已收到任务" in text:
-            return "Agent已收到任务，会展示部分处理流程"
+            return None
         if any(token in text for token in (
             "文件检查完成",
             "代码修改完成",
             "工具执行完成",
             "TODO列表刷新",
             "已生成代码补丁",
-            "开始输出结果:",
+            "模型输出:",
             "输出预览",
             "【subAgent】",
         )):
@@ -104,6 +110,23 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
         return None
     if text.endswith("已开始") and not text.startswith("[开始]"):
         return None
+    return text
+
+
+def _execution_detail_event_kind(message: str) -> str:
+    """用于云端展示去重的粗粒度事件类型。"""
+    text = str(message or "").strip()
+    for label, tokens in (
+        ("file_check_done", ("文件检查完成",)),
+        ("code_edit_done", ("代码修改完成",)),
+        ("tool_done", ("工具执行完成",)),
+        ("todo_refresh", ("TODO列表刷新",)),
+        ("patch_ready", ("已生成代码补丁",)),
+        ("model_output", ("模型输出:",)),
+        ("subagent", ("【subAgent】",)),
+    ):
+        if any(token in text for token in tokens):
+            return label
     return text
 
 
@@ -193,8 +216,16 @@ class TaskProgressTracker:
                     return
         if details and str(details[-1].get("message") or "").strip() == normalized_message:
             return
+        detail_time = _now_stage_time()
+        event_kind = _execution_detail_event_kind(normalized_message)
+        for item in reversed(details):
+            item_time = str(item.get("time") or "").strip()
+            if item_time != detail_time:
+                break
+            if _execution_detail_event_kind(str(item.get("message") or "")) == event_kind:
+                return
         details.append({
-            "time": _now_stage_time(),
+            "time": detail_time,
             "message": normalized_message,
         })
         state["updated_at"] = now_iso()
