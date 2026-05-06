@@ -331,6 +331,16 @@ class CloudExecutionManager:
         with self._lock:
             return self._registry.snapshot_list()
 
+    def summary(self) -> Dict[str, Any]:
+        """返回执行器当前任务负载摘要。"""
+        with self._lock:
+            return {
+                "totalReceived": len(self._registry.snapshot_list()),
+                "runningCount": self._registry.running_execution_count(),
+                "queuedCount": len(self._pending_queue),
+                "maxConcurrency": self._max_concurrency,
+            }
+
     def _status_report_loop(self, execution_id: int):
         # 状态线程只服务于当前 execution，按 execution_id 拉取状态并推送远端。
         while True:

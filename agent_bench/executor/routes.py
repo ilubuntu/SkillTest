@@ -117,3 +117,8 @@ async def get_cloud_execution_status(execution_id: int | None = Query(default=No
             "executionId": execution_id,
         }
     return state
+
+
+@router.get("/summary")
+async def get_cloud_execution_summary():
+    return cloud_execution_manager.summary()
