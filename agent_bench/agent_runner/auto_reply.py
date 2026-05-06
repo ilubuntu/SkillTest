@@ -275,6 +275,9 @@ class OpenCodeQuestionAutoReply:
                           tag: str):
         with self._lock:
             self._replied_request_ids.add(request_id)
+            call_id = self._request_call_ids.get(request_id, "")
+            if call_id:
+                self._completed_call_ids.add(call_id)
             self._scheduled_request_ids.discard(request_id)
         self._mark_runtime_activity(session_id=session_id)
         self._log("INFO", f"question 自动应答成功: {summary or self._first_answer_text(answers)}", tag)
@@ -312,9 +315,15 @@ class OpenCodeQuestionAutoReply:
     def _extract_question_request_id(self, payload: dict) -> str:
         data = self._extract_sse_event_data(payload)
         for node in self._walk_nested_values(data):
-            candidate = node.get("requestID") or node.get("requestId") or node.get("id")
-            if candidate and "question" in json.dumps(node, ensure_ascii=False).lower():
-                return str(candidate).strip()
+            if "question" not in json.dumps(node, ensure_ascii=False).lower():
+                continue
+            explicit_id = str(node.get("requestID") or node.get("requestId") or "").strip()
+            if explicit_id:
+                return explicit_id
+            candidate = str(node.get("id") or "").strip()
+            # SSE 事件自身也有 evt_* id，不能当成 question reply 的 requestID。
+            if candidate.startswith("que_"):
+                return candidate
         return ""
 
     def _extract_question_call_id(self, payload: dict) -> str:
