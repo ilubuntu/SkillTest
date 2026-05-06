@@ -47,6 +47,74 @@ def _platform_config_key() -> str:
     return "linux"
 
 
+def _path_env_key(env: dict) -> str:
+    """返回当前平台应使用的 PATH 环境变量键名。"""
+    for key in env:
+        if key.lower() == "path":
+            return key
+    return "Path" if os.name == "nt" else "PATH"
+
+
+def _prepend_env_path(env: dict, path_entries: list[str]) -> list[str]:
+    """把工具链目录插入到 PATH 前面，并避免重复。"""
+    path_key = _path_env_key(env)
+    existing_value = str(env.get(path_key) or "")
+    existing_parts = [item for item in existing_value.split(os.pathsep) if item]
+    seen = {
+        os.path.normcase(os.path.normpath(item))
+        for item in existing_parts
+        if item
+    }
+    added: list[str] = []
+    for entry in path_entries:
+        normalized = os.path.normpath(os.path.expanduser(os.path.expandvars(str(entry or "").strip())))
+        if not normalized or not os.path.isdir(normalized):
+            continue
+        key = os.path.normcase(normalized)
+        if key in seen:
+            continue
+        seen.add(key)
+        added.append(normalized)
+    if added:
+        env[path_key] = os.pathsep.join(added + existing_parts)
+    return added
+
+
+def _inject_harmony_toolchain_env(env: dict) -> list[str]:
+    """给 OpenCode Server 注入 HarmonyOS/DevEco 工具链环境，供 Agent bash 直接使用。"""
+    try:
+        from agent_bench.pipeline.compile_checker import (
+            _resolve_ohpm_path,
+            build_harmony_toolchain_env,
+            resolve_harmony_toolchain,
+        )
+
+        toolchain = resolve_harmony_toolchain()
+        env.update(build_harmony_toolchain_env(toolchain))
+        env["DEVECO_SDK_HOME"] = toolchain["harmonyos_sdk"]
+        env["HARMONYOS_SDK"] = toolchain["harmonyos_sdk"]
+        env["JAVA_HOME"] = toolchain["java_home"]
+
+        node_dir = os.path.dirname(toolchain.get("node", ""))
+        hvigor_dir = os.path.dirname(toolchain.get("hvigor", ""))
+        java_bin_dir = os.path.join(toolchain.get("java_home", ""), "bin")
+        ohpm_path = _resolve_ohpm_path(toolchain)
+        ohpm_dir = os.path.dirname(ohpm_path) if ohpm_path else ""
+
+        # command-line-tools 常见还有统一 bin 目录，Linux 云测环境经常把 ohpm/hvigorw 放这里。
+        cli_root = os.path.dirname(os.path.dirname(os.path.dirname(toolchain.get("hvigor", ""))))
+        return _prepend_env_path(env, [
+            java_bin_dir,
+            node_dir,
+            hvigor_dir,
+            ohpm_dir,
+            os.path.join(cli_root, "bin"),
+        ])
+    except Exception as exc:
+        logger.warning("注入 HarmonyOS 工具链环境失败，OpenCode Server 将沿用当前 PATH: %s", exc)
+        return []
+
+
 def _configured_opencode_config_candidate() -> tuple[Optional[str], str]:
     try:
         from agent_bench.pipeline.loader import load_config
@@ -186,6 +254,7 @@ def ensure_opencode_server(timeout: int = 30) -> str:
 
     command = resolve_opencode_command() + ["serve", "--port", str(port)]
     child_env = os.environ.copy()
+    injected_path_entries = _inject_harmony_toolchain_env(child_env)
     xdg_config_home = _default_opencode_xdg_config_home()
     os.makedirs(xdg_config_home, exist_ok=True)
     isolated_config_path = _bootstrap_isolated_opencode_config(xdg_config_home)
@@ -193,6 +262,8 @@ def ensure_opencode_server(timeout: int = 30) -> str:
     child_env["XDG_CONFIG_HOME"] = xdg_config_home
     try:
         logger.info("自动启动 OpenCode Server: cmd=%s XDG_CONFIG_HOME=%s", " ".join(command), xdg_config_home)
+        if injected_path_entries:
+            logger.info("OpenCode Server 已注入 HarmonyOS 工具链 PATH: %s", os.pathsep.join(injected_path_entries))
         if isolated_config_path:
             logger.info("已准备隔离 OpenCode 配置: %s", isolated_config_path)
         else:
@@ -203,6 +274,7 @@ def ensure_opencode_server(timeout: int = 30) -> str:
                 f"cmd={' '.join(command)}"
                 f" XDG_CONFIG_HOME={xdg_config_home}"
                 f" isolated_config={isolated_config_path or ''}"
+                f" harmony_path={os.pathsep.join(injected_path_entries)}"
                 "\n"
             )
 
