@@ -1437,6 +1437,24 @@ class OpenCodeAdapter(AgentAdapter):
             return normalized
         return normalized[:limit] + "..."
 
+    @staticmethod
+    def _format_retry_next_time(value) -> str:
+        """Convert OpenCode retry next timestamp to readable local time."""
+        if value in (None, ""):
+            return ""
+        try:
+            timestamp = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        # OpenCode currently returns milliseconds. Keep seconds-compatible
+        # parsing so the log remains useful if the field shape changes.
+        if timestamp > 10_000_000_000:
+            timestamp = timestamp / 1000.0
+        try:
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+        except Exception:
+            return str(value)
+
     def _event_matches_session(self, payload: dict, session_id: str) -> bool:
         data = self._extract_sse_event_data(payload)
         if not session_id:
@@ -1685,6 +1703,26 @@ class OpenCodeAdapter(AgentAdapter):
                 self._last_delta_progress_text = summary
                 self._last_delta_progress_at = now
                 self._log("INFO", f"{source_prefix} Agent 当前模型还在输出Delta：{summary}", tag=tag)
+            return
+
+        if raw_event_type == "session.status":
+            props = raw_data.get("properties") if isinstance(raw_data.get("properties"), dict) else {}
+            status = props.get("status") if isinstance(props.get("status"), dict) else {}
+            status_type = str(status.get("type") or "").strip().lower()
+            if status_type == "retry":
+                retry_message = self._clip_large_text(str(status.get("message") or "").strip(), 240)
+                retry_next = self._format_retry_next_time(status.get("next"))
+                retry_attempt = status.get("attempt")
+                signature = ("session_status_retry", retry_attempt, retry_message, retry_next)
+                if signature not in self._seen_runtime_events:
+                    self._seen_runtime_events.add(signature)
+                    details = retry_message or "Agent 服务端要求稍后重试"
+                    if retry_next:
+                        details = f"{details}; next={retry_next}"
+                    if retry_attempt not in (None, ""):
+                        details = f"{details}; attempt={retry_attempt}"
+                    self._last_non_delta_progress_at = time.time()
+                    self._log("INFO", f"{source_prefix} Agent 服务端限流，等待重试: {details}", tag=tag)
             return
 
         mapped = self._map_sse_payload(payload)
