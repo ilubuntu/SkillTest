@@ -1,7 +1,7 @@
 {
   "skill": {
     "name": "harmonyos-prd-design",
-    "version": "1.12.0"
+    "version": "1.13.0"
   },
   "capabilities": [
     {
@@ -132,26 +132,6 @@
       "highlight": false
     },
     {
-      "id": "arkts_code_generation",
-      "name": "ArkTS/ArkUI 代码生成",
-      "description": "生成 ArkTS 代码片段示例，展示 ArkUI 容器组件和高级组件的实际使用",
-      "methods": [
-        "容器组件代码示例",
-        "高级组件代码示例",
-        "样式系统代码示例",
-        "状态管理代码示例",
-        "动效系统代码示例"
-      ],
-      "output": {
-        "容器组件": "Column、Row、Stack、Grid 代码示例",
-        "高级组件": "List、Tabs、Navigation、Dialog 代码示例",
-        "样式系统": "@Styles、@Extend 代码示例",
-        "状态管理": "@Local、@Param 代码示例",
-        "动效系统": "属性动画、转场动画代码示例"
-      },
-      "highlight": true
-    },
-    {
       "id": "web_prototype",
       "name": "Web 应用原型生成",
       "description": "生成可交互的 HTML/CSS/JS Web 应用演示页面，用于可视化展示设计方案",
@@ -192,12 +172,6 @@
       "id": "usability_evaluation",
       "name": "可用性评估",
       "description": "Nielsen 可用性启发式评估和可用性测试",
-      "priority": "high"
-    },
-    {
-      "id": "arkts_code_generation",
-      "name": "ArkTS/ArkUI 代码生成",
-      "description": "生成 ArkTS 代码片段示例，展示容器组件和高级组件的实际使用",
       "priority": "high"
     },
     {

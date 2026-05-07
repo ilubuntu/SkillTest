@@ -1,14 +1,26 @@
 # Build Workflow Reference
 
-## Entry Module Detection
+## Module Detection
 
 Use this when the project is not a simple single-module layout.
 
 1. Read `build-profile.json5`.
 2. Inspect the `modules` array.
-3. For each module with a `srcPath` and `targets`, open `<srcPath>/src/main/module.json5`.
-4. Prefer the module whose `type` is `entry`.
-5. If none is detected, fall back to `entry`.
+3. For each module with a `srcPath`, open `<srcPath>/src/main/module.json5`.
+4. Use the `name` from `build-profile.json5` for `-p module=<name>@default`.
+5. Use `module.type` to choose hvigor tasks.
+
+Task mapping:
+
+- `entry` or `feature`: `assembleHap`
+- `har`: `assembleHar`
+- `shared`: `assembleHsp`
+
+For mixed projects, run all required tasks in one command, for example:
+
+```bash
+-p module=entry@default,commonlib@default,home@default assembleHap assembleHar
+```
 
 ## Standard Build Command
 
@@ -22,7 +34,8 @@ export PATH="$JAVA_HOME/bin:$PATH"
   "$DEVECO_PATH/Contents/tools/hvigor/bin/hvigorw.js" \
   --mode module \
   -p product=default \
-  assembleHap \
+  -p module=entry@default,commonlib@default \
+  assembleHap assembleHar \
   --analyze=normal \
   --parallel \
   --incremental \
@@ -39,7 +52,8 @@ export PATH="$JAVA_HOME/bin:$DEVECO_PATH/tool/node/bin:$PATH"
   "$DEVECO_PATH/hvigor/bin/hvigorw.js" \
   --mode module \
   -p product=default \
-  assembleHap \
+  -p module=entry@default,commonlib@default \
+  assembleHap assembleHar \
   --analyze=normal \
   --parallel \
   --incremental \
@@ -52,6 +66,8 @@ Typical output paths:
 
 - Unsigned: `<entry-module>/build/default/outputs/default/entry-default-unsigned.hap`
 - Signed: `<entry-module>/build/default/outputs/default/entry-default-signed.hap`
+- HAR: `<har-module>/build/default/outputs/default/*.har`
+- HSP: `<shared-module>/build/default/outputs/default/*.hsp`
 
 If the exact file name differs, inspect `<entry-module>/build/default/outputs/default/`.
 

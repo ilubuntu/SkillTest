@@ -174,7 +174,7 @@ ohpm install
 
 ```bash
 # 完整的项目构建命令
-hvigorw --mode project -p product=default assembleApp --analyze=normal --parallel --incremental --daemon
+hvigorw --mode project -p product=default assembleApp --analyze=normal --parallel --incremental --no-daemon
 ```
 
 **参数说明**:
@@ -217,7 +217,7 @@ ohpm install
 # 清理构建缓存
 hvigorw clean
 # 重新构建
-hvigorw --mode project -p product=default assembleApp --analyze=normal --parallel --incremental --daemon
+hvigorw --mode project -p product=default assembleApp --analyze=normal --parallel --incremental --no-daemon
 ```
 
 **错误 3: 模块依赖问题**
@@ -232,7 +232,7 @@ cat oh-package.json5
 
 ```bash
 # 一键编译检查（推荐用于快速验证）
-ohpm install && hvigorw --mode project -p product=default assembleApp --analyze=normal --parallel --incremental --daemon && echo "编译检查通过"
+ohpm install && hvigorw --mode project -p product=default assembleApp --analyze=normal --parallel --incremental --no-daemon && echo "编译检查通过"
 ```
 
 ## 命令行参数完整列表

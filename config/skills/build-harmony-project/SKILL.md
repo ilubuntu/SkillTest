@@ -79,7 +79,27 @@ When `AGENT_BENCH_*` is available, infer the sibling `ohpm` path from the inject
 
 Do not force `--registry` unless the environment already requires a specific mirror.
 
-### 4. Build
+### 4. Detect build modules and tasks
+
+Before building, read the root `build-profile.json5` `modules` array and inspect each module's `<srcPath>/src/main/module.json5`.
+
+Build the module selector from all modules that can be resolved:
+
+```bash
+-p module=entry@default,commonlib@default
+```
+
+Use the actual module names from `build-profile.json5`, not folder names. If the project only has a simple `entry` module, the module selector may be omitted.
+
+Choose hvigor tasks from detected module types:
+
+- If any module has `type: "entry"` or `type: "feature"`, include `assembleHap`.
+- If any module has `type: "har"`, include `assembleHar`.
+- If any module has `type: "shared"`, include `assembleHsp`.
+- For mixed projects, include all required tasks in one command, for example `assembleHap assembleHar`.
+- Do not run `assembleHar` blindly when no HAR module exists.
+
+### 5. Build
 
 When `AGENT_BENCH_*` is available, use this command directly:
 
@@ -92,7 +112,8 @@ export PATH="$JAVA_HOME/bin:$(dirname "$AGENT_BENCH_NODE_BIN"):$PATH"
   "$AGENT_BENCH_HVIGOR_JS" \
   --mode module \
   -p product=default \
-  assembleHap \
+  -p module=entry@default,commonlib@default \
+  assembleHap assembleHar \
   --analyze=normal \
   --parallel \
   --incremental \
@@ -110,7 +131,8 @@ export PATH="$JAVA_HOME/bin:$(dirname "$DETECTED_NODE"):$PATH"
   "$DETECTED_HVIGOR" \
   --mode module \
   -p product=default \
-  assembleHap \
+  -p module=entry@default,commonlib@default \
+  assembleHap assembleHar \
   --analyze=normal \
   --parallel \
   --incremental \
@@ -119,7 +141,9 @@ export PATH="$JAVA_HOME/bin:$(dirname "$DETECTED_NODE"):$PATH"
 
 If the build command fails because sandbox access is blocked, rerun it with escalation and explain that DevEco Studio toolchain access is required.
 
-### 5. Stop the daemon after the build
+Replace `-p module=entry@default,commonlib@default` and `assembleHap assembleHar` with the actual module selector and task list detected in step 4. If only HAP modules exist, use `assembleHap`; if only HAR modules exist, use `assembleHar`.
+
+### 6. Stop the daemon after the build
 
 When `AGENT_BENCH_*` is available, use:
 
@@ -141,13 +165,13 @@ If `AGENT_BENCH_*` is absent, use the detected local paths:
 
 Run this even after a failed build when possible.
 
-### 6. Verify build output
+### 7. Verify build output
 
-- Detect the entry module by reading `build-profile.json5` modules and checking each module's `src/main/module.json5` for `"type": "entry"`.
-- If entry detection is inconclusive, fall back to `entry`.
-- Check for generated HAP files under:
-  - `<entry-module>/build/default/outputs/default/*.hap`
-- Report the exact generated file path and whether it is signed or unsigned.
+- Detect modules by reading `build-profile.json5` modules and checking each module's `src/main/module.json5` `type`.
+- For `entry` or `feature` modules, check generated HAP files under `<module-srcPath>/build/default/outputs/default/*.hap`.
+- For `har` modules, check generated HAR files under `<module-srcPath>/build/default/outputs/default/*.har`.
+- For `shared` modules, check generated HSP files under `<module-srcPath>/build/default/outputs/default/*.hsp`.
+- Report the exact generated file paths that exist.
 
 For detailed entry-module detection and result checks, read [references/build-workflow.md](./references/build-workflow.md).
 

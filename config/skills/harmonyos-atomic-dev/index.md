@@ -9,24 +9,38 @@
 - [reference/scroll_component.md](reference/scroll_component.md) — 滚动容器组件参考 (Scroll, List, Grid 等)
 - [reference/tabs_component.md](reference/tabs_component.md) — Tabs 与 TabContent 组件参考
 
-### Component Detailed Guides
-- [component/button/button.md](component/button/button.md) — Button 交互按钮组件
-- [component/column/column.md](component/column/column.md) — Column 垂直布局容器
-- [component/row/row.md](component/row/row.md) — Row 水平布局容器
-- [component/flex/flex.md](component/flex/flex.md) — Flex 弹性布局容器
-- [component/stack/stack.md](component/stack/stack.md) — Stack 层叠布局容器
-- [component/list/list.md](component/list/list.md) — List 列表容器 (LazyForEach 虚拟滚动)
-- [component/scroll/scroll.md](component/scroll/scroll.md) — Scroll 滚动容器
-- [component/slider/slider.md](component/slider/slider.md) — Slider 滑动选择器
-- [component/text_input/text_input.md](component/text_input/text_input.md) — TextInput 单行文本输入
-- [component/text_area/text_area.md](component/text_area/text_area.md) — TextArea 多行文本输入
-- [component/nav_destination/nav_destination.md](component/nav_destination/nav_destination.md) — NavDestination 导航目标页面
-- [component/navigation/navigation.md](component/navigation/navigation.md) — Navigation 导航容器
-- [component/navigation/nav_destination.md](component/navigation/nav_destination.md) — NavDestination (navigation 目录)
-- [component/navigation/nav_router.md](component/navigation/nav_router.md) — NavRouter 声明式路由导航
-- [component/navigation/navigator.md](component/navigation/navigator.md) — Navigator 页面跳转组件
+### Component Code Examples
+- [component/badge/badge-basic.ets](component/badge/badge-basic.ets) — Badge 角标基础用法
+- [component/blank/blank-basic.ets](component/blank/blank-basic.ets) — Blank 空白填充
+- [component/button/button-type.ets](component/button/button-type.ets) — Button 按钮类型
+- [component/button/button-style.ets](component/button/button-style.ets) — Button 按钮样式
+- [component/button/button-event.ets](component/button/button-event.ets) — Button 按钮事件
+- [component/button/button-functional.ets](component/button/button-functional.ets) — Button 功能按钮
+- [component/button/button-save.ets](component/button/button-save.ets) — Button 保存按钮
+- [component/button/button-segment.ets](component/button/button-segment.ets) — Button 分段按钮
+- [component/button/button-child.ets](component/button/button-child.ets) — Button 子组件
+- [component/button/button-progress.ets](component/button/button-progress.ets) — Button 进度按钮
+- [component/calendar_picker/calendar_picker-basic.ets](component/calendar_picker/calendar_picker-basic.ets) — CalendarPicker 日历选择器
+- [component/checkbox/checkbox-basic.ets](component/checkbox/checkbox-basic.ets) — Checkbox 复选框
+- [component/checkboxgroup/checkboxgroup-basic.ets](component/checkboxgroup/checkboxgroup-basic.ets) — CheckboxGroup 复选框组
+- [component/column/column-align.ets](component/column/column-align.ets) — Column 水平对齐
+- [component/column/column-justify.ets](component/column/column-justify.ets) — Column 垂直排列
+- [component/column/column-space.ets](component/column/column-space.ets) — Column 子组件间距
+- [component/column/column-reverse.ets](component/column/column-reverse.ets) — Column 反向排列
+- [component/column/column-nested.ets](component/column/column-nested.ets) — Column 嵌套布局
+- [component/counter/counter-basic.ets](component/counter/counter-basic.ets) — Counter 计数器
+- [component/curves/curves-basic.ets](component/curves/curves-basic.ets) — Curves 动画曲线
+- [component/data_panel/data_panel-basic.ets](component/data_panel/data_panel-basic.ets) — DataPanel 数据面板
+- [component/date_picker/date_picker-basic.ets](component/date_picker/date_picker-basic.ets) — DatePicker 日期选择器
+- [component/dialogs/dialogs-basic.ets](component/dialogs/dialogs-basic.ets) — Dialogs 对话框
+- [component/divider/divider-basic.ets](component/divider/divider-basic.ets) — Divider 分割线
+- [component/flex/flex-direction.ets](component/flex/flex-direction.ets) — Flex 主轴方向
+- [component/flex/flex-wrap.ets](component/flex/flex-wrap.ets) — Flex 换行设置
+- [component/flex/flex-justify.ets](component/flex/flex-justify.ets) — Flex 主轴排列
+- [component/flex/flex-align.ets](component/flex/flex-align.ets) — Flex 交叉轴对齐
+- [component/flex/flex-grow-shrink.ets](component/flex/flex-grow-shrink.ets) — Flex 弹性伸缩
+- [component/flex/flex-content-align.ets](component/flex/flex-content-align.ets) — Flex 多行对齐
 - [component/for_each/for-each-basic.ets](component/for_each/for-each-basic.ets) — ForEach 循环渲染基础示例
-- [component/lazy_for_each/lazy-for-each-basic.ets](component/lazy_for_each/lazy-for-each-basic.ets) — LazyForEach 延迟加载数据源实现
 - [component/gesture/gesture-tap.ets](component/gesture/gesture-tap.ets) — TapGesture 点击手势
 - [component/gesture/gesture-pan.ets](component/gesture/gesture-pan.ets) — PanGesture 拖动手势
 - [component/gesture/gesture-pinch.ets](component/gesture/gesture-pinch.ets) — PinchGesture 捏合手势
@@ -38,21 +52,200 @@
 - [component/image/image-event.ets](component/image/image-event.ets) — Image 事件处理 (onComplete, onError)
 - [component/image/image-style.ets](component/image/image-style.ets) — Image 样式设置
 - [component/image/image-list.ets](component/image/image-list.ets) — Image 列表加载示例
+- [component/lazy_for_each/lazy-for-each-basic.ets](component/lazy_for_each/lazy-for-each-basic.ets) — LazyForEach 延迟加载基础
+- [component/lazy_for_each/lazy_for_each-dynamic.ets](component/lazy_for_each/lazy_for_each-dynamic.ets) — LazyForEach 动态数据更新
+- [component/lazy_for_each/lazy_for_each-drag-sort.ets](component/lazy_for_each/lazy_for_each-drag-sort.ets) — LazyForEach 拖拽排序
+- [component/lazy_for_each/lazy_for_each-reload.ets](component/lazy_for_each/lazy_for_each-reload.ets) — LazyForEach 重新加载
+- [component/list/list-basic.ets](component/list/list-basic.ets) — List 列表基础
+- [component/list/list-direction.ets](component/list/list-direction.ets) — List 排列方向
+- [component/list/list-divider.ets](component/list/list-divider.ets) — List 分割线
+- [component/list/list-group.ets](component/list/list-group.ets) — List 分组
+- [component/list/list-lanes.ets](component/list/list-lanes.ets) — List 多列布局
+- [component/list/list-scroll.ets](component/list/list-scroll.ets) — List 滚动控制
+- [component/list/list-style.ets](component/list/list-style.ets) — List 样式设置
+- [component/list/list-swipe.ets](component/list/list-swipe.ets) — List 滑动删除
+- [component/menu/menu-basic.ets](component/menu/menu-basic.ets) — Menu 菜单基础
+- [component/menu/menu-context.ets](component/menu/menu-context.ets) — Menu 上下文菜单
+- [component/menu/menu-item-style.ets](component/menu/menu-item-style.ets) — Menu 菜单项样式
+- [component/menu/menu-submenu.ets](component/menu/menu-submenu.ets) — Menu 子菜单
+- [component/navigation/navigation.md](component/navigation/navigation.md) — Navigation 导航容器
+- [component/navigation/nav_destination.md](component/navigation/nav_destination.md) — NavDestination 导航目标页面
+- [component/navigation/nav_router.md](component/navigation/nav_router.md) — NavRouter 声明式路由导航
+- [component/navigation/navigator.md](component/navigation/navigator.md) — Navigator 页面跳转组件
+- [component/panel/panel-basic.ets](component/panel/panel-basic.ets) — Panel 面板
+- [component/particle/particle-basic.ets](component/particle/particle-basic.ets) — Particle 粒子动画基础
+- [component/particle/particle-image.ets](component/particle/particle-image.ets) — Particle 图片粒子
+- [component/particle/particle-emitter-dynamic.ets](component/particle/particle-emitter-dynamic.ets) — Particle 动态发射器
+- [component/particle/particle-disturbance.ets](component/particle/particle-disturbance.ets) — Particle 扰动效果
+- [component/progress/progress-type.ets](component/progress/progress-type.ets) — Progress 进度条类型
+- [component/progress/progress-style.ets](component/progress/progress-style.ets) — Progress 进度条样式
+- [component/progress/progress-dynamic.ets](component/progress/progress-dynamic.ets) — Progress 动态进度
+- [component/radio/radio-basic.ets](component/radio/radio-basic.ets) — Radio 单选按钮
+- [component/radio/radio-style.ets](component/radio/radio-style.ets) — Radio 样式设置
+- [component/radio/radio-event.ets](component/radio/radio-event.ets) — Radio 事件处理
+- [component/radio/radio-indicator.ets](component/radio/radio-indicator.ets) — Radio 指示器样式
+- [component/radio/radio-content-modifier.ets](component/radio/radio-content-modifier.ets) — Radio 自定义内容
+- [component/rating/rating-basic.ets](component/rating/rating-basic.ets) — Rating 评分基础
+- [component/rating/rating-style.ets](component/rating/rating-style.ets) — Rating 样式设置
+- [component/rating/rating-indicator.ets](component/rating/rating-indicator.ets) — Rating 指示器
+- [component/rating/rating-step-control.ets](component/rating/rating-step-control.ets) — Rating 步长控制
+- [component/rating/rating-content-modifier.ets](component/rating/rating-content-modifier.ets) — Rating 自定义内容
+- [component/refresh/refresh-basic.ets](component/refresh/refresh-basic.ets) — Refresh 下拉刷新基础
+- [component/refresh/refresh-custom-builder.ets](component/refresh/refresh-custom-builder.ets) — Refresh 自定义刷新组件
+- [component/refresh/refresh-prompt-text.ets](component/refresh/refresh-prompt-text.ets) — Refresh 提示文本
+- [component/refresh/refresh-pull-ratio.ets](component/refresh/refresh-pull-ratio.ets) — Refresh 下拉比例
+- [component/refresh/refresh-state-tracking.ets](component/refresh/refresh-state-tracking.ets) — Refresh 状态追踪
+- [component/relative_container/relative_container-basic.ets](component/relative_container/relative_container-basic.ets) — RelativeContainer 相对布局基础
+- [component/relative_container/relative_container-sibling.ets](component/relative_container/relative_container-sibling.ets) — RelativeContainer 兄弟组件约束
+- [component/relative_container/relative_container-barrier.ets](component/relative_container/relative_container-barrier.ets) — RelativeContainer 屏障约束
+- [component/relative_container/relative_container-guideline.ets](component/relative_container/relative_container-guideline.ets) — RelativeContainer 辅助线
+- [component/relative_container/relative_container-bias.ets](component/relative_container/relative_container-bias.ets) — RelativeContainer 偏移比例
+- [component/repeat/repeat-basic.ets](component/repeat/repeat-basic.ets) — Repeat 循环渲染基础
+- [component/repeat/repeat-dynamic-data.ets](component/repeat/repeat-dynamic-data.ets) — Repeat 动态数据
+- [component/repeat/repeat-nested.ets](component/repeat/repeat-nested.ets) — Repeat 嵌套渲染
+- [component/repeat/repeat-template.ets](component/repeat/repeat-template.ets) — Repeat 模板复用
+- [component/repeat/repeat-virtual-scroll.ets](component/repeat/repeat-virtual-scroll.ets) — Repeat 虚拟滚动
+- [component/rich_editor/rich_editor-basic.ets](component/rich_editor/rich_editor-basic.ets) — RichEditor 富文本编辑器基础
+- [component/rich_editor/rich_editor-controller.ets](component/rich_editor/rich_editor-controller.ets) — RichEditor 控制器
+- [component/rich_editor/rich_editor-event.ets](component/rich_editor/rich_editor-event.ets) — RichEditor 事件处理
+- [component/rich_editor/rich_editor-style.ets](component/rich_editor/rich_editor-style.ets) — RichEditor 样式设置
+- [component/rich_text/rich_text-basic.ets](component/rich_text/rich_text-basic.ets) — RichText 富文本显示基础
+- [component/rich_text/rich_text-style.ets](component/rich_text/rich_text-style.ets) — RichText 样式设置
+- [component/row/row-align.ets](component/row/row-align.ets) — Row 垂直对齐
+- [component/row/row-justify.ets](component/row/row-justify.ets) — Row 水平排列
+- [component/row/row-space.ets](component/row/row-space.ets) — Row 子组件间距
+- [component/row/row-reverse.ets](component/row/row-reverse.ets) — Row 反向排列
+- [component/row/row-nested.ets](component/row/row-nested.ets) — Row 嵌套布局
+- [component/save_button/save_button-basic.ets](component/save_button/save_button-basic.ets) — SaveButton 保存按钮基础
+- [component/save_button/save_button-description.ets](component/save_button/save_button-description.ets) — SaveButton 按钮描述
+- [component/save_button/save_button-event.ets](component/save_button/save_button-event.ets) — SaveButton 事件处理
+- [component/save_button/save_button-style.ets](component/save_button/save_button-style.ets) — SaveButton 样式设置
+- [component/scroll/scroll-basic.ets](component/scroll/scroll-basic.ets) — Scroll 滚动容器基础
+- [component/scroll/scroll-direction.ets](component/scroll/scroll-direction.ets) — Scroll 滚动方向
+- [component/scroll/scroll-bar.ets](component/scroll/scroll-bar.ets) — Scroll 滚动条
+- [component/scroll/scroll-edge.ets](component/scroll/scroll-edge.ets) — Scroll 边缘效果
+- [component/scroll/scroll-event.ets](component/scroll/scroll-event.ets) — Scroll 滚动事件
+- [component/scroll/scroll-nested.ets](component/scroll/scroll-nested.ets) — Scroll 嵌套滚动
+- [component/scroll/scroll-snap.ets](component/scroll/scroll-snap.ets) — Scroll 滑动定位
+- [component/scroll_bar/scroll_bar-basic.ets](component/scroll_bar/scroll_bar-basic.ets) — ScrollBar 滚动条基础
+- [component/scroll_bar/scroll_bar-direction.ets](component/scroll_bar/scroll_bar-direction.ets) — ScrollBar 方向设置
+- [component/scroll_bar/scroll_bar-state.ets](component/scroll_bar/scroll_bar-state.ets) — ScrollBar 状态控制
+- [component/scroll_bar/scroll_bar-nested-scroll.ets](component/scroll_bar/scroll_bar-nested-scroll.ets) — ScrollBar 嵌套滚动
+- [component/search/search-basic.ets](component/search/search-basic.ets) — Search 搜索框基础
+- [component/search/search-style.ets](component/search/search-style.ets) — Search 搜索框样式
+- [component/select/select-basic.ets](component/select/select-basic.ets) — Select 下拉选择基础
+- [component/select/select-divider.ets](component/select/select-divider.ets) — Select 分割线
+- [component/select/select-layout.ets](component/select/select-layout.ets) — Select 布局设置
+- [component/select/select-style.ets](component/select/select-style.ets) — Select 样式设置
+- [component/slider/slider-basic.ets](component/slider/slider-basic.ets) — Slider 滑动选择器基础
+- [component/slider/slider-appearance.ets](component/slider/slider-appearance.ets) — Slider 外观设置
+- [component/slider/slider-direction.ets](component/slider/slider-direction.ets) — Slider 方向设置
+- [component/slider/slider-step-tips.ets](component/slider/slider-step-tips.ets) — Slider 步长与提示
+- [component/slider/slider-style.ets](component/slider/slider-style.ets) — Slider 样式设置
+- [component/span/span-basic.ets](component/span/span-basic.ets) — Span 文本片段基础
+- [component/span/span-container.ets](component/span/span-container.ets) — Span 容器设置
+- [component/span/span-decoration.ets](component/span/span-decoration.ets) — Span 文本装饰
+- [component/span/span-event.ets](component/span/span-event.ets) — Span 事件处理
+- [component/stack/stack-basic.ets](component/stack/stack-basic.ets) — Stack 层叠布局基础
+- [component/stack/stack-align.ets](component/stack/stack-align.ets) — Stack 对齐方式
+- [component/stack/stack-overlay.ets](component/stack/stack-overlay.ets) — Stack 覆盖效果
+- [component/stack/stack-zindex.ets](component/stack/stack-zindex.ets) — Stack 层级控制
+- [component/subpackaging/subpackaging-bundle-info.ets](component/subpackaging/subpackaging-bundle-info.ets) — 分包信息查询
+- [component/swiper/swiper-basic.ets](component/swiper/swiper-basic.ets) — Swiper 轮播基础
+- [component/swiper/swiper-controller.ets](component/swiper/swiper-controller.ets) — Swiper 控制器
+- [component/swiper/swiper-direction.ets](component/swiper/swiper-direction.ets) — Swiper 方向设置
+- [component/swiper/swiper-indicator.ets](component/swiper/swiper-indicator.ets) — Swiper 指示器
+- [component/text_input/text_input_basic.ets](component/text_input/text_input_basic.ets) — TextInput 单行文本输入基础
+- [component/text_input/text_input_controller.ets](component/text_input/text_input_controller.ets) — TextInput 控制器
+- [component/text_input/text_input_event.ets](component/text_input/text_input_event.ets) — TextInput 事件处理
+- [component/text_input/text_input_password.ets](component/text_input/text_input_password.ets) — TextInput 密码输入
+- [component/text_input/text_input_style.ets](component/text_input/text_input_style.ets) — TextInput 样式设置
+- [component/text_area/text_area_basic.ets](component/text_area/text_area_basic.ets) — TextArea 多行文本输入基础
+- [component/text_area/text_area_controller.ets](component/text_area/text_area_controller.ets) — TextArea 控制器
+- [component/text_area/text_area_counter.ets](component/text_area/text_area_counter.ets) — TextArea 字数统计
+- [component/text_area/text_area_event.ets](component/text_area/text_area_event.ets) — TextArea 事件处理
+- [component/text_area/text_area_style.ets](component/text_area/text_area_style.ets) — TextArea 样式设置
+- [component/text_picker/text_picker-basic.ets](component/text_picker/text_picker-basic.ets) — TextPicker 文本选择器基础
+- [component/text_picker/text_picker_dialog.ets](component/text_picker/text_picker_dialog.ets) — TextPicker 对话框模式
+- [component/text_picker/text_picker_divider.ets](component/text_picker/text_picker_divider.ets) — TextPicker 分割线
+- [component/text_picker/text_picker_multi_column.ets](component/text_picker/text_picker_multi_column.ets) — TextPicker 多列选择
+- [component/text_picker/text_picker_style.ets](component/text_picker/text_picker_style.ets) — TextPicker 样式设置
+- [component/toggle/toggle-basic.ets](component/toggle/toggle-basic.ets) — Toggle 开关切换
+- [component/video/video-basic.ets](component/video/video-basic.ets) — Video 视频播放
+- [component/water_flow/water_flow-basic.ets](component/water_flow/water_flow-basic.ets) — WaterFlow 瀑布流布局
 
 ### Experience (开发实践)
-- [experience/experience_gesture.md](experience/experience_gesture.md) — Gesture 手势组件开发实践（6 个场景 + 踩坑记录）
-- [experience/experience_image.md](experience/experience_image.md) — Image 图片组件开发实践（5 个场景 + 踩坑记录）
 - [experience/experience_account-kit.md](experience/experience_account-kit.md) — AccountKit 账号服务开发实践
+- [experience/experience_ads.md](experience/experience_ads.md) — 广告 Ads Kit 开发实践经验
+- [experience/experience_app-linking.md](experience/experience_app-linking.md) — App Linking 链接跳转开发实践
+- [experience/experience_appgallery.md](experience/experience_appgallery.md) — 应用市场 AppGallery 开发实践
+- [experience/experience_avsession.md](experience/experience_avsession.md) — 媒体会话 AVSession 开发实践
+- [experience/experience_badge.md](experience/experience_badge.md) — Badge 角标组件开发实践
+- [experience/experience_blank.md](experience/experience_blank.md) — Blank 空白填充组件开发实践
+- [experience/experience_button.md](experience/experience_button.md) — Button 按钮组件开发实践
+- [experience/experience_calendar_picker.md](experience/experience_calendar_picker.md) — CalendarPicker 日历选择器开发实践
+- [experience/experience_camera.md](experience/experience_camera.md) — 相机选择器开发实践
+- [experience/experience_checkbox.md](experience/experience_checkbox.md) — Checkbox 复选框开发实践
+- [experience/experience_checkboxgroup.md](experience/experience_checkboxgroup.md) — CheckboxGroup 复选框组开发实践
+- [experience/experience_column.md](experience/experience_column.md) — Column 垂直布局开发实践
+- [experience/experience_connectivity.md](experience/experience_connectivity.md) — 蓝牙与连接能力开发实践
+- [experience/experience_contacts.md](experience/experience_contacts.md) — 联系人 Contacts Kit 开发实践
+- [experience/experience_counter.md](experience/experience_counter.md) — Counter 计数器开发实践
+- [experience/experience_curves.md](experience/experience_curves.md) — Curves 动画曲线开发实践
+- [experience/experience_data_panel.md](experience/experience_data_panel.md) — DataPanel 数据面板开发实践
+- [experience/experience_date_picker.md](experience/experience_date_picker.md) — DatePicker 日期选择器开发实践
+- [experience/experience_device.md](experience/experience_device.md) — 设备信息查询开发实践
+- [experience/experience_dialogs.md](experience/experience_dialogs.md) — Dialogs 对话框开发实践
+- [experience/experience_divider.md](experience/experience_divider.md) — Divider 分割线开发实践
 - [experience/experience_file.md](experience/experience_file.md) — 文件管理能力开发实践
+- [experience/experience_flex.md](experience/experience_flex.md) — Flex 弹性布局开发实践
+- [experience/experience_gesture.md](experience/experience_gesture.md) — Gesture 手势组件开发实践（6 个场景 + 踩坑记录）
+- [experience/experience_health-service.md](experience/experience_health-service.md) — 健康服务开发实践
+- [experience/experience_iap.md](experience/experience_iap.md) — 应用内支付 IAP 开发实践
+- [experience/experience_image.md](experience/experience_image.md) — Image 图片组件开发实践（5 个场景 + 踩坑记录）
+- [experience/experience_lazy_for_each.md](experience/experience_lazy_for_each.md) — LazyForEach 延迟加载开发实践
+- [experience/experience_list.md](experience/experience_list.md) — List 列表组件开发实践
+- [experience/experience_localization.md](experience/experience_localization.md) — 国际化与本地化开发实践
+- [experience/experience_location.md](experience/experience_location.md) — 位置服务开发实践
+- [experience/experience_media-library.md](experience/experience_media-library.md) — 媒体库（使用 Picker 选择媒体库资源）开发实践
+- [experience/experience_menu.md](experience/experience_menu.md) — Menu 菜单组件开发实践
+- [experience/experience_navigation-router.md](experience/experience_navigation-router.md) — Navigation 路由跳转（模块内页面路由、跨模块页面路由）开发实践
+- [experience/experience_network.md](experience/experience_network.md) — 网络请求开发实践
+- [experience/experience_panel.md](experience/experience_panel.md) — Panel 面板组件开发实践
+- [experience/experience_particle.md](experience/experience_particle.md) — Particle 粒子动画开发实践
+- [experience/experience_payment.md](experience/experience_payment.md) — 支付 Payment Kit 开发实践经验
+- [experience/experience_preview.md](experience/experience_preview.md) — 文件预览开发实践
+- [experience/experience_progress.md](experience/experience_progress.md) — Progress 进度条开发实践
+- [experience/experience_push.md](experience/experience_push.md) — 推送 Push Kit 开发实践经验
+- [experience/experience_radio.md](experience/experience_radio.md) — Radio 单选按钮开发实践
+- [experience/experience_rating.md](experience/experience_rating.md) — Rating 评分组件开发实践
+- [experience/experience_refresh.md](experience/experience_refresh.md) — Refresh 下拉刷新开发实践
+- [experience/experience_relative_container.md](experience/experience_relative_container.md) — RelativeContainer 相对布局开发实践
+- [experience/experience_repeat.md](experience/experience_repeat.md) — Repeat 循环渲染开发实践
+- [experience/experience_rich_editor.md](experience/experience_rich_editor.md) — RichEditor 富文本编辑器开发实践
+- [experience/experience_rich_text.md](experience/experience_rich_text.md) — RichText 富文本显示开发实践
+- [experience/experience_row.md](experience/experience_row.md) — Row 水平布局开发实践
+- [experience/experience_save_button.md](experience/experience_save_button.md) — SaveButton 保存按钮开发实践
 - [experience/experience_scan.md](experience/experience_scan.md) — ScanKit 扫码能力开发实践
 - [experience/experience_scenario_fusion.md](experience/experience_scenario_fusion.md) — ScenarioFusionKit 融合场景服务开发实践
+- [experience/experience_scroll.md](experience/experience_scroll.md) — Scroll 滚动容器开发实践
+- [experience/experience_scroll_bar.md](experience/experience_scroll_bar.md) — ScrollBar 滚动条开发实践
+- [experience/experience_search.md](experience/experience_search.md) — Search 搜索框开发实践
+- [experience/experience_security.md](experience/experience_security.md) — 安全加密开发实践
+- [experience/experience_select.md](experience/experience_select.md) — Select 下拉选择开发实践
 - [experience/experience_share.md](experience/experience_share.md) — 元服务分享能力开发实践
-- [experience/experience_push.md](experience/experience_push.md) — 推送push kit开发实践经验
-- [experience/experience_ads.md](experience/experience_ads.md) — 广告ads kit开发实践经验
-- [experience/experience_payment.md](experience/experience_payment.md) — 支付payment kit开发实践经验
-- [experience/experience_camera.md](experience/experience_camera.md) — 相机选择器开发实践
-- [experience/experience_media-library.md](experience/experience_media-library.md) — 媒体库（使用Picker选择媒体库资源）开发实践
-- [experience/experience_navigation-router.md](experience/experience_navigation-router.md) — Navigation路由跳转（模块内页面路由、跨模块页面路由）开发实践
+- [experience/experience_slider.md](experience/experience_slider.md) — Slider 滑动选择器开发实践
+- [experience/experience_span.md](experience/experience_span.md) — Span 文本片段开发实践
+- [experience/experience_stack.md](experience/experience_stack.md) — Stack 层叠布局开发实践
+- [experience/experience_subpackaging.md](experience/experience_subpackaging.md) — 分包加载开发实践
+- [experience/experience_swiper.md](experience/experience_swiper.md) — Swiper 轮播组件开发实践
+- [experience/experience_text_area.md](experience/experience_text_area.md) — TextArea 多行文本输入开发实践
+- [experience/experience_text_input.md](experience/experience_text_input.md) — TextInput 单行文本输入开发实践
+- [experience/experience_text_picker.md](experience/experience_text_picker.md) — TextPicker 文本选择器开发实践
+- [experience/experience_toggle.md](experience/experience_toggle.md) — Toggle 开关切换开发实践
+- [experience/experience_video.md](experience/experience_video.md) — Video 视频播放开发实践
+- [experience/experience_water_flow.md](experience/experience_water_flow.md) — WaterFlow 瀑布流布局开发实践
+- [experience/experience_window.md](experience/experience_window.md) — 窗口管理开发实践
 
 ### Kit Capabilities (Code Examples)
 - [kit/account/account-silent-login.ets](kit/account/account-silent-login.ets) — 静默登录 (AccountKit)
@@ -61,7 +254,33 @@
 - [kit/account/account-kit-authorization.ets](kit/account/account-kit-authorization.ets) — 华为账号授权 (AccountKit)
 - [kit/account/account-kit-cancel-auth.ets](kit/account/account-kit-cancel-auth.ets) — 取消华为账号授权 (AccountKit)
 - [kit/account/account-kit-avatar-nickname.ets](kit/account/account-kit-avatar-nickname.ets) — 获取华为账号头像昵称 (AccountKit)
-- [kit/contact/contact.ets](kit/contact/contact.ets) — 通讯录读取与选择联系人
+- [kit/ads/ads-banner.ets](kit/ads/ads-banner.ets) — 横幅广告 (Banner Ad)
+- [kit/ads/ads-interstitial.ets](kit/ads/ads-interstitial.ets) — 插屏广告 (Interstitial Ad)
+- [kit/ads/ads-native.ets](kit/ads/ads-native.ets) — 原生广告 (Native Ad)
+- [kit/ads/ads-reward.ets](kit/ads/ads-reward.ets) — 激励广告 (Reward Ad)
+- [kit/ads/ads-roll.ets](kit/ads/ads-roll.ets) — 贴片广告 (Roll Ad)
+- [kit/app-linking/applinking-open.ets](kit/app-linking/applinking-open.ets) — openLink 拉起示例
+- [kit/app-linking/applinking-receive.ets](kit/app-linking/applinking-receive.ets) — 链接接收与解析示例
+- [kit/app-linking/open-atomic-service.ets](kit/app-linking/open-atomic-service.ets) — openAtomicService 拉起示例
+- [kit/appgallery/appgallery-review.ets](kit/appgallery/appgallery-review.ets) — 应用市场评论 (AppGallery)
+- [kit/avsession/avsession-cast-picker.ets](kit/avsession/avsession-cast-picker.ets) — 媒体投播选择器 (AVSession)
+- [kit/avsession/avsession-media-metadata.ets](kit/avsession/avsession-media-metadata.ets) — 媒体元数据 (AVSession)
+- [kit/avsession/avsession-media-session.ets](kit/avsession/avsession-media-session.ets) — 媒体会话管理 (AVSession)
+- [kit/avsession/avsession-playback-control.ets](kit/avsession/avsession-playback-control.ets) — 播放控制 (AVSession)
+- [kit/camera/camera-picker.ets](kit/camera/camera-picker.ets) — 系统相机选择器 (CameraPicker)
+- [kit/camera/camera-save-uri.ets](kit/camera/camera-save-uri.ets) — 相机拍照保存 URI
+- [kit/connectivity/connectivity-bluetooth.ets](kit/connectivity/connectivity-bluetooth.ets) — 蓝牙基础操作
+- [kit/connectivity/connectivity-ble-advertising.ets](kit/connectivity/connectivity-ble-advertising.ets) — BLE 广播
+- [kit/connectivity/connectivity-gatt.ets](kit/connectivity/connectivity-gatt.ets) — GATT 通信
+- [kit/contact/contacts-picker.ets](kit/contact/contacts-picker.ets) — 通讯录读取与选择联系人
+- [kit/contact/contacts-add-via-ui.ets](kit/contact/contacts-add-via-ui.ets) — 通过 UI 新建联系人
+- [kit/contact/contacts-save-existing.ets](kit/contact/contacts-save-existing.ets) — 保存到已有联系人
+- [kit/contacts/contacts-picker.ets](kit/contacts/contacts-picker.ets) — 系统联系人选择器
+- [kit/contacts/contacts-add-via-ui.ets](kit/contacts/contacts-add-via-ui.ets) — 新建联系人
+- [kit/contacts/contacts-save-existing.ets](kit/contacts/contacts-save-existing.ets) — 保存到已有联系人
+- [kit/device/device-display.ets](kit/device/device-display.ets) — 设备显示信息查询
+- [kit/device/device-info.ets](kit/device/device-info.ets) — 设备信息查询
+- [kit/device/device-version.ets](kit/device/device-version.ets) — 系统版本信息查询
 - [kit/file/file-read-write.ets](kit/file/file-read-write.ets) — 文件读写操作 (CoreFileKit)
 - [kit/file/file-dir-manage.ets](kit/file/file-dir-manage.ets) — 目录管理 (CoreFileKit)
 - [kit/file/file-info-query.ets](kit/file/file-info-query.ets) — 文件信息查询 (CoreFileKit)
@@ -69,32 +288,50 @@
 - [kit/file/file-rename-delete.ets](kit/file/file-rename-delete.ets) — 文件重命名与删除 (CoreFileKit)
 - [kit/file/file-stream-operate.ets](kit/file/file-stream-operate.ets) — 文件流操作 (CoreFileKit)
 - [kit/file/file-text-operate.ets](kit/file/file-text-operate.ets) — 文本文件操作 (CoreFileKit)
-- [kit/file/preview.ets](kit/file/preview.ets) — 文件预览 (PreviewKit)
+- [kit/gesutre/gesture-tap.ets](kit/gesutre/gesture-tap.ets) — TapGesture 点击手势
+- [kit/gesutre/gesture-pan.ets](kit/gesutre/gesture-pan.ets) — PanGesture 拖动手势
+- [kit/gesutre/gesture-pinch.ets](kit/gesutre/gesture-pinch.ets) — PinchGesture 捏合手势
+- [kit/gesutre/gesture-swipe.ets](kit/gesutre/gesture-swipe.ets) — SwipeGesture 滑动手势
+- [kit/gesutre/gesture-group.ets](kit/gesutre/gesture-group.ets) — GestureGroup 手势组合
+- [kit/gesutre/gesture-priority.ets](kit/gesutre/gesture-priority.ets) — 手势优先级与竞争
+- [kit/gesutre/gesture-swipe-delete.ets](kit/gesutre/gesture-swipe-delete.ets) — 滑动删除手势
+- [kit/health-service/health-service-authorization.ets](kit/health-service/health-service-authorization.ets) — 健康服务授权
+- [kit/health-service/health-service-activity-report.ets](kit/health-service/health-service-activity-report.ets) — 运动报告查询
+- [kit/health-service/health-service-data-aggregate.ets](kit/health-service/health-service-data-aggregate.ets) — 健康数据聚合
+- [kit/health-service/health-service-unsupported.ets](kit/health-service/health-service-unsupported.ets) — 不支持的健康能力处理
+- [kit/iap/iap-purchase-query.ets](kit/iap/iap-purchase-query.ets) — 应用内支付查询
 - [kit/image/image-encode-decode.ets](kit/image/image-encode-decode.ets) — 图片编解码 (ImageKit)
-- [kit/network/network-connection-manager.ets](kit/network/network-connection-manager.ets) — 网络连接管理
-- [kit/network/network-http.ets](kit/network/network-http.ets) — HTTP 网络请求
+- [kit/localization/localization-i18n.ets](kit/localization/localization-i18n.ets) — 国际化 I18n
+- [kit/localization/localization-intl.ets](kit/localization/localization-intl.ets) — 国际化 Intl 格式化
+- [kit/location/location-query.ets](kit/location/location-query.ets) — 位置信息查询
+- [kit/media/media-photo-picker.ets](kit/media/media-photo-picker.ets) — 使用 Picker 选择媒体库资源（图片、视频等）
+- [kit/navigation-router/navigation-router-push-by-name.ets](kit/navigation-router/navigation-router-push-by-name.ets) — 模块内页面路由
+- [kit/navigation-router/navigation-router-cross-module.ets](kit/navigation-router/navigation-router-cross-module.ets) — 跨模块页面路由
+- [kit/navigation-router/navigation-router-push-destination.ets](kit/navigation-router/navigation-router-push-destination.ets) — 自定义目标页面路由
+- [kit/navigation-router/navigation-router-replace-remove.ets](kit/navigation-router/navigation-router-replace-remove.ets) — 路由替换与删除
+- [kit/navigation-router/navigation-router-pop-result.ets](kit/navigation-router/navigation-router-pop-result.ets) — 路由返回传参
+- [kit/navigation-router/navigation-router-interception.ets](kit/navigation-router/navigation-router-interception.ets) — 路由拦截
+- [kit/navigation-router/navigation-router-stack-query.ets](kit/navigation-router/navigation-router-stack-query.ets) — 路由栈查询
+- [kit/network/network-http-request.ets](kit/network/network-http-request.ets) — HTTP 网络请求
 - [kit/network/network-websocket.ets](kit/network/network-websocket.ets) — WebSocket 通信
+- [kit/network/network-connection-status.ets](kit/network/network-connection-status.ets) — 网络连接状态查询
+- [kit/network/network-mdns.ets](kit/network/network-mdns.ets) — mDNS 局域网服务发现
+- [kit/payment/iap-purchase.ets](kit/payment/iap-purchase.ets) — 应用内支付（数字商品）
+- [kit/payment/payment-request.ets](kit/payment/payment-request.ets) — 华为支付（实物商品）
+- [kit/preview/preview-open-single.ets](kit/preview/preview-open-single.ets) — 单文件预览
+- [kit/preview/preview-open-multi.ets](kit/preview/preview-open-multi.ets) — 多文件预览
+- [kit/preview/preview-can-preview.ets](kit/preview/preview-can-preview.ets) — 预览能力判断
+- [kit/preview/preview-callback.ets](kit/preview/preview-callback.ets) — 预览回调处理
+- [kit/preview/preview-load-data.ets](kit/preview/preview-load-data.ets) — 预览数据加载
+- [kit/push/push-subscribe.ets](kit/push/push-subscribe.ets) — 服务通知订阅请求
+- [kit/push/push-receive.ets](kit/push/push-receive.ets) — 接收推送消息处理
 - [kit/scan/create-bar-code.ets](kit/scan/create-bar-code.ets) — 二维码/条形码生成 (ScanKit)
 - [kit/scan/scan-bar-code.ets](kit/scan/scan-bar-code.ets) — 二维码/条形码扫描 (ScanKit)
+- [kit/scenario-fusion/scenario-fusion-choose-avatar.ets](kit/scenario-fusion/scenario-fusion-choose-avatar.ets) — 选择头像 (ScenarioFusionKit)
+- [kit/scenario-fusion/scenario-fusion-feedback.ets](kit/scenario-fusion/scenario-fusion-feedback.ets) — 反馈与投诉 (ScenarioFusionKit)
+- [kit/scenario-fusion/scenario-fusion-choose-location](kit/scenario-fusion/scenario-fusion-choose-location.ets) — 地图选点 (ScenarioFusionKit)
+- [kit/security/security-crypto-hash.ets](kit/security/security-crypto-hash.ets) — 加密哈希 (CryptoKit)
 - [kit/share/share-button.ets](kit/share/share-button.ets) — 分享功能按钮 (ScenarioFusionKit)
 - [kit/share/share-on-share.ets](kit/share/share-on-share.ets) — 元服务页面分享回调
 - [kit/storage/preferences-utils.ets](kit/storage/preferences-utils.ets) — 轻量级数据持久化 (ArkData)
-- [kit/scenario-fusion/scenario-fusion-choose-avatar.ets](kit/scenario-fusion/scenario-fusion-choose-avatar.ets) — 选择头像 (ScenarioFusionKit)
-- [kit/scenario-fusion/scenario-fusion-feedback.ets](kit/scenario-fusion/scenario-fusion-feedback.ets) — 反馈与投诉 (ScenarioFusionKit)
-- [kit/scenario-fusion/scenario-fusiont-choose-location.ets](kit/scenario-fusion/scenario-fusiont-choose-location.ets) — 地图选点 (ScenarioFusionKit)
-- [kit/camera-picker/camera-picker.ets](kit/camera-picker/camera-picker.ets) — 系统相机选择器（CameraPicker）
-- [kit/media-liabrary/media-photo-picker.ets](kit/media-liabrary/media-photo-picker.ets) — 使用Picker选择媒体库资源（图片、视频等）
-- [kit/push/push-subscribe.ets](kit/push/push-subscribe.ets) — 服务通知订阅请求
-- [kit/push/push-receive.ets](kit/push/push-receive.ets) — 接收推送消息处理
-- [kit/ads/ads-banner.ets](kit/ads/ads-banner.ets) — 横幅广告（Banner Ad）
-- [kit/ads/ads-interstitial.ets](kit/ads/ads-interstitial.ets) — 插屏广告（Interstitial Ad）
-- [kit/ads/ads-native.ets](kit/ads/ads-native.ets) — 原生广告（Native Ad）
-- [kit/ads/ads-reward.ets](kit/ads/ads-reward.ets) — 激励广告（Reward Ad）
-- [kit/ads/ads-roll.ets](kit/ads/ads-roll.ets) — 贴片广告（Roll Ad）
-- [kit/payment/iap-purchase.ets](kit/payment/iap-purchase.ets) — 应用内支付（数字商品）
-- [kit/payment/payment-request.ets](kit/payment/payment-request.ets) — 华为支付（实物商品）
-- [kit/navigation-router/navigation-router-push-by-name.ets](kit/navigation-router/navigation-router-push-by-name.ets) — 模块内页面路由
-- [kit/navigation-router/navigation-router-cross-module.ets](kit/navigation-router/navigation-router-cross-module.ets) — 跨模块页面路由
-- [kit/app-linking/applinking-open.ets.ets](kit/app-linking/applinking-open.ets.ets) — openLink 拉起示例
-- [kit/app-linking/applinking-receive.ets](kit/app-linking/applinking-receive.ets) — 链接接收与解析示例
-- [kit/app-linking/open-atomic-service.ets](kit/app-linking/open-atomic-service.ets) — openAtomicService 拉起示例
+- [kit/window/window-info-query.ets](kit/window/window-info-query.ets) — 窗口信息查询
