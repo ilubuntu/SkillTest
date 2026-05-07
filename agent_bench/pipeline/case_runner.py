@@ -463,6 +463,62 @@ def _generate_review_patch(case_dir: str, workspace_dir: str, workspace_base_com
     return patch_path
 
 
+def _looks_like_harmony_project_root(path: str) -> bool:
+    if not os.path.isdir(path):
+        return False
+    build_profile = os.path.join(path, "build-profile.json5")
+    if not os.path.isfile(build_profile):
+        return False
+    return (
+        os.path.isfile(os.path.join(path, "oh-package.json5"))
+        or os.path.isfile(os.path.join(path, "hvigorfile.ts"))
+    )
+
+
+def _resolve_compile_project_path(project_path: str, on_progress) -> str:
+    """兼容空工程生成时多包一层项目目录的情况。
+
+    默认仍编译 workspace 根目录；只有根目录不是 Harmony 工程，且唯一一级
+    子目录是 Harmony 工程时，才切换到该子目录，避免多个工程时误判。
+    """
+    if _looks_like_harmony_project_root(project_path):
+        return project_path
+    if not os.path.isdir(project_path):
+        return project_path
+
+    ignored_dirs = {".git", ".opencode", ".agent_bench", "build", ".hvigor", "node_modules", "oh_modules"}
+    candidates = []
+    try:
+        entries = sorted(os.listdir(project_path))
+    except OSError:
+        return project_path
+
+    for entry in entries:
+        if entry in ignored_dirs or entry.startswith("."):
+            continue
+        child_path = os.path.join(project_path, entry)
+        if _looks_like_harmony_project_root(child_path):
+            candidates.append(child_path)
+
+    if len(candidates) == 1:
+        selected = candidates[0]
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": (
+                "检测到 workspace 根目录不是 Harmony 工程，"
+                f"已切换到唯一子工程目录进行编译: {os.path.relpath(selected, project_path)}"
+            ),
+        })
+        return selected
+    if len(candidates) > 1:
+        rel_candidates = ", ".join(os.path.relpath(path, project_path) for path in candidates[:5])
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"检测到多个子工程目录，保持 workspace 根目录编译: {rel_candidates}",
+        })
+    return project_path
+
+
 def _run_compile_check(case: dict,
                        case_dir: str,
                        project_path: str,
@@ -497,11 +553,15 @@ def _run_compile_check(case: dict,
         _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": stage_name, "status": "skipped", "elapsed": 0})
         return compile_result
     t0 = time.time()
+    compile_project_path = _resolve_compile_project_path(project_path, on_progress)
     compile_result = check_project_compilable(
-        project_path,
+        compile_project_path,
         timeout=DEFAULT_TIMEOUT_SECONDS,
         template_project_path=template_project_path,
     )
+    compile_result["project_path"] = compile_project_path
+    if compile_project_path != project_path:
+        compile_result["workspace_root"] = project_path
     elapsed = time.time() - t0
     save_compile_artifacts(case_dir, stage_name, compile_result)
     if compile_result.get("compilable"):
