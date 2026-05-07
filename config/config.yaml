@@ -54,6 +54,10 @@ opencode:
   # 当前统一走全局配置，不再按 agents.yaml 单独配置。
   timeout: 600
 
+  # 单个 Agent 任务最大总运行时间（秒）。
+  # 这是硬兜底，不依赖 SSE / HTTP 轮询是否仍有活动；超过后直接按失败收口。
+  max_task_runtime_seconds: 7200
+
   # OpenCode 全局配置文件路径，用于自动启动 opencode server 前复制到隔离 XDG 目录。
   # 读取顺序：
   # 1. 优先读取当前平台对应的 opencode_config_path

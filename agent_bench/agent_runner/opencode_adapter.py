@@ -32,6 +32,7 @@ from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 DEFAULT_API_BASE = "http://localhost:4096"
 TIMEOUT = DEFAULT_TIMEOUT_SECONDS
 SESSION_CREATE_TIMEOUT_SECONDS = 60
+DEFAULT_MAX_TASK_RUNTIME_SECONDS = 7200
 MAX_RAW_SSE_LINE_CHARS = 2000
 DELTA_PROGRESS_THROTTLE_SECONDS = 10.0
 VALID_SSE_FILTERS = {"full", "medium", "low"}
@@ -66,6 +67,7 @@ class OpenCodeAdapter(AgentAdapter):
                  model: str = None,
                  target_skills: Optional[list[str]] = None,
                  timeout: int = TIMEOUT,
+                 max_task_runtime_seconds: int = DEFAULT_MAX_TASK_RUNTIME_SECONDS,
                  sse_filter: str = "medium",
                  on_progress=None,
                  artifact_prefix: str = "agent",
@@ -75,6 +77,7 @@ class OpenCodeAdapter(AgentAdapter):
         self.model = model
         self.target_skills = [str(item).strip() for item in (target_skills or []) if str(item).strip()]
         self.timeout = timeout
+        self.max_task_runtime_seconds = max(1, int(max_task_runtime_seconds or DEFAULT_MAX_TASK_RUNTIME_SECONDS))
         self.sse_filter = self._normalize_sse_filter(sse_filter)
         self.on_progress = on_progress
         self.artifact_prefix = artifact_prefix or "agent"
@@ -609,6 +612,7 @@ class OpenCodeAdapter(AgentAdapter):
             payload = self._wait_for_completed_message(
                 session_id,
                 effective_prompt,
+                started_at_monotonic=t0,
                 http_polling_log_path=http_polling_log_path,
                 tag=tag,
             )
@@ -656,6 +660,8 @@ class OpenCodeAdapter(AgentAdapter):
                 f"prompt_async 响应中无 text 部分, parts数={len(parts)}, 耗时={elapsed:.1f}s",
                 tag=tag)
             return ""
+        except TimeoutError:
+            raise
         except Exception as exc:
             self._log("WARN", f"prompt_async + SSE 失败，回退同步 message：{exc}", tag=tag)
             return None
@@ -667,6 +673,7 @@ class OpenCodeAdapter(AgentAdapter):
     def _wait_for_completed_message(self,
                                     session_id: str,
                                     prompt_text: str,
+                                    started_at_monotonic: float,
                                     http_polling_log_path: Optional[str] = None,
                                     tag: str = "") -> Optional[dict]:
         last_seen = None
@@ -694,6 +701,15 @@ class OpenCodeAdapter(AgentAdapter):
         if not self._agent_runtime_state.has_activity():
             self._mark_runtime_activity()
         while True:
+            total_elapsed_seconds = time.monotonic() - started_at_monotonic
+            if total_elapsed_seconds >= self.max_task_runtime_seconds:
+                self._last_error_message = f"Agent 总运行时间超过 {self.max_task_runtime_seconds} 秒"
+                self._log(
+                    "ERROR",
+                    f"Agent 总运行时间超过 {self.max_task_runtime_seconds} 秒，按兜底规则终止任务",
+                    tag=tag,
+                )
+                raise TimeoutError(self._last_error_message)
             idle_seconds = self._agent_runtime_state.idle_seconds()
             if idle_seconds >= self.timeout:
                 break

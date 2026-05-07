@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
+DEFAULT_MAX_TASK_RUNTIME_SECONDS = 7200
+
 
 @dataclass
 class MountedSkillSpec:
@@ -89,3 +91,24 @@ def configured_agent_timeout() -> int:
         return int(value)
     except (TypeError, ValueError):
         return DEFAULT_TIMEOUT_SECONDS
+
+
+def configured_max_task_runtime_seconds() -> int:
+    try:
+        from agent_bench.pipeline.loader import load_config
+
+        config = load_config() or {}
+    except Exception:
+        return DEFAULT_MAX_TASK_RUNTIME_SECONDS
+
+    opencode_config = config.get("opencode") if isinstance(config, dict) else {}
+    if not isinstance(opencode_config, dict):
+        return DEFAULT_MAX_TASK_RUNTIME_SECONDS
+
+    value = opencode_config.get("max_task_runtime_seconds")
+    if value is None or str(value).strip() == "":
+        return DEFAULT_MAX_TASK_RUNTIME_SECONDS
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_TASK_RUNTIME_SECONDS

@@ -6,7 +6,7 @@ import time
 from agent_bench.agent_runner.factory import create_adapter
 from agent_bench.agent_runner.runtime_options import build_agent_runtime_options, merge_runtime_options
 from agent_bench.agent_runner.skills import log_agent_configuration, verify_runtime_skills
-from agent_bench.agent_runner.spec import AgentSpec
+from agent_bench.agent_runner.spec import AgentSpec, configured_max_task_runtime_seconds
 
 
 class AgentRunner:
@@ -70,6 +70,7 @@ class AgentRunner:
         self.adapter = create_adapter(
             self.agent_spec.raw,
             timeout=self._resolve_timeout(),
+            max_task_runtime_seconds=configured_max_task_runtime_seconds(),
             sse_filter=self._resolve_sse_filter(),
             on_progress=self.on_progress,
             artifact_prefix=self.artifact_prefix,
