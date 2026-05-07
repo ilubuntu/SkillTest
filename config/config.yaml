@@ -38,7 +38,7 @@ harmony_toolchain:
 task_manager:
   # 最大并发执行数。
   # 超过该值的新任务会进入等待队列，不会被直接丢弃。
-  max_concurrency: 3
+  max_concurrency: 5
 
   # 云测管理台地址。
   # 执行器会向该地址上报任务进度和最终结果。

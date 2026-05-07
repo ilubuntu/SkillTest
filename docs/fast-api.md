@@ -298,7 +298,7 @@ curl http://127.0.0.1:8000/api/cloud-api/summary
   "totalReceived": 12,
   "runningCount": 2,
   "queuedCount": 1,
-  "maxConcurrency": 3
+  "maxConcurrency": 5
 }
 ```
 
