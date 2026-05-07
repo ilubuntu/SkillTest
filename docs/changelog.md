@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.0.8
+
+- 时间: `2026-05-07 19:26:32`
+- 主要变更:
+  - OpenCode `session.status=retry` 日志增强：
+    - 当 Agent 被服务端限流或要求重试时，明确打印服务端 `message`
+    - 解析并打印 `next` 重试时间
+    - 同步打印 `attempt` 次数
+    - 日志同时写入本地执行日志和云测进度，避免长时间轮询时误判为卡死
+  - HarmonyOS 编译验证适配 HAR/HSP：
+    - 编译命令不再固定只执行 `assembleHap`
+    - 根据工程模块类型动态追加 `assembleHap`、`assembleHar`、`assembleHsp`
+    - `build-harmony-project` skill 同步补充 HAR/HSP 构建说明
+  - 编译迭代次数统计优化：
+    - `iterationCount` 同时统计 `assembleHap` 和 `assembleHar`
+    - 避免 HAR 工程编译次数漏计
+  - OpenCode 运行时文件保留方式调整：
+    - Agent 运行后不再直接删除 workspace 内 `.opencode/` 和 `opencode.json`
+    - 改为移动到 execution 目录外层 `opencode/` 归档，便于后续定位问题
+    - diff 和上传仍不包含这些运行时文件
+  - 任务执行稳定性调整：
+    - 单任务总运行时间增加 2 小时兜底
+    - 最大并发数调整为 `5`
+    - 长时间无新消息时继续保留 todo 未完成任务的等待逻辑，不因 todo 未完成本身强制收口
+
 ## 0.0.7
 
 - 时间: `2026-04-27 16:26:00`
