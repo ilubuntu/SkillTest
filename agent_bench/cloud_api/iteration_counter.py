@@ -10,7 +10,7 @@ class IterationCounter:
     def extract_build_execution_count(self, metrics: Dict[str, Any]) -> int:
         """统计真实编译执行次数（去重）。
 
-        只统计 bash 命令中真正触发 HarmonyOS 编译的 assembleHap 调用次数。
+        只统计 bash 命令中真正触发 HarmonyOS 编译的 assembleHap/assembleHar 调用次数。
         不再使用额外的输出标记，避免统计口径与真实命令执行不一致。
         """
         if not isinstance(metrics, dict):
@@ -23,8 +23,8 @@ class IterationCounter:
             if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
                 parts = message_info.get("parts") or []
 
-        assemble_hap_ids = set()
-        assemble_hap_count = 0
+        build_call_ids = set()
+        build_call_count = 0
 
         for part in parts:
             if not isinstance(part, dict):
@@ -43,13 +43,13 @@ class IterationCounter:
 
             if tool_name == "bash":
                 command_str = str(command_input.get("command") or "").strip().lower()
-                if "assemblehap" in command_str:
+                if "assemblehap" in command_str or "assemblehar" in command_str:
                     call_id = str(part.get("callID") or "").strip() or str(part.get("id") or "").strip()
-                    if call_id and call_id not in assemble_hap_ids:
-                        assemble_hap_ids.add(call_id)
-                        assemble_hap_count += 1
+                    if call_id and call_id not in build_call_ids:
+                        build_call_ids.add(call_id)
+                        build_call_count += 1
 
-        return assemble_hap_count
+        return build_call_count
 
     def extract_iteration_count(self, metrics: Dict[str, Any], output_text: str = "", total_tokens: int = 0) -> int:
         """提取迭代次数。

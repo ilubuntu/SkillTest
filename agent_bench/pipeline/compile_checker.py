@@ -8,6 +8,7 @@ import os
 import json
 import argparse
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -28,6 +29,7 @@ TOOLCHAIN_ENV_HVIGOR = "AGENT_BENCH_HVIGOR_JS"
 TOOLCHAIN_ENV_JAVA = "AGENT_BENCH_JAVA_HOME"
 TOOLCHAIN_ENV_SDK = "AGENT_BENCH_HARMONYOS_SDK"
 TOOLCHAIN_ENV_SDK_LEGACY = "AGENT_BENCH_SDK_ROOT"
+DEFAULT_HVIGOR_TASKS = ["assembleHap"]
 
 
 def _external_stage_cache_dir(project_root: str) -> str:
@@ -47,6 +49,173 @@ def _cleanup_external_stage_cache_dir(project_root: str):
 def _is_reserved_windows_name(name: str) -> bool:
     base_name = os.path.splitext((name or "").strip())[0].lower()
     return base_name in WINDOWS_RESERVED_NAMES
+
+
+def _strip_json5_comments(text: str) -> str:
+    """去掉 JSON5 注释，保留字符串内容，便于做轻量配置解析。"""
+    result = []
+    index = 0
+    in_string = False
+    quote_char = ""
+    escaped = False
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if in_string:
+            result.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote_char:
+                in_string = False
+            index += 1
+            continue
+        if char in {'"', "'"}:
+            in_string = True
+            quote_char = char
+            result.append(char)
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            index += 2
+            while index < len(text) and text[index] not in "\r\n":
+                index += 1
+            continue
+        if char == "/" and next_char == "*":
+            index += 2
+            while index + 1 < len(text) and not (text[index] == "*" and text[index + 1] == "/"):
+                index += 1
+            index += 2
+            continue
+        result.append(char)
+        index += 1
+    return "".join(result)
+
+
+def _skip_ws(text: str, index: int) -> int:
+    while index < len(text) and text[index].isspace():
+        index += 1
+    return index
+
+
+def _find_matching(text: str, start: int, open_char: str, close_char: str) -> int:
+    depth = 0
+    in_string = False
+    quote_char = ""
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote_char:
+                in_string = False
+            continue
+        if char in {'"', "'"}:
+            in_string = True
+            quote_char = char
+            continue
+        if char == open_char:
+            depth += 1
+        elif char == close_char:
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def _find_key_container_range(text: str, key: str, open_char: str, close_char: str) -> tuple[int, int] | None:
+    pattern = re.compile(rf'["\']{re.escape(key)}["\']\s*:')
+    for match in pattern.finditer(text):
+        value_start = _skip_ws(text, match.end())
+        if value_start >= len(text) or text[value_start] != open_char:
+            continue
+        value_end = _find_matching(text, value_start, open_char, close_char)
+        if value_end >= 0:
+            return value_start, value_end
+    return None
+
+
+def _split_top_level_objects(array_text: str) -> list[str]:
+    objects = []
+    index = 0
+    while index < len(array_text):
+        if array_text[index] != "{":
+            index += 1
+            continue
+        end = _find_matching(array_text, index, "{", "}")
+        if end < 0:
+            break
+        objects.append(array_text[index: end + 1])
+        index = end + 1
+    return objects
+
+
+def _extract_string_value(text: str, key: str) -> str:
+    pattern = re.compile(rf'["\']{re.escape(key)}["\']\s*:\s*(["\'])(.*?)\1', re.S)
+    match = pattern.search(text)
+    return str(match.group(2)).strip() if match else ""
+
+
+def _detect_module_target(module_text: str) -> str:
+    targets_range = _find_key_container_range(module_text, "targets", "[", "]")
+    if not targets_range:
+        return "default"
+    targets_text = module_text[targets_range[0]: targets_range[1] + 1]
+    first_name = _extract_string_value(targets_text, "name")
+    return first_name or "default"
+
+
+def _read_module_type(project_path: str, src_path: str) -> str:
+    module_json_path = os.path.join(project_path, src_path, "src", "main", "module.json5")
+    if not os.path.isfile(module_json_path):
+        return ""
+    try:
+        with open(module_json_path, "r", encoding="utf-8") as f:
+            module_text = _strip_json5_comments(f.read())
+        return _extract_string_value(module_text, "type").lower()
+    except Exception:
+        return ""
+
+
+def _resolve_hvigor_build_plan(project_path: str) -> tuple[list[str], list[str]]:
+    """根据模块类型生成 `-p module=...` 和 hvigor task 列表。"""
+    build_profile_path = os.path.join(project_path, "build-profile.json5")
+    if not os.path.isfile(build_profile_path):
+        return [], list(DEFAULT_HVIGOR_TASKS)
+    try:
+        with open(build_profile_path, "r", encoding="utf-8") as f:
+            text = _strip_json5_comments(f.read())
+    except Exception:
+        return [], list(DEFAULT_HVIGOR_TASKS)
+
+    modules_range = _find_key_container_range(text, "modules", "[", "]")
+    if not modules_range:
+        return [], list(DEFAULT_HVIGOR_TASKS)
+
+    module_selectors = []
+    tasks = []
+    array_text = text[modules_range[0] + 1: modules_range[1]]
+    for module_text in _split_top_level_objects(array_text):
+        name = _extract_string_value(module_text, "name")
+        src_path = _extract_string_value(module_text, "srcPath")
+        if not name or not src_path:
+            continue
+        target = _detect_module_target(module_text)
+        module_selectors.append(f"{name}@{target}")
+
+        module_type = _read_module_type(project_path, src_path)
+        if module_type in {"entry", "feature"} and "assembleHap" not in tasks:
+            tasks.append("assembleHap")
+        elif module_type == "har" and "assembleHar" not in tasks:
+            tasks.append("assembleHar")
+        elif module_type == "shared" and "assembleHsp" not in tasks:
+            tasks.append("assembleHsp")
+
+    return module_selectors, tasks or list(DEFAULT_HVIGOR_TASKS)
 
 
 def _clean_markdown_code_blocks(code: str) -> str:
@@ -478,16 +647,21 @@ def _compile_project(project_path: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) 
             ohpm_output = ohpm_stdout + "\n[STDERR]\n" + ohpm_stderr if ohpm_stderr else ohpm_stdout
             return False, f"[OHPM INSTALL FAILED]\n{ohpm_output}".strip()
 
+        module_selectors, hvigor_tasks = _resolve_hvigor_build_plan(project_path)
         hvigor_cmd = [
             paths["node"], paths["hvigor"],
             "--mode", "module",
             "-p", "product=default",
-            "assembleHap",
+        ]
+        if module_selectors:
+            hvigor_cmd.extend(["-p", "module=" + ",".join(module_selectors)])
+        hvigor_cmd.extend([
+            *hvigor_tasks,
             "--analyze=normal",
             "--parallel",
             "--incremental",
             "--no-daemon"
-        ]
+        ])
 
         result = subprocess.run(
             hvigor_cmd,

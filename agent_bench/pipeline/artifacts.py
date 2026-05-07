@@ -40,6 +40,10 @@ def diff_dir(case_dir: str) -> str:
     return stage_dir(case_dir, "diff")
 
 
+def opencode_runtime_dir(case_dir: str) -> str:
+    return stage_dir(case_dir, "opencode")
+
+
 def checks_dir(case_dir: str) -> str:
     return stage_dir(case_dir, "checks")
 

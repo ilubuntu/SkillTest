@@ -20,6 +20,7 @@ from agent_bench.pipeline.artifacts import (
     save_case_result,
     save_interaction_metrics,
     save_runner_artifacts,
+    opencode_runtime_dir,
 )
 from agent_bench.pipeline.compile_checker import check_project_compilable, prepare_project_workspace
 from agent_bench.pipeline.loader import (
@@ -411,20 +412,25 @@ def _initialize_workspace_git(case_dir: str, workspace_dir: str, on_progress):
     return workspace_base_commit
 
 
-def _cleanup_workspace_runtime_files(workspace_dir: str, on_progress):
-    removed = []
+def _archive_workspace_opencode_files(case_dir: str, workspace_dir: str, on_progress):
+    archive_root = opencode_runtime_dir(case_dir)
+    archived = []
     for relative_path in [".opencode", "opencode.json"]:
-        target_path = os.path.join(workspace_dir, relative_path)
+        source_path = os.path.join(workspace_dir, relative_path)
+        if not os.path.exists(source_path):
+            continue
+        target_path = os.path.join(archive_root, relative_path)
         if os.path.isdir(target_path):
             shutil.rmtree(target_path, ignore_errors=True)
-            removed.append(relative_path)
         elif os.path.exists(target_path):
             os.remove(target_path)
-            removed.append(relative_path)
-    if removed:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        shutil.move(source_path, target_path)
+        archived.append(relative_path)
+    if archived:
         _notify(on_progress, "log", {
             "level": "INFO",
-            "message": f"已清理工作区运行时文件: {', '.join(removed)}",
+            "message": f"已归档工作区 OpenCode 运行时文件: {', '.join(archived)} -> {archive_root}",
         })
 
 
@@ -432,7 +438,7 @@ def _generate_review_patch(case_dir: str, workspace_dir: str, workspace_base_com
     patch_root = diff_dir(case_dir)
     os.makedirs(patch_root, exist_ok=True)
     patch_path = os.path.join(patch_root, "changes.patch")
-    _cleanup_workspace_runtime_files(workspace_dir, on_progress)
+    _archive_workspace_opencode_files(case_dir, workspace_dir, on_progress)
     add_result = subprocess.run(
         ["git", "add", "-A", "--", "."],
         cwd=workspace_dir,
