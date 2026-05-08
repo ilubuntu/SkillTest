@@ -13,6 +13,7 @@ from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 from agent_bench.pipeline.artifacts import (
     agent_meta_dir,
     agent_workspace_dir,
+    checks_dir,
     diff_dir,
     original_project_dir,
     load_runner_artifacts,
@@ -32,7 +33,7 @@ from agent_bench.pipeline.prompts import (
 from agent_bench.agent_runner import AgentRunner, build_agent_spec
 
 MAX_LOGGED_OUTPUT_CHARS = 1000
-MAX_COMPILE_ERROR_PREVIEW_CHARS = 2000
+MAX_COMPILE_ERROR_PREVIEW_CHARS = 1000
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 WORKSPACE_GIT_EXCLUDE = """build/
 .hvigor/
@@ -580,6 +581,12 @@ def _run_compile_check(case: dict,
                 "level": "ERROR",
                 "message": f"{stage_label} 错误摘要:\n{error_preview}",
             })
+        _notify(on_progress, "compile_check_failed", {
+            "case_id": case["id"],
+            "stage": stage_name,
+            "stage_label": stage_label,
+            "checks_dir": checks_dir(case_dir),
+        })
     _notify(on_progress, "stage_done", {"case_id": case["id"], "stage": stage_name, "status": "done", "elapsed": elapsed})
     return compile_result
 

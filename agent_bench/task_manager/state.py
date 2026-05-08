@@ -34,6 +34,7 @@ def create_task_state(payload: CloudExecutionStartRequest, cloud_base_url: str) 
         "case_dir": "",
         "output_code_url": "",
         "diff_file_url": "",
+        "checks_urls": {},
         "sse_log_path": "",
         "sse_progress_log_path": "",
         "progress_queue_path": "",

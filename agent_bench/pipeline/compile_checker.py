@@ -12,6 +12,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
+from contextlib import contextmanager
 from typing import Dict, Tuple, Any
 
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
@@ -30,6 +32,9 @@ TOOLCHAIN_ENV_JAVA = "AGENT_BENCH_JAVA_HOME"
 TOOLCHAIN_ENV_SDK = "AGENT_BENCH_HARMONYOS_SDK"
 TOOLCHAIN_ENV_SDK_LEGACY = "AGENT_BENCH_SDK_ROOT"
 DEFAULT_HVIGOR_TASKS = ["assembleHap"]
+_HVIGOR_SEMAPHORE_LOCK = threading.Lock()
+_HVIGOR_SEMAPHORE: threading.BoundedSemaphore | None = None
+_HVIGOR_SEMAPHORE_LIMIT: int | None = None
 
 
 def _external_stage_cache_dir(project_root: str) -> str:
@@ -44,6 +49,38 @@ def _cleanup_external_stage_cache_dir(project_root: str):
     cache_dir = os.path.join(os.path.dirname(project_root), f"{os.path.basename(project_root)}_cache")
     if os.path.exists(cache_dir):
         shutil.rmtree(cache_dir, ignore_errors=True)
+
+
+def _load_hvigor_max_concurrency() -> int:
+    from agent_bench.pipeline.loader import load_config
+    config = load_config() or {}
+    task_manager = config.get("task_manager") if isinstance(config, dict) else {}
+    if not isinstance(task_manager, dict):
+        return 3
+    try:
+        return max(1, int(task_manager.get("hvigor_max_concurrency") or 3))
+    except Exception:
+        return 3
+
+
+def _get_hvigor_compile_semaphore() -> threading.BoundedSemaphore:
+    global _HVIGOR_SEMAPHORE, _HVIGOR_SEMAPHORE_LIMIT
+    limit = _load_hvigor_max_concurrency()
+    with _HVIGOR_SEMAPHORE_LOCK:
+        if _HVIGOR_SEMAPHORE is None or _HVIGOR_SEMAPHORE_LIMIT != limit:
+            _HVIGOR_SEMAPHORE = threading.BoundedSemaphore(limit)
+            _HVIGOR_SEMAPHORE_LIMIT = limit
+        return _HVIGOR_SEMAPHORE
+
+
+@contextmanager
+def _hvigor_compile_slot():
+    semaphore = _get_hvigor_compile_semaphore()
+    semaphore.acquire()
+    try:
+        yield
+    finally:
+        semaphore.release()
 
 
 def _is_reserved_windows_name(name: str) -> bool:
@@ -625,62 +662,64 @@ def _compile_project(project_path: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) 
         return False, f"DevEco Studio SDK 未找到: {paths['harmonyos_sdk']}"
 
     try:
-        env = _build_workspace_compile_env(project_path, paths)
-        ohpm_path = _resolve_ohpm_path(paths)
-        if not ohpm_path:
-            return False, "DevEco Studio ohpm 未找到"
+        # HarmonyOS 编译链路内存和 I/O 压力很高，多个 execution 并行时需要单独限流。
+        with _hvigor_compile_slot():
+            env = _build_workspace_compile_env(project_path, paths)
+            ohpm_path = _resolve_ohpm_path(paths)
+            if not ohpm_path:
+                return False, "DevEco Studio ohpm 未找到"
 
-        ohpm_cmd = [ohpm_path, "install", "--all"]
-        ohpm_result = subprocess.run(
-            ohpm_cmd,
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            timeout=min(timeout, 300),
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-        )
-        if ohpm_result.returncode != 0:
-            ohpm_stdout = ohpm_result.stdout or ""
-            ohpm_stderr = ohpm_result.stderr or ""
-            ohpm_output = ohpm_stdout + "\n[STDERR]\n" + ohpm_stderr if ohpm_stderr else ohpm_stdout
-            return False, f"[OHPM INSTALL FAILED]\n{ohpm_output}".strip()
+            ohpm_cmd = [ohpm_path, "install", "--all"]
+            ohpm_result = subprocess.run(
+                ohpm_cmd,
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=min(timeout, 300),
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
+            if ohpm_result.returncode != 0:
+                ohpm_stdout = ohpm_result.stdout or ""
+                ohpm_stderr = ohpm_result.stderr or ""
+                ohpm_output = ohpm_stdout + "\n[STDERR]\n" + ohpm_stderr if ohpm_stderr else ohpm_stdout
+                return False, f"[OHPM INSTALL FAILED]\n{ohpm_output}".strip()
 
-        module_selectors, hvigor_tasks = _resolve_hvigor_build_plan(project_path)
-        hvigor_cmd = [
-            paths["node"], paths["hvigor"],
-            "--mode", "module",
-            "-p", "product=default",
-        ]
-        if module_selectors:
-            hvigor_cmd.extend(["-p", "module=" + ",".join(module_selectors)])
-        hvigor_cmd.extend([
-            *hvigor_tasks,
-            "--analyze=normal",
-            "--parallel",
-            "--incremental",
-            "--no-daemon"
-        ])
+            module_selectors, hvigor_tasks = _resolve_hvigor_build_plan(project_path)
+            hvigor_cmd = [
+                paths["node"], paths["hvigor"],
+                "--mode", "module",
+                "-p", "product=default",
+            ]
+            if module_selectors:
+                hvigor_cmd.extend(["-p", "module=" + ",".join(module_selectors)])
+            hvigor_cmd.extend([
+                *hvigor_tasks,
+                "--analyze=normal",
+                "--parallel",
+                "--incremental",
+                "--no-daemon"
+            ])
 
-        result = subprocess.run(
-            hvigor_cmd,
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-        )
+            result = subprocess.run(
+                hvigor_cmd,
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
 
-        if result.returncode == 0:
-            return True, ""
+            if result.returncode == 0:
+                return True, ""
 
-        stdout = result.stdout or ""
-        stderr = result.stderr or ""
-        full_output = stdout + "\n[STDERR]\n" + stderr if stderr else stdout
-        return False, full_output if full_output.strip() else "编译失败"
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
+            full_output = stdout + "\n[STDERR]\n" + stderr if stderr else stdout
+            return False, full_output if full_output.strip() else "编译失败"
 
     except subprocess.TimeoutExpired:
         return False, f"编译超时（{timeout}秒）"

@@ -40,6 +40,10 @@ task_manager:
   # 超过该值的新任务会进入等待队列，不会被直接丢弃。
   max_concurrency: 3
 
+  # 平台预编译/后编译的最大并发数。
+  # 该限制只覆盖执行器自身发起的 ohpm + hvigor 编译，不限制 Agent 在 OpenCode 内自行调用的 hvigor。
+  hvigor_max_concurrency: 3
+
   # 云测管理台地址。
   # 执行器会向该地址上报任务进度和最终结果。
   cloud_base_url: "http://47.100.28.161:3000"

@@ -379,6 +379,8 @@ class CloudExecutionManager:
         def on_progress(event: str, data: Dict[str, Any]):
             upload_workspace_dir = ""
             upload_patch_path = ""
+            upload_checks_dir = ""
+            upload_checks_stage = ""
             with self._lock:
                 current = self._registry.require(execution_id)
                 if event == "log":
@@ -406,6 +408,9 @@ class CloudExecutionManager:
                 elif event == "artifacts_ready":
                     upload_workspace_dir = str(data.get("workspace_dir") or "").strip()
                     upload_patch_path = str(data.get("patch_path") or "").strip()
+                elif event == "compile_check_failed":
+                    upload_checks_dir = str(data.get("checks_dir") or "").strip()
+                    upload_checks_stage = str(data.get("stage") or "").strip()
                 elif event == "error":
                     current["error_message"] = data.get("message", "")
                     current["updated_at"] = now_iso()
@@ -430,6 +435,18 @@ class CloudExecutionManager:
                     if current is not None:
                         current["output_code_url"] = output_code_url
                         current["diff_file_url"] = diff_file_url
+            elif event == "compile_check_failed":
+                checks_url = self._artifacts.upload_checks_dir(
+                    upload_checks_dir,
+                    execution_id=execution_id,
+                    stage_name=upload_checks_stage,
+                    on_progress=on_progress,
+                )
+                if checks_url:
+                    with self._lock:
+                        current = self._registry.get(execution_id)
+                        if current is not None:
+                            current.setdefault("checks_urls", {})[upload_checks_stage or "unknown"] = checks_url
 
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

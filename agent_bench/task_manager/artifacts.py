@@ -24,6 +24,11 @@ AGC_PROJECT_CLIENT_CONFIG = {
 }
 
 
+def _safe_object_segment(value: str) -> str:
+    text = str(value or "").strip() or "unknown"
+    return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in text)
+
+
 class TaskArtifactUploader:
     def _create_agc_uploader(self):
         return create_uploader(
@@ -84,4 +89,28 @@ class TaskArtifactUploader:
         except Exception as exc:
             if on_progress:
                 on_progress("log", {"level": "ERROR", "message": f"[cloud_api] diff 文件上传失败: {exc}"})
+            return ""
+
+    def upload_checks_dir(self, checks_dir: str, execution_id: int, stage_name: str = "", on_progress=None) -> str:
+        if not HAS_STORAGE_UPLOADER:
+            return ""
+        if not checks_dir or not os.path.isdir(checks_dir):
+            return ""
+        try:
+            stage_segment = _safe_object_segment(stage_name)
+            object_name = f"cloud_api/checks/execution_{execution_id}_{stage_segment}_checks.zip"
+            if on_progress:
+                on_progress("log", {"level": "WARN", "message": f"[cloud_api] 开始上传编译检查目录: {object_name}"})
+            uploader = self._create_agc_uploader()
+            result = uploader.upload_directory(
+                checks_dir,
+                object_name=object_name,
+            )
+            upload_url = result.get("download_url") or ""
+            if on_progress:
+                on_progress("log", {"level": "WARN", "message": f"[cloud_api] 编译检查目录上传完成: {upload_url}"})
+            return upload_url
+        except Exception as exc:
+            if on_progress:
+                on_progress("log", {"level": "ERROR", "message": f"[cloud_api] 编译检查目录上传失败: {exc}"})
             return ""

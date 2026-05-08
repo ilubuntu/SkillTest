@@ -96,6 +96,8 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
             "输出预览",
             "【subAgent】",
         )):
+            if "TODO列表刷新" in text:
+                return _truncate_message(text, 1000)
             return _truncate_message(text, 160)
         if "Agent处理完成, output=" in text:
             return _truncate_message(text, 180)
@@ -128,6 +130,10 @@ def _execution_detail_event_kind(message: str) -> str:
         if any(token in text for token in tokens):
             return label
     return text
+
+
+def _is_sse_progress_message(message: str) -> bool:
+    return str(message or "").strip().startswith("【sse】")
 
 
 def _truncate_message(value: Any, limit: int = 100) -> str:
@@ -208,6 +214,11 @@ class TaskProgressTracker:
         normalized_message = _normalize_execution_detail_message(stage, message)
         if not normalized_message:
             return
+        detail_time = _now_stage_time()
+        if (
+            _is_sse_progress_message(message) or _is_sse_progress_message(normalized_message)
+        ) and str(state.get("_last_sse_execution_detail_time") or "") == detail_time:
+            return
         entry = self.ensure_stage_entry(state, stage)
         details = entry.setdefault("detail", [])
         if normalized_message == "正在处理":
@@ -216,7 +227,6 @@ class TaskProgressTracker:
                     return
         if details and str(details[-1].get("message") or "").strip() == normalized_message:
             return
-        detail_time = _now_stage_time()
         event_kind = _execution_detail_event_kind(normalized_message)
         for item in reversed(details):
             item_time = str(item.get("time") or "").strip()
@@ -224,6 +234,8 @@ class TaskProgressTracker:
                 break
             if _execution_detail_event_kind(str(item.get("message") or "")) == event_kind:
                 return
+        if _is_sse_progress_message(message) or _is_sse_progress_message(normalized_message):
+            state["_last_sse_execution_detail_time"] = detail_time
         details.append({
             "time": detail_time,
             "message": normalized_message,
@@ -239,13 +251,18 @@ class TaskProgressTracker:
         text = str(message or "").strip()
         if not text:
             return
+        detail_time = _now_stage_time()
+        if _is_sse_progress_message(text) and str(state.get("_last_sse_execution_detail_time") or "") == detail_time:
+            return
         entry = self.ensure_stage_entry(state, stage)
         details = entry.setdefault("detail", [])
         text = _truncate_message(text, 160)
         if details and str(details[-1].get("message") or "").strip() == text:
             return
+        if _is_sse_progress_message(text):
+            state["_last_sse_execution_detail_time"] = detail_time
         details.append({
-            "time": _now_stage_time(),
+            "time": detail_time,
             "message": text,
         })
         state["updated_at"] = now_iso()
