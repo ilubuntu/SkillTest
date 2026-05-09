@@ -6,6 +6,7 @@ import socket
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 
+from agent_bench.cloud_api.interaction_trace import load_agent_interaction_trace
 from agent_bench.cloud_api.models import CloudExecutionStartRequest
 from agent_bench.pipeline.loader import load_agent
 from agent_bench.task_manager import cloud_execution_manager
@@ -122,3 +123,41 @@ async def get_cloud_execution_status(execution_id: int | None = Query(default=No
 @router.get("/summary")
 async def get_cloud_execution_summary():
     return cloud_execution_manager.summary()
+
+
+def _load_agent_interaction_payload(execution_id: int):
+    """云测主动拉取 Agent/LLM 交互流程快照。"""
+    payload = load_agent_interaction_trace(execution_id)
+    if payload is None:
+        state = cloud_execution_manager.get_state(execution_id)
+        case_dir = str((state or {}).get("case_dir") or "").strip()
+        local_status = str((state or {}).get("local_status") or "").strip().lower()
+        if state and local_status not in {"completed", "failed"}:
+            return {
+                "executionId": execution_id,
+                "status": "not_ready",
+                "message": f"executionId={execution_id} 的 Agent/LLM 交互流程数据尚未准备好，或该任务 ID 不存在",
+            }
+        payload = load_agent_interaction_trace(
+            execution_id,
+            case_dir=case_dir or None,
+            status=local_status or "completed",
+            agent=str((state or {}).get("agent_id") or "").strip() or None,
+        )
+    if payload is None:
+        return {
+            "executionId": execution_id,
+            "status": "not_ready",
+            "message": f"executionId={execution_id} 的 Agent/LLM 交互流程数据尚未准备好，或该任务 ID 不存在",
+        }
+    return payload
+
+
+@router.get("/agent-interaction")
+async def get_agent_interaction(execution_id: int = Query(alias="executionId")):
+    return _load_agent_interaction_payload(execution_id)
+
+
+@router.get("/agent-interaction/{execution_id}")
+async def get_agent_interaction_compat(execution_id: int):
+    return _load_agent_interaction_payload(execution_id)

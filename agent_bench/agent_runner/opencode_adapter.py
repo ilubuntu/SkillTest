@@ -100,6 +100,7 @@ class OpenCodeAdapter(AgentAdapter):
         self._last_local_log_at = time.monotonic()
         self._current_workspace_dir = ""
         self._idle_sessions = set()
+        self._last_child_session_infos: dict[str, dict] = {}
         self._question_auto_reply = OpenCodeQuestionAutoReply(
             http_client=self._http_client,
             log_func=self._log,
@@ -406,6 +407,7 @@ class OpenCodeAdapter(AgentAdapter):
             self._current_workspace_dir = str(workspace_dir or "").strip()
             self._last_interaction_metrics = None
             self._last_error_message = ""
+            self._last_child_session_infos = {}
             effective_prompt = prompt
 
             # 1. 创建 session
@@ -620,6 +622,7 @@ class OpenCodeAdapter(AgentAdapter):
                 raise TimeoutError("OpenCode prompt_async 未在超时内返回完整消息")
 
             assistant_messages = self._fetch_assistant_messages(session_id, effective_prompt)
+            subagent_messages = self._fetch_subagent_message_history()
             # 不再把 message history 回填成伪 SSE。
             # 这样可以避免 agent_opencode_sse_full.jsonl / agent_opencode_sse_events.jsonl
             # 被“快照回填”污染，误导排障。
@@ -644,6 +647,7 @@ class OpenCodeAdapter(AgentAdapter):
                 response=payload,
                 message_info=message_info,
                 all_messages=assistant_messages,
+                subagent_messages=subagent_messages,
                 api_elapsed_ms=round(elapsed * 1000),
             )
             text = self._extract_best_text(parts, effective_prompt)
@@ -864,6 +868,7 @@ class OpenCodeAdapter(AgentAdapter):
                                 tag=tag,
                             )
                 child_session_infos = latest_child_infos
+                self._last_child_session_infos.update(latest_child_infos)
                 child_session_ids = next_child_session_ids
                 for child_session_id in sorted(child_session_ids):
                     child_payload, child_raw_message_data = self._fetch_latest_message_with_raw(
@@ -1901,20 +1906,41 @@ class OpenCodeAdapter(AgentAdapter):
     def _fetch_assistant_messages(self, session_id: str, prompt_text: str) -> list[dict]:
         try:
             data = self._http_client.list_messages(session_id, timeout=10)
-            messages = []
             if isinstance(data, list):
-                messages = data
+                return [item for item in data if isinstance(item, dict)]
             elif isinstance(data, dict):
-                messages = self._extract_message_list(data)
-            result = []
-            for message in messages:
-                candidate = self._coerce_message_payload(message, prompt_text)
-                if candidate and self._has_effective_assistant_progress(candidate):
-                    result.append(candidate)
-            return result
+                return self._extract_message_list(data)
+            return []
         except Exception as e:
             self._log("DEBUG", f"读取 session 全量消息失败: {e}")
             return []
+
+    def _fetch_subagent_message_history(self) -> list[dict]:
+        """Fetch full HTTP message history for every observed subAgent session."""
+        histories = []
+        for child_session_id, info in sorted(self._last_child_session_infos.items()):
+            if not child_session_id:
+                continue
+            title = str((info or {}).get("title") or "").strip()
+            subagent_type = self._extract_subagent_type_from_title(title)
+            try:
+                data = self._http_client.list_messages(child_session_id, timeout=10)
+                if isinstance(data, list):
+                    messages = [item for item in data if isinstance(item, dict)]
+                elif isinstance(data, dict):
+                    messages = self._extract_message_list(data)
+                else:
+                    messages = []
+            except Exception as e:
+                self._log("DEBUG", f"读取 subAgent 全量消息失败: session={self._short_session_id(child_session_id)}, error={e}")
+                messages = []
+            histories.append({
+                "session_id": child_session_id,
+                "title": title,
+                "subagent_type": subagent_type or self._short_session_id(child_session_id),
+                "message_history": messages,
+            })
+        return histories
 
     def _coerce_message_payload(self, data, prompt_text: str) -> Optional[dict]:
         for candidate in self._iter_message_candidates(data):
@@ -2052,7 +2078,8 @@ class OpenCodeAdapter(AgentAdapter):
                                    response: dict,
                                    message_info: Optional[dict],
                                    api_elapsed_ms: int,
-                                   all_messages: Optional[list] = None) -> dict:
+                                   all_messages: Optional[list] = None,
+                                   subagent_messages: Optional[list] = None) -> dict:
         payload = message_info or response or {}
         history = [item for item in (all_messages or []) if isinstance(item, dict)]
         if history:
@@ -2112,6 +2139,9 @@ class OpenCodeAdapter(AgentAdapter):
                 "response": response,
                 "message_info": payload,
                 "message_history": history,
+                "subagent_message_history": [
+                    item for item in (subagent_messages or []) if isinstance(item, dict)
+                ],
             },
             "derived": {
                 "source": source,

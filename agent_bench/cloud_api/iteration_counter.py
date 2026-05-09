@@ -19,9 +19,13 @@ class IterationCounter:
         raw = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
         parts = []
         if isinstance(raw, dict):
-            message_info = raw.get("message_info") or {}
-            if isinstance(message_info, dict) and isinstance(message_info.get("parts"), list):
-                parts = message_info.get("parts") or []
+            message_history = raw.get("message_history") if isinstance(raw.get("message_history"), list) else []
+            for message in message_history:
+                if not isinstance(message, dict):
+                    continue
+                message_parts = message.get("parts")
+                if isinstance(message_parts, list):
+                    parts.extend(item for item in message_parts if isinstance(item, dict))
 
         build_call_ids = set()
         build_call_count = 0

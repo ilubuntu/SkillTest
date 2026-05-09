@@ -307,3 +307,61 @@ curl http://127.0.0.1:8000/api/cloud-api/summary
 - `totalReceived` 是当前执行器进程内存统计，不是数据库累计值。
 - 执行器重启后，内存中的任务状态和计数会重新开始。
 - `maxConcurrency` 来自 `config/config.yaml` 的 `task_manager.max_concurrency`。
+
+## 6. 拉取 Agent/LLM 交互流程
+
+### `GET /api/cloud-api/agent-interaction?executionId={execution_id}`
+
+云测主动拉取指定任务的 Agent/LLM 交互流程快照。该接口不做鉴权。
+
+兼容路径：
+
+```http
+GET /api/cloud-api/agent-interaction/{execution_id}
+```
+
+请求示例：
+
+```bash
+curl 'http://127.0.0.1:8000/api/cloud-api/agent-interaction?executionId=1001'
+```
+
+```bash
+curl http://127.0.0.1:8000/api/cloud-api/agent-interaction/1001
+```
+
+响应示例：
+
+```json
+{
+  "executionId": 1001,
+  "agent": "harmonyos-plugin",
+  "model": "zhipuai-coding-plan/glm-5.1",
+  "status": "completed",
+  "workingDirectory": "results/execution_1001_20260508_211322/workspace",
+  "steps": [],
+  "subAgents": [],
+  "toolSummary": {},
+  "summary": {
+    "stepCount": 0,
+    "toolCallCount": 0
+  }
+}
+```
+
+说明：
+
+- 接口优先读取 `agent_traces/execution_<execution_id>_interaction.json`。
+- `results` 目录可以清理，`agent_traces` 是长期保存目录，不跟随 `results` 清理。
+- 数据未准备好或 executionId 不存在时仍返回 HTTP 200，`status` 为 `not_ready`。
+- 详细字段见 [Agent/LLM 交互流程拉取接口](./cloud-api/agent-interaction-report.md)。
+
+未准备好响应示例：
+
+```json
+{
+  "executionId": 1001,
+  "status": "not_ready",
+  "message": "executionId=1001 的 Agent/LLM 交互流程数据尚未准备好，或该任务 ID 不存在"
+}
+```

@@ -17,13 +17,18 @@ from agent_bench.pipeline.artifacts import (
     diff_dir,
     original_project_dir,
     load_runner_artifacts,
+    load_interaction_metrics,
     save_compile_artifacts,
     save_case_result,
     save_interaction_metrics,
     save_runner_artifacts,
     opencode_runtime_dir,
 )
-from agent_bench.pipeline.compile_checker import check_project_compilable, prepare_project_workspace
+from agent_bench.pipeline.compile_checker import (
+    check_project_compilable,
+    clean_project_build_outputs,
+    prepare_project_workspace,
+)
 from agent_bench.pipeline.loader import (
     resolve_case_original_project,
 )
@@ -31,6 +36,7 @@ from agent_bench.pipeline.prompts import (
     build_agent_task_prompt,
 )
 from agent_bench.agent_runner import AgentRunner, build_agent_spec
+from agent_bench.cloud_api.interaction_trace import persist_agent_interaction_trace
 
 MAX_LOGGED_OUTPUT_CHARS = 1000
 MAX_COMPILE_ERROR_PREVIEW_CHARS = 1000
@@ -63,6 +69,33 @@ LPT[1-9]
 def _notify(on_progress, event: str, data: dict):
     if on_progress:
         on_progress(event, data)
+
+
+def _prepare_agent_interaction_trace(case: dict, case_dir: str, agent_id: str, on_progress):
+    """在结果验证开始前准备云测可拉取的 Agent/LLM 交互流程快照。"""
+    execution_id = case.get("_cloud_execution_id")
+    if execution_id is None:
+        return
+    _notify(on_progress, "agent_interaction_trace_start", {
+        "execution_id": execution_id,
+    })
+    try:
+        trace_path = persist_agent_interaction_trace(
+            execution_id,
+            case_dir,
+            status="completed",
+            agent=agent_id,
+        )
+    except Exception as exc:
+        _notify(on_progress, "agent_interaction_trace_failed", {
+            "execution_id": execution_id,
+            "error": str(exc),
+        })
+        return
+    _notify(on_progress, "agent_interaction_trace_done", {
+        "execution_id": execution_id,
+        "trace_path": trace_path,
+    })
 
 
 def _clip_text(text: str, limit: int) -> str:
@@ -154,9 +187,15 @@ def _metrics_http(metrics: dict) -> dict:
 
 def _metrics_message_parts(metrics: dict) -> list[dict]:
     http = _metrics_http(metrics)
-    message_info = http.get("message_info") if isinstance(http, dict) else {}
-    parts = message_info.get("parts") if isinstance(message_info, dict) else []
-    return parts if isinstance(parts, list) else []
+    message_history = http.get("message_history") if isinstance(http.get("message_history"), list) else []
+    parts = []
+    for message in message_history:
+        if not isinstance(message, dict):
+            continue
+        message_parts = message.get("parts")
+        if isinstance(message_parts, list):
+            parts.extend(item for item in message_parts if isinstance(item, dict))
+    return parts
 
 
 def _extract_cumulative_usage(metrics: dict) -> dict:
@@ -243,20 +282,7 @@ def _format_completion_message(prefix: str, output_text: str, elapsed: float, me
 
 
 def _load_stage_interaction_metrics(case_dir: str, stage: str) -> dict:
-    metrics_path = ""
-    legacy_metrics_path = ""
-    if stage == "agent":
-        metrics_path = os.path.join(agent_meta_dir(case_dir), "agent_interaction_metrics.json")
-        legacy_metrics_path = os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json")
-    if not metrics_path or not os.path.exists(metrics_path):
-        metrics_path = legacy_metrics_path
-    if not metrics_path or not os.path.exists(metrics_path):
-        return {}
-    try:
-        with open(metrics_path, "r", encoding="utf-8") as f:
-            return json.load(f) or {}
-    except Exception:
-        return {}
+    return load_interaction_metrics(case_dir, stage)
 
 
 def _log_compile_self_check_signal(case_id: str,
@@ -591,6 +617,34 @@ def _run_compile_check(case: dict,
     return compile_result
 
 
+def _run_post_compile_clean(case: dict, project_path: str, on_progress):
+    t0 = time.time()
+    _notify(on_progress, "log", {
+        "level": "INFO",
+        "message": "[开始] 编译产物清理",
+    })
+    clean_result = clean_project_build_outputs(project_path)
+    elapsed = time.time() - t0
+    if clean_result.get("success"):
+        _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": f"编译产物清理完成 ({elapsed:.1f}s)",
+        })
+    else:
+        error_preview = _extract_compile_error_preview(str(clean_result.get("error") or ""))
+        _notify(on_progress, "log", {
+            "level": "WARNING",
+            "message": f"编译产物清理失败，继续生成结果 ({elapsed:.1f}s)",
+        })
+        if error_preview:
+            _notify(on_progress, "log", {
+                "level": "WARNING",
+                "message": f"编译产物清理错误摘要:\n{error_preview}",
+            })
+    case["_post_compile_clean_result"] = clean_result
+    return clean_result
+
+
 def run_single_case(case: dict,
                     case_dir: str,
                     stages: list = None,
@@ -665,6 +719,12 @@ def run_single_case(case: dict,
                 _notify(on_progress, "log", {"level": "WARNING", "message": f"{agent_spec.display_name} 输出预览:\n{_clip_text(output_text, MAX_LOGGED_OUTPUT_CHARS)}"})
             case["_agent_elapsed_s"] = int(elapsed)
             _notify(on_progress, "stage_done", {"case_id": case_id, "stage": "generating", "elapsed": elapsed})
+            _prepare_agent_interaction_trace(
+                case,
+                case_dir,
+                str(agent.get("id") or agent.get("name") or ""),
+                on_progress,
+            )
             post_compile_result = _run_compile_check(
                 case,
                 case_dir,
@@ -674,6 +734,7 @@ def run_single_case(case: dict,
                 on_progress,
             )
             case["_post_compile_result"] = post_compile_result
+            _run_post_compile_clean(case, workspace_dir, on_progress)
             patch_path = _generate_review_patch(case_dir, workspace_dir, workspace_base_commit, on_progress)
             _notify(on_progress, "artifacts_ready", {
                 "case_id": case_id,

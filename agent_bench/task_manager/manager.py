@@ -411,6 +411,18 @@ class CloudExecutionManager:
                 elif event == "compile_check_failed":
                     upload_checks_dir = str(data.get("checks_dir") or "").strip()
                     upload_checks_stage = str(data.get("stage") or "").strip()
+                elif event == "agent_interaction_trace_start":
+                    self._progress.write_execution_log(current, "INFO", "开始准备 Agent/LLM 交互流程信息")
+                elif event == "agent_interaction_trace_done":
+                    trace_path = str(data.get("trace_path") or "").strip()
+                    current["agent_interaction_trace_path"] = trace_path
+                    message = "Agent/LLM 交互流程信息已准备完成"
+                    self._progress.write_execution_log(current, "INFO", f"{message}: {trace_path}" if trace_path else message)
+                    self._progress.append_execution_detail(current, STAGE_VALIDATING, message)
+                elif event == "agent_interaction_trace_failed":
+                    error = str(data.get("error") or "").strip()
+                    message = "Agent/LLM 交互流程信息准备失败"
+                    self._progress.write_execution_log(current, "WARNING", f"{message}: {error}" if error else message)
                 elif event == "error":
                     current["error_message"] = data.get("message", "")
                     current["updated_at"] = now_iso()
@@ -517,6 +529,7 @@ class CloudExecutionManager:
                 prompt,
                 case_spec=case_spec,
             )
+            case["_cloud_execution_id"] = execution_id
 
             with self._lock:
                 state["run_dir"] = run_dir

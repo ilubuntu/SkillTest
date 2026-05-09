@@ -19,7 +19,7 @@ from agent_bench.cloud_api.models import (
     CloudStatusReportPayload,
     RemoteExecutionStatus,
 )
-from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir
+from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, load_interaction_metrics
 
 
 # ── 任务数据转换 ──────────────────────────────────────────────
@@ -116,11 +116,8 @@ def _load_text_if_exists(path: str) -> str:
 
 
 def load_agent_metrics(case_dir: str) -> Dict[str, Any]:
-    """加载 Agent 交互指标，优先读取 agent_interaction_metrics.json，回退到 interaction_metrics.json。"""
-    metrics = _load_json_if_exists(os.path.join(agent_meta_dir(case_dir), "agent_interaction_metrics.json"))
-    if metrics:
-        return metrics
-    return _load_json_if_exists(os.path.join(agent_meta_dir(case_dir), "interaction_metrics.json"))
+    """加载 Agent 交互指标，优先读取拆分文件，回退旧版单体文件。"""
+    return load_interaction_metrics(case_dir, "agent")
 
 
 def load_agent_output(case_dir: str) -> str:
@@ -139,7 +136,6 @@ def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
     优先级：
     1. message_history 中所有消息的 token 求和（覆盖多轮交互的真实消耗）
     2. derived.usage.total_tokens
-    3. http.message_info.info.tokens.total（仅最后一条消息，作为兜底）
     """
     http = metrics.get("http") if isinstance(metrics.get("http"), dict) else {}
     message_history = http.get("message_history") if isinstance(http.get("message_history"), list) else []
@@ -163,15 +159,12 @@ def _extract_total_tokens(metrics: Dict[str, Any]) -> int:
 
     derived = metrics.get("derived") if isinstance(metrics.get("derived"), dict) else {}
     usage = derived.get("usage") if isinstance(derived, dict) else {}
-    for value in (
-        usage.get("total_tokens"),
-        ((http.get("message_info") or {}).get("info") or {}).get("tokens", {}).get("total"),
-    ):
-        if value is not None:
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                pass
+    value = usage.get("total_tokens")
+    if value is not None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
     return 0
 
 

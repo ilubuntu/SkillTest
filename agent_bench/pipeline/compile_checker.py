@@ -329,6 +329,60 @@ def check_project_compilable(project_path: str,
     }
 
 
+def clean_project_build_outputs(project_path: str, timeout: int = 300) -> Dict[str, Any]:
+    """清理工程构建产物，用于最终打包上传前缩小 workspace 体积。"""
+    if not os.path.isdir(project_path):
+        return {
+            "success": False,
+            "error": f"待清理工程目录不存在: {project_path}",
+            "checked": True,
+        }
+
+    paths = resolve_harmony_toolchain()
+    if not os.path.exists(paths["node"]):
+        return {"success": False, "error": f"DevEco Studio node 未找到: {paths['node']}", "checked": True}
+    if not os.path.exists(paths["hvigor"]):
+        return {"success": False, "error": f"DevEco Studio hvigorw.js 未找到: {paths['hvigor']}", "checked": True}
+
+    clean_cmd = [
+        paths["node"],
+        paths["hvigor"],
+        "clean",
+        "--analyze=normal",
+        "--parallel",
+        "--incremental",
+        "--no-daemon",
+    ]
+    try:
+        with _hvigor_compile_slot():
+            env = _build_workspace_compile_env(project_path, paths)
+            result = subprocess.run(
+                clean_cmd,
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        output = stdout + "\n[STDERR]\n" + stderr if stderr else stdout
+        return {
+            "success": result.returncode == 0,
+            "error": "" if result.returncode == 0 else (output.strip() or "工程清理失败"),
+            "checked": True,
+            "command": " ".join(clean_cmd),
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": f"工程清理超时（{timeout}秒）", "checked": True, "command": " ".join(clean_cmd)}
+    except Exception as e:
+        return {"success": False, "error": f"工程清理异常: {str(e)}", "checked": True, "command": " ".join(clean_cmd)}
+    finally:
+        _cleanup_external_stage_cache_dir(project_path)
+
+
 def _load_harmony_toolchain_config() -> dict:
     from agent_bench.pipeline.loader import load_config
     config = load_config() or {}
