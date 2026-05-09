@@ -42,7 +42,7 @@ class AgcCloudStorageClient:
         "CN": "https://agc-storage-drcn.platform.dbankcloud.cn",
     }
     UPLOAD_BASE_URL = UPLOAD_HOSTS["CN"]
-    DEFAULT_BUCKET_NAME = "agent-bench-lpgvk"
+    DEFAULT_BUCKET_NAME = "agent-bench-zc9kf"
 
     def __init__(
         self,

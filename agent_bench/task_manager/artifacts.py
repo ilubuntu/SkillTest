@@ -12,13 +12,13 @@ except ImportError:
     HAS_STORAGE_UPLOADER = False
 
 
-AGC_BUCKET_NAME = "agent-bench-lpgvk"
+AGC_BUCKET_NAME = "agent-bench-zc9kf"
 AGC_PROJECT_CLIENT_CONFIG = {
     "type": "project_client_id",
-    "developer_id": "900086000150224722",
-    "project_id": "101653523863785276",
-    "client_id": "1919775246739619200",
-    "client_secret": "D1A9970837E38AAB4B7D4AFBDCAEC1B0D6511662C7026DAE1808298342F9192C",
+    "developer_id": "2850086000413834717",
+    "project_id": "101653523863784643",
+    "client_id": "1946332846855610624",
+    "client_secret": "81A2A59F2616F487A72FF83FE4604729ED206B08388D1B2770B102B1052CC07F",
     "configuration_version": "3.0",
     "region": "CN",
 }
