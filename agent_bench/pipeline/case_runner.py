@@ -623,7 +623,14 @@ def _run_post_compile_clean(case: dict, project_path: str, on_progress):
         "level": "INFO",
         "message": "[开始] 编译产物清理",
     })
-    clean_result = clean_project_build_outputs(project_path)
+    post_compile_result = case.get("_post_compile_result") if isinstance(case.get("_post_compile_result"), dict) else {}
+    clean_project_path = str(post_compile_result.get("project_path") or "").strip()
+    if not clean_project_path or not os.path.exists(clean_project_path):
+        clean_project_path = _resolve_compile_project_path(project_path, on_progress)
+    clean_result = clean_project_build_outputs(clean_project_path)
+    clean_result["project_path"] = clean_project_path
+    if clean_project_path != project_path:
+        clean_result["workspace_root"] = project_path
     elapsed = time.time() - t0
     if clean_result.get("success"):
         _notify(on_progress, "log", {

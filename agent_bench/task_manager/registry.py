@@ -47,6 +47,14 @@ class TaskRegistry:
                 count += 1
         return count
 
+    def running_execution_ids(self) -> list[int]:
+        running_ids = []
+        for execution_id, handle in self._handles.items():
+            worker_thread = handle.get("worker_thread")
+            if worker_thread is not None and getattr(worker_thread, "is_alive", lambda: False)():
+                running_ids.append(execution_id)
+        return sorted(running_ids)
+
     def latest_execution_id(self) -> Optional[int]:
         if not self._states:
             return None

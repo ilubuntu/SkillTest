@@ -77,6 +77,17 @@ def _emit_prepare_log(on_progress, message: str):
         on_progress("log", {"level": "INFO", "message": message})
 
 
+def _executor_info_suffix(state: Dict[str, Any]) -> str:
+    parts = [f"executor_id={state.get('execution_id')}"]
+    request_host = str(state.get("request_host") or "").strip()
+    executor_hostname = str(state.get("executor_hostname") or "").strip()
+    if request_host:
+        parts.append(f"request_host={request_host}")
+    if executor_hostname:
+        parts.append(f"hostname={executor_hostname}")
+    return f" ({', '.join(parts)})"
+
+
 def _cache_archive_path(file_url: str) -> str:
     parsed = urllib.parse.urlparse(file_url)
     suffix = os.path.splitext(parsed.path or "")[1] or ".zip"
@@ -228,6 +239,7 @@ class CloudExecutionManager:
         self._cloud_base_url = str(cloud_base_url).strip()
         # 超过并发上限的任务先进入等待队列，空出槽位后再启动。
         self._pending_queue: list[int] = []
+        self._server_started_time = int(time.time() * 1000)
 
     def _current_load_summary_locked(self) -> str:
         running_count = self._registry.running_execution_count()
@@ -326,9 +338,11 @@ class CloudExecutionManager:
                 queued=True,
                 queued_at=now_iso(),
             )
-            logger.info("任务进入等待队列 taskId=%s 当前排队序号=%s", payload.executionId, queue_index)
-            self._progress.append_conversation(state, "status", f"任务进入等待队列，当前排队序号={queue_index}")
-            self._progress.append_execution_detail(state, STAGE_PENDING, f"任务进入等待队列，当前排队序号={queue_index}")
+            executor_suffix = _executor_info_suffix(state)
+            queue_message = f"任务进入等待队列，当前排队序号={queue_index}{executor_suffix}"
+            logger.info("任务进入等待队列 taskId=%s 当前排队序号=%s%s", payload.executionId, queue_index, executor_suffix)
+            self._progress.append_conversation(state, "status", queue_message)
+            self._progress.append_execution_detail(state, STAGE_PENDING, queue_message)
             return True, f"任务已接收，当前排队序号={queue_index}"
 
     def get_state(self, execution_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -342,10 +356,15 @@ class CloudExecutionManager:
     def summary(self) -> Dict[str, Any]:
         """返回执行器当前任务负载摘要。"""
         with self._lock:
+            running_execution_ids = self._registry.running_execution_ids()
+            queued_execution_ids = list(self._pending_queue)
             return {
+                "serverStartedTime": self._server_started_time,
                 "totalReceived": len(self._registry.snapshot_list()),
-                "runningCount": self._registry.running_execution_count(),
-                "queuedCount": len(self._pending_queue),
+                "runningCount": len(running_execution_ids),
+                "runningExecutionIds": running_execution_ids,
+                "queuedCount": len(queued_execution_ids),
+                "queuedExecutionIds": queued_execution_ids,
                 "maxConcurrency": self._max_concurrency,
             }
 
@@ -541,17 +560,10 @@ class CloudExecutionManager:
             update_local_status("running", STAGE_PREPARING)
             with self._lock:
                 self._progress.append_conversation(state, "status", "任务开始执行")
-                executor_parts = [f"executor_id={state.get('execution_id')}"]
-                request_host = str(state.get("request_host") or "").strip()
-                executor_hostname = str(state.get("executor_hostname") or "").strip()
-                if request_host:
-                    executor_parts.append(f"request_host={request_host}")
-                if executor_hostname:
-                    executor_parts.append(f"hostname={executor_hostname}")
                 self._progress.append_execution_detail(
                     state,
                     STAGE_PENDING,
-                    f"任务已接收，等待执行 ({', '.join(executor_parts)})",
+                    f"任务已接收，等待执行{_executor_info_suffix(state)}",
                 )
                 self._progress.append_execution_detail(state, STAGE_PREPARING, f"本地产物目录: {run_dir}")
                 executor_log = os.path.join(

@@ -286,24 +286,31 @@ curl http://127.0.0.1:8000/api/cloud-api/summary
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
+| `serverStartedTime` | number | 执行器服务启动时间，毫秒时间戳 |
 | `totalReceived` | number | 当前进程启动后已接收并登记的任务总数 |
 | `runningCount` | number | 当前正在执行的任务数 |
+| `runningExecutionIds` | number[] | 当前正在执行的 executionId 列表 |
 | `queuedCount` | number | 当前排队等待执行的任务数 |
+| `queuedExecutionIds` | number[] | 当前排队等待执行的 executionId 列表 |
 | `maxConcurrency` | number | 当前配置的最大并发数 |
 
 响应示例：
 
 ```json
 {
+  "serverStartedTime": 1778490000000,
   "totalReceived": 12,
   "runningCount": 2,
+  "runningExecutionIds": [1125, 1126],
   "queuedCount": 1,
+  "queuedExecutionIds": [1127],
   "maxConcurrency": 5
 }
 ```
 
 说明：
 
+- `serverStartedTime` 使用毫秒时间戳，避免本地时间字符串和 UTC 时区歧义。
 - `totalReceived` 是当前执行器进程内存统计，不是数据库累计值。
 - 执行器重启后，内存中的任务状态和计数会重新开始。
 - `maxConcurrency` 来自 `config/config.yaml` 的 `task_manager.max_concurrency`。

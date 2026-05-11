@@ -16,6 +16,7 @@ from agent_bench.task_manager.state import now_iso
 
 STATUS_PUSH_DETAIL_FLUSH_SECONDS = 3.0
 RAW_LOG_FALLBACK_PUSH_SECONDS = 60.0
+SSE_PROGRESS_MIN_INTERVAL_SECONDS = 2.0
 
 STAGE_PENDING = "pending"
 STAGE_PREPARING = "preparing"
@@ -76,8 +77,10 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
     if not text:
         return None
     if any(token in text for token in (
+        "先检查本地缓存:",
         "工程包已解压到任务执行沙箱:",
         "已清理下载中转目录:",
+        "已写入工作区 Git 本地排除规则:",
         "工作区 Git 基线已建立:",
     )):
         return None
@@ -138,6 +141,14 @@ def _execution_detail_event_kind(message: str) -> str:
 
 def _is_sse_progress_message(message: str) -> bool:
     return str(message or "").strip().startswith("【sse】")
+
+
+def _should_skip_sse_progress_by_interval(state: Dict[str, Any], now_epoch: float) -> bool:
+    try:
+        last_epoch = float(state.get("_last_sse_execution_detail_epoch") or 0.0)
+    except Exception:
+        last_epoch = 0.0
+    return last_epoch > 0 and (now_epoch - last_epoch) < SSE_PROGRESS_MIN_INTERVAL_SECONDS
 
 
 def _truncate_message(value: Any, limit: int = 100) -> str:
@@ -219,9 +230,9 @@ class TaskProgressTracker:
         if not normalized_message:
             return
         detail_time = _now_stage_time()
-        if (
-            _is_sse_progress_message(message) or _is_sse_progress_message(normalized_message)
-        ) and str(state.get("_last_sse_execution_detail_time") or "") == detail_time:
+        is_sse_message = _is_sse_progress_message(message) or _is_sse_progress_message(normalized_message)
+        now_epoch = time.time()
+        if is_sse_message and _should_skip_sse_progress_by_interval(state, now_epoch):
             return
         entry = self.ensure_stage_entry(state, stage)
         details = entry.setdefault("detail", [])
@@ -238,8 +249,9 @@ class TaskProgressTracker:
                 break
             if _execution_detail_event_kind(str(item.get("message") or "")) == event_kind:
                 return
-        if _is_sse_progress_message(message) or _is_sse_progress_message(normalized_message):
+        if is_sse_message:
             state["_last_sse_execution_detail_time"] = detail_time
+            state["_last_sse_execution_detail_epoch"] = now_epoch
         details.append({
             "time": detail_time,
             "message": normalized_message,
@@ -256,15 +268,18 @@ class TaskProgressTracker:
         if not text:
             return
         detail_time = _now_stage_time()
-        if _is_sse_progress_message(text) and str(state.get("_last_sse_execution_detail_time") or "") == detail_time:
+        is_sse_message = _is_sse_progress_message(text)
+        now_epoch = time.time()
+        if is_sse_message and _should_skip_sse_progress_by_interval(state, now_epoch):
             return
         entry = self.ensure_stage_entry(state, stage)
         details = entry.setdefault("detail", [])
         text = _truncate_message(text, 160)
         if details and str(details[-1].get("message") or "").strip() == text:
             return
-        if _is_sse_progress_message(text):
+        if is_sse_message:
             state["_last_sse_execution_detail_time"] = detail_time
+            state["_last_sse_execution_detail_epoch"] = now_epoch
         details.append({
             "time": detail_time,
             "message": text,
