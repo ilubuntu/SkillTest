@@ -29,6 +29,15 @@ agents:
         path: "config/skills/build-harmony-project"
     extra_prompt: "你已挂载build-harmony-project这个skill，完成一轮代码修改并准备结束时，必须先调用skill对当前工程执行一次编译验证，如果编译失败，必须根据编译错误继续修改代码并再次验证，最多重试5轮。在调用skill处理任务的过程中，请使用默认选项直接执行，不需要询问我，你自主决策。"
 
+  - id: "baseline-local-glm5.1"
+    name: "local glm5.1" 
+    opencode_agent: "build"
+    model: "glm5-local/glm-5.1"
+    mounted_skills:
+      - name: "build-harmony-project"
+        path: "config/skills/build-harmony-project"
+    extra_prompt: "你已挂载build-harmony-project这个skill，完成一轮代码修改并准备结束时，必须先调用skill对当前工程执行一次编译验证，如果编译失败，必须根据编译错误继续修改代码并再次验证，最多重试5轮。在调用skill处理任务的过程中，请使用默认选项直接执行，不需要询问我，你自主决策。"
+  
 
   - id: "harmonyos-plugin"
     name: "鸿蒙开发 Agent glm5"
@@ -60,6 +69,19 @@ agents:
     name: "鸿蒙开发 Agent glm5.1"
     opencode_agent: "harmonyos-plugin"
     model: "zhipuai-coding-plan/glm-5.1"
+    mounted_skills:
+      - name: "harmonyos-atomic-dev"
+        path: "config/skills/harmonyos-atomic-dev"
+      - name: "harmonyos-hvigor"
+        path: "config/skills/harmonyos-hvigor"
+      - name: "harmonyos-prd-design"
+        path: "config/skills/harmonyos-prd-design"
+    extra_prompt: "在调用skill处理任务的过程中，请使用默认选项直接执行，不需要询问我，你自主决策。"
+
+  - id: "harmonyos-plugin-local-glm5.1"
+    name: "鸿蒙开发 Agent local glm5.1"
+    opencode_agent: "harmonyos-plugin"
+    model: "glm5-local/glm-5.1"
     mounted_skills:
       - name: "harmonyos-atomic-dev"
         path: "config/skills/harmonyos-atomic-dev"
