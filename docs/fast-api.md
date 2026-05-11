@@ -308,11 +308,11 @@ curl http://127.0.0.1:8000/api/cloud-api/summary
 - 执行器重启后，内存中的任务状态和计数会重新开始。
 - `maxConcurrency` 来自 `config/config.yaml` 的 `task_manager.max_concurrency`。
 
-## 6. 拉取 Agent/LLM 交互流程
+## 6. 本地查看 Agent/LLM 交互流程
 
 ### `GET /api/cloud-api/agent-interaction?executionId={execution_id}`
 
-云测主动拉取指定任务的 Agent/LLM 交互流程快照。该接口不做鉴权。
+本地调试读取指定任务的 Agent/LLM 交互流程快照。云测正式链路通过 `POST /api/test-executions/{id}/agent-log` 接收执行器上传的文件，不依赖该读取接口。
 
 兼容路径：
 
@@ -354,7 +354,7 @@ curl http://127.0.0.1:8000/api/cloud-api/agent-interaction/1001
 - 接口优先读取 `agent_traces/execution_<execution_id>_interaction.json`。
 - `results` 目录可以清理，`agent_traces` 是长期保存目录，不跟随 `results` 清理。
 - 数据未准备好或 executionId 不存在时仍返回 HTTP 200，`status` 为 `not_ready`。
-- 详细字段见 [Agent/LLM 交互流程拉取接口](./cloud-api/agent-interaction-report.md)。
+- 详细字段见 [Agent/LLM 交互流程上传接口](./cloud-api/agent-interaction-report.md)。
 
 未准备好响应示例：
 

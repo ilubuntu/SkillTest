@@ -72,7 +72,7 @@ def _notify(on_progress, event: str, data: dict):
 
 
 def _prepare_agent_interaction_trace(case: dict, case_dir: str, agent_id: str, on_progress):
-    """在结果验证开始前准备云测可拉取的 Agent/LLM 交互流程快照。"""
+    """在结果验证开始前准备 Agent/LLM 交互流程快照，生成成功后由任务管理器上传云测。"""
     execution_id = case.get("_cloud_execution_id")
     if execution_id is None:
         return

@@ -20,6 +20,7 @@ from agent_bench.cloud_api.converter import (
     build_execution_result_payload,
     build_prompt,
 )
+from agent_bench.cloud_api.client import build_agent_log_url, upload_agent_log
 from agent_bench.cloud_api.models import CloudExecutionStartRequest
 from agent_bench.common.build_profile import sanitize_root_build_profile_signing_configs
 from agent_bench.pipeline.case_runner import run_single_case
@@ -62,6 +63,13 @@ def _truncate_message(value: Any, limit: int = 100) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
+
+
+def _safe_json(data: Any) -> str:
+    try:
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    except Exception:
+        return str(data)
 
 
 def _emit_prepare_log(on_progress, message: str):
@@ -362,6 +370,57 @@ class CloudExecutionManager:
             if should_stop:
                 return
 
+    def _upload_agent_interaction_log(self, execution_id: int, trace_path: str):
+        """Agent/LLM 交互流程 JSON 生成后立即上传云测，失败不影响主流程。"""
+        trace_path = str(trace_path or "").strip()
+        if not trace_path:
+            return
+        if not os.path.isfile(trace_path):
+            with self._lock:
+                state = self._registry.get(execution_id)
+                if state is not None:
+                    self._progress.write_execution_log(state, "WARNING", f"Agent/LLM 交互日志文件不存在，跳过上传: {trace_path}")
+            return
+
+        with self._lock:
+            state = self._registry.get(execution_id)
+            if state is None:
+                return
+            base_url = str(state.get("cloud_base_url") or self._cloud_base_url).strip()
+            token = (state.get("token") or "").strip() or None
+            self._progress.append_cloud_event(state, "agent_log_upload_request", {
+                "url": build_agent_log_url(base_url, execution_id),
+                "file": trace_path,
+                "has_token": bool(token),
+            })
+            self._progress.write_execution_log(state, "INFO", f"开始上传 Agent/LLM 交互日志: {trace_path}")
+
+        response = upload_agent_log(
+            cloud_base_url=base_url,
+            execution_id=execution_id,
+            file_path=trace_path,
+            token=token,
+        )
+        response_summary = {
+            "ok": bool(response.get("ok")),
+            "status_code": response.get("status_code"),
+            "message": _truncate_message(str(response.get("body") or ""), 200),
+        }
+        with self._lock:
+            state = self._registry.get(execution_id)
+            if state is None:
+                return
+            state["last_agent_log_upload_response"] = response
+            self._progress.append_cloud_event(state, "agent_log_upload_response", {
+                "file": trace_path,
+                "response": response,
+            })
+            if response.get("ok"):
+                self._progress.write_execution_log(state, "INFO", f"Agent/LLM 交互日志上传完成: {_safe_json(response_summary)}")
+                self._progress.append_execution_detail(state, STAGE_VALIDATING, "Agent/LLM 交互流程信息已上传服务器")
+            else:
+                self._progress.write_execution_log(state, "WARNING", f"Agent/LLM 交互日志上传失败，继续执行后续流程: {_safe_json(response_summary)}")
+
     def _run_execution(self, payload: CloudExecutionStartRequest, local_base_url: str):
         # 每个 execution 在自己的线程里完整执行一条 pipeline，互不共享运行上下文。
         execution_id = payload.executionId
@@ -381,6 +440,7 @@ class CloudExecutionManager:
             upload_patch_path = ""
             upload_checks_dir = ""
             upload_checks_stage = ""
+            upload_agent_log_path = ""
             with self._lock:
                 current = self._registry.require(execution_id)
                 if event == "log":
@@ -416,9 +476,9 @@ class CloudExecutionManager:
                 elif event == "agent_interaction_trace_done":
                     trace_path = str(data.get("trace_path") or "").strip()
                     current["agent_interaction_trace_path"] = trace_path
-                    message = "Agent/LLM 交互流程信息已准备完成"
+                    message = "Agent/LLM 交互流程信息已生成"
                     self._progress.write_execution_log(current, "INFO", f"{message}: {trace_path}" if trace_path else message)
-                    self._progress.append_execution_detail(current, STAGE_VALIDATING, message)
+                    upload_agent_log_path = trace_path
                 elif event == "agent_interaction_trace_failed":
                     error = str(data.get("error") or "").strip()
                     message = "Agent/LLM 交互流程信息准备失败"
@@ -447,6 +507,8 @@ class CloudExecutionManager:
                     if current is not None:
                         current["output_code_url"] = output_code_url
                         current["diff_file_url"] = diff_file_url
+            elif event == "agent_interaction_trace_done" and upload_agent_log_path:
+                self._upload_agent_interaction_log(execution_id, upload_agent_log_path)
             elif event == "compile_check_failed":
                 checks_url = self._artifacts.upload_checks_dir(
                     upload_checks_dir,

@@ -161,8 +161,13 @@ def save_compile_artifacts(case_dir: str, stage: str, compile_result: dict):
     target_dir = os.path.join(checks_dir(case_dir), stage)
     os.makedirs(target_dir, exist_ok=True)
     sanitized_result = _strip_ansi_sequences(compile_result or {})
+    json_result = dict(sanitized_result)
+    if json_result.get("error"):
+        # 完整编译日志只保留一份 compile.log.txt，避免 JSON 再复制一份大文本。
+        json_result.pop("error", None)
+        json_result["errorLogFile"] = "compile.log.txt"
     with open(os.path.join(target_dir, "compile_result.json"), "w", encoding="utf-8") as f:
-        json.dump(sanitized_result, f, ensure_ascii=False, indent=2)
+        json.dump(json_result, f, ensure_ascii=False, indent=2)
     with open(os.path.join(target_dir, "compile.log.txt"), "w", encoding="utf-8") as f:
         f.write(sanitized_result.get("error", "") or ("编译成功" if sanitized_result.get("compilable") else ""))
 

@@ -1,49 +1,59 @@
-# Agent/LLM 交互流程拉取接口
+# Agent/LLM 交互流程上传接口
 
-本文档定义云测平台从执行器拉取 Agent 和 LLM 交互流程的接口。
+本文档定义执行器向云测平台上传 Agent 和 LLM 交互流程的接口。
 
 接口目标：
 
 - 云测平台可以展示 Agent 执行过程时间线。
 - 展示模型输出、思考摘要、工具调用、工具耗时、token 统计。
-- 执行器本地先把交互流程快照落盘，云测需要展示时再主动请求。
-- 该接口不做鉴权。
+- 执行器本地先把交互流程快照落盘，JSON 文件生成成功后立即上传到云测。
 - `results` 目录可能随时清理，因此交互流程快照需要另存长期目录。
+- 本地调试读取接口保留，但云测正式链路以文件上传为准。
 
 ## 1. 接口地址
 
-执行器提供：
+云测平台提供：
 
 ```http
-GET {executorBaseUrl}/api/cloud-api/agent-interaction?executionId={executionId}
+POST {cloudBaseUrl}/api/test-executions/{executionId}/agent-log
 ```
 
-兼容路径：
+请求类型：
 
 ```http
-GET {executorBaseUrl}/api/cloud-api/agent-interaction/{executionId}
+Content-Type: multipart/form-data
 ```
+
+参数：
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `executionId` | path | number | 是 | 云测任务 ID |
+| `file` | body | file | 是 | Agent/LLM 交互流程 JSON 文件 |
 
 示例：
 
 ```http
-GET http://127.0.0.1:8000/api/cloud-api/agent-interaction?executionId=997
+POST http://47.100.28.161:3000/api/test-executions/997/agent-log
 ```
 
-```http
-GET http://127.0.0.1:8000/api/cloud-api/agent-interaction/997
+```bash
+curl -X POST \
+  -F 'file=@agent_traces/execution_997_interaction.json;type=application/json' \
+  http://47.100.28.161:3000/api/test-executions/997/agent-log
 ```
 
 说明：
 
 | 字段 | 说明 |
 | --- | --- |
-| `executorBaseUrl` | 执行器服务地址 |
-| `executionId` | 云测任务 ID |
+| `cloudBaseUrl` | 云测平台服务地址 |
+| `executionId` | 云测任务 ID，路径参数 |
+| `file` | 执行器生成的交互流程 JSON 文件 |
 
 ## 2. 本地长期保存
 
-任务执行结束后，执行器需要把交互流程快照写入长期保存目录。云测调用接口时，执行器直接读取该目录中的快照并返回。
+Agent 执行结束后，执行器需要把交互流程快照写入长期保存目录，并在 JSON 文件生成成功后立即上传到云测。
 
 建议目录：
 
@@ -62,7 +72,7 @@ agent_traces/execution_1001_interaction.json
 
 | 路径 | 说明 |
 | --- | --- |
-| `agent_traces/execution_<executionId>_interaction.json` | 云测接口直接返回的最终快照 |
+| `agent_traces/execution_<executionId>_interaction.json` | 上传到云测的最终快照 |
 
 原始数据仍保存在 `results/execution_<id>_<timestamp>/generate/metrics/`：
 
@@ -75,9 +85,9 @@ agent_traces/execution_1001_interaction.json
 保存策略：
 
 - `results` 是任务运行产物目录，可以按磁盘空间策略清理。
-- `agent_traces` 是云测展示依赖的长期数据目录，不应跟随 `results` 一起清理。
+- `agent_traces` 是长期留存目录，不应跟随 `results` 一起清理。
 - 如果需要清理 `agent_traces`，建议按保留天数或 executionId 范围单独清理。
-- 接口优先读取 `execution_<executionId>_interaction.json`；如果任务仍在当前进程内且 `results` 未清理，可以从 `results` 的 metrics 临时生成一份快照。
+- 本地调试接口优先读取 `execution_<executionId>_interaction.json`；如果任务仍在当前进程内且 `results` 未清理，可以从 `results` 的 metrics 临时生成一份快照。
 
 ## 3. 成功响应体
 
@@ -760,9 +770,16 @@ outgoingCalls
 | `usage.cache_write_tokens` | number | 缓存写入 token 总数 |
 | `usage.cost` | number | 成本，没有时传 0 |
 
-## 9. 未准备好响应
+## 9. 本地调试读取接口
 
-接口不做鉴权。数据未准备好或 executionId 不存在时，仍返回 HTTP 200，响应体用 `status=not_ready` 表示。
+执行器仍保留本地读取能力，便于问题定位；云测正式链路不依赖该接口。
+
+```http
+GET {executorBaseUrl}/api/cloud-api/agent-interaction?executionId={executionId}
+GET {executorBaseUrl}/api/cloud-api/agent-interaction/{executionId}
+```
+
+数据未准备好或 executionId 不存在时，仍返回 HTTP 200，响应体用 `status=not_ready` 表示。
 
 ```json
 {
@@ -772,15 +789,15 @@ outgoingCalls
 }
 ```
 
-## 10. 拉取策略
+## 10. 上传策略
 
-第一版建议使用结果验证阶段后拉取：
+当前实现：
 
 - Agent 执行结束、结果验证开始前，执行器生成长期快照。
-- 云测展示详情页时主动调用 `GET /api/cloud-api/agent-interaction?executionId={executionId}`。
-- 兼容 `GET /api/cloud-api/agent-interaction/{executionId}`，但推荐查询参数形式，和现有状态查询接口风格一致。
-- 同一个 `executionId` 多次请求时，返回同一份长期快照。
-- 如果 Agent 阶段尚未完成或任务 ID 不存在，返回 `status=not_ready`。
-- 不做鉴权。
+- JSON 文件生成成功后，执行器立即调用 `POST /api/test-executions/{executionId}/agent-log` 上传该文件。
+- 上传完成后继续执行结果验证、产物上传和最终结果上报。
+- 上传成功或失败都会写入本地 `cloud_api_events.json`。
+- 上传失败不阻断最终结果上报，避免交互日志接口异常影响主任务结果。
+- 本地读取接口继续保留，用于人工排查和临时验证。
 
 后续如果要实时展示，可以新增独立的实时接口；不要把该长期快照接口改成流式协议。

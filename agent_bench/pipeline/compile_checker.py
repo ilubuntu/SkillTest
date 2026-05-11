@@ -51,6 +51,29 @@ def _cleanup_external_stage_cache_dir(project_root: str):
         shutil.rmtree(cache_dir, ignore_errors=True)
 
 
+def _repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _copy_package_manager_config(home_root: str, env: Dict[str, str]):
+    """从工程 config 复制 npm/ohpm 配置到本轮隔离 HOME。"""
+    config_dir = os.path.join(_repo_root(), "config")
+    npmrc_src = os.path.join(config_dir, ".npmrc")
+    if os.path.isfile(npmrc_src):
+        npmrc_dst = os.path.join(home_root, ".npmrc")
+        shutil.copyfile(npmrc_src, npmrc_dst)
+        env["NPM_CONFIG_USERCONFIG"] = npmrc_dst
+        env["npm_config_userconfig"] = npmrc_dst
+
+    ohpmrc_src = os.path.join(config_dir, ".ohpmrc")
+    if os.path.isfile(ohpmrc_src):
+        ohpm_home = os.path.join(home_root, ".ohpm")
+        os.makedirs(ohpm_home, exist_ok=True)
+        shutil.copyfile(ohpmrc_src, os.path.join(ohpm_home, ".ohpmrc"))
+        # 兼容部分 ohpm 版本直接读取 HOME/.ohpmrc 的行为。
+        shutil.copyfile(ohpmrc_src, os.path.join(home_root, ".ohpmrc"))
+
+
 def _load_hvigor_max_concurrency() -> int:
     from agent_bench.pipeline.loader import load_config
     config = load_config() or {}
@@ -681,12 +704,7 @@ def _build_workspace_compile_env(project_path: str, paths: Dict[str, str]) -> Di
     ):
         env.pop(key, None)
 
-    original_userprofile = os.environ.get("USERPROFILE") or ""
-    if original_userprofile:
-        user_npmrc = os.path.join(original_userprofile, ".npmrc")
-        if os.path.isfile(user_npmrc):
-            env["NPM_CONFIG_USERCONFIG"] = user_npmrc
-            env["npm_config_userconfig"] = user_npmrc
+    _copy_package_manager_config(home_root, env)
 
     drive, tail = os.path.splitdrive(home_root)
     if drive:

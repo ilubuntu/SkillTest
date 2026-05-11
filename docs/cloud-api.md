@@ -308,7 +308,49 @@ Authorization: Bearer <token>
 
 执行器不会强依赖响应体字段，只记录 HTTP 状态码和响应内容用于审计。
 
-## 4. 云测交互审计文件
+## 4. 执行器上传 Agent/LLM 交互日志
+
+### `POST {cloudBaseUrl}/api/test-executions/{executionId}/agent-log`
+
+执行器在 Agent 执行结束并生成本地交互流程快照后，将 JSON 文件上传到云测平台。
+
+请求地址示例：
+
+```text
+POST http://47.100.28.161:3000/api/test-executions/10/agent-log
+```
+
+请求头：
+
+```text
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+```
+
+`Authorization` 来自任务下发时的请求头，若下发时未提供则不上报该请求头。
+
+参数说明：
+
+| 参数 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `executionId` | path | number | 是 | 云测任务 ID |
+| `file` | body | file | 是 | Agent/LLM 交互流程 JSON 文件 |
+
+请求示例：
+
+```bash
+curl -X POST \
+  -F 'file=@agent_traces/execution_10_interaction.json;type=application/json' \
+  http://47.100.28.161:3000/api/test-executions/10/agent-log
+```
+
+执行器行为：
+
+- 本地仍会保留 `agent_traces/execution_<executionId>_interaction.json`。
+- 上传成功或失败会记录到 `cloud_api_events.json`。
+- 上传失败不阻断最终结果上报。
+
+## 5. 云测交互审计文件
 
 每个任务目录下会生成：
 
@@ -323,6 +365,8 @@ results/execution_<id>_<timestamp>/cloud_api_events.json
 ```text
 status_report_request
 status_report_response
+agent_log_upload_request
+agent_log_upload_response
 result_report_request
 result_report_response
 ```
