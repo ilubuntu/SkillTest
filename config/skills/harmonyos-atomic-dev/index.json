@@ -1,0 +1,2298 @@
+[
+  {
+    "summary": "ArkTS 语言指南与限制",
+    "path": "reference/arkts.md",
+    "type": "reference",
+    "category": "reference",
+    "id": 1
+  },
+  {
+    "summary": "ArkTS 常见问题与规范",
+    "path": "reference/review.md",
+    "type": "reference",
+    "category": "reference",
+    "id": 2
+  },
+  {
+    "summary": "基础 UI 组件参考 (Text, Image, Button 等)",
+    "path": "reference/basic_component.md",
+    "type": "reference",
+    "category": "reference",
+    "id": 3
+  },
+  {
+    "summary": "布局组件参考 (Column, Row, Stack, Flex 等)",
+    "path": "reference/layout_component.md",
+    "type": "reference",
+    "category": "reference",
+    "id": 4
+  },
+  {
+    "summary": "导航与路由组件参考",
+    "path": "reference/navigation_component.md",
+    "type": "reference",
+    "category": "reference",
+    "id": 5
+  },
+  {
+    "summary": "滚动容器组件参考 (Scroll, List, Grid 等)",
+    "path": "reference/scroll_component.md",
+    "type": "reference",
+    "category": "reference",
+    "id": 6
+  },
+  {
+    "summary": "Tabs 与 TabContent 组件参考",
+    "path": "reference/tabs_component.md",
+    "type": "reference",
+    "category": "reference",
+    "id": 7
+  },
+  {
+    "summary": "Badge 角标基础用法",
+    "path": "component/badge/badge-basic.ets",
+    "type": "component",
+    "category": "badge",
+    "id": 8
+  },
+  {
+    "summary": "Blank 空白填充",
+    "path": "component/blank/blank-basic.ets",
+    "type": "component",
+    "category": "blank",
+    "id": 9
+  },
+  {
+    "summary": "Button 按钮类型",
+    "path": "component/button/button-type.ets",
+    "type": "component",
+    "category": "button",
+    "id": 10
+  },
+  {
+    "summary": "Button 按钮样式",
+    "path": "component/button/button-style.ets",
+    "type": "component",
+    "category": "button",
+    "id": 11
+  },
+  {
+    "summary": "Button 按钮事件",
+    "path": "component/button/button-event.ets",
+    "type": "component",
+    "category": "button",
+    "id": 12
+  },
+  {
+    "summary": "Button 功能按钮",
+    "path": "component/button/button-functional.ets",
+    "type": "component",
+    "category": "button",
+    "id": 13
+  },
+  {
+    "summary": "Button 保存按钮",
+    "path": "component/button/button-save.ets",
+    "type": "component",
+    "category": "button",
+    "id": 14
+  },
+  {
+    "summary": "Button 分段按钮",
+    "path": "component/button/button-segment.ets",
+    "type": "component",
+    "category": "button",
+    "id": 15
+  },
+  {
+    "summary": "Button 子组件",
+    "path": "component/button/button-child.ets",
+    "type": "component",
+    "category": "button",
+    "id": 16
+  },
+  {
+    "summary": "Button 进度按钮",
+    "path": "component/button/button-progress.ets",
+    "type": "component",
+    "category": "button",
+    "id": 17
+  },
+  {
+    "summary": "CalendarPicker 日历选择器",
+    "path": "component/calendar_picker/calendar_picker-basic.ets",
+    "type": "component",
+    "category": "calendar_picker",
+    "id": 18
+  },
+  {
+    "summary": "Checkbox 复选框",
+    "path": "component/checkbox/checkbox-basic.ets",
+    "type": "component",
+    "category": "checkbox",
+    "id": 19
+  },
+  {
+    "summary": "CheckboxGroup 复选框组",
+    "path": "component/checkboxgroup/checkboxgroup-basic.ets",
+    "type": "component",
+    "category": "checkboxgroup",
+    "id": 20
+  },
+  {
+    "summary": "Column 水平对齐",
+    "path": "component/column/column-align.ets",
+    "type": "component",
+    "category": "column",
+    "id": 21
+  },
+  {
+    "summary": "Column 垂直排列",
+    "path": "component/column/column-justify.ets",
+    "type": "component",
+    "category": "column",
+    "id": 22
+  },
+  {
+    "summary": "Column 子组件间距",
+    "path": "component/column/column-space.ets",
+    "type": "component",
+    "category": "column",
+    "id": 23
+  },
+  {
+    "summary": "Column 反向排列",
+    "path": "component/column/column-reverse.ets",
+    "type": "component",
+    "category": "column",
+    "id": 24
+  },
+  {
+    "summary": "Column 嵌套布局",
+    "path": "component/column/column-nested.ets",
+    "type": "component",
+    "category": "column",
+    "id": 25
+  },
+  {
+    "summary": "Counter 计数器",
+    "path": "component/counter/counter-basic.ets",
+    "type": "component",
+    "category": "counter",
+    "id": 26
+  },
+  {
+    "summary": "Curves 动画曲线",
+    "path": "component/curves/curves-basic.ets",
+    "type": "component",
+    "category": "curves",
+    "id": 27
+  },
+  {
+    "summary": "DataPanel 数据面板",
+    "path": "component/data_panel/data_panel-basic.ets",
+    "type": "component",
+    "category": "data_panel",
+    "id": 28
+  },
+  {
+    "summary": "DatePicker 日期选择器",
+    "path": "component/date_picker/date_picker-basic.ets",
+    "type": "component",
+    "category": "date_picker",
+    "id": 29
+  },
+  {
+    "summary": "Dialogs 对话框",
+    "path": "component/dialogs/dialogs-basic.ets",
+    "type": "component",
+    "category": "dialogs",
+    "id": 30
+  },
+  {
+    "summary": "Divider 分割线",
+    "path": "component/divider/divider-basic.ets",
+    "type": "component",
+    "category": "divider",
+    "id": 31
+  },
+  {
+    "summary": "Flex 主轴方向",
+    "path": "component/flex/flex-direction.ets",
+    "type": "component",
+    "category": "flex",
+    "id": 32
+  },
+  {
+    "summary": "Flex 换行设置",
+    "path": "component/flex/flex-wrap.ets",
+    "type": "component",
+    "category": "flex",
+    "id": 33
+  },
+  {
+    "summary": "Flex 主轴排列",
+    "path": "component/flex/flex-justify.ets",
+    "type": "component",
+    "category": "flex",
+    "id": 34
+  },
+  {
+    "summary": "Flex 交叉轴对齐",
+    "path": "component/flex/flex-align.ets",
+    "type": "component",
+    "category": "flex",
+    "id": 35
+  },
+  {
+    "summary": "Flex 弹性伸缩",
+    "path": "component/flex/flex-grow-shrink.ets",
+    "type": "component",
+    "category": "flex",
+    "id": 36
+  },
+  {
+    "summary": "Flex 多行对齐",
+    "path": "component/flex/flex-content-align.ets",
+    "type": "component",
+    "category": "flex",
+    "id": 37
+  },
+  {
+    "summary": "ForEach 循环渲染基础示例",
+    "path": "component/for_each/for-each-basic.ets",
+    "type": "component",
+    "category": "for_each",
+    "id": 38
+  },
+  {
+    "summary": "TapGesture 点击手势",
+    "path": "component/gesture/gesture-tap.ets",
+    "type": "component",
+    "category": "gesture",
+    "id": 39
+  },
+  {
+    "summary": "PanGesture 拖动手势",
+    "path": "component/gesture/gesture-pan.ets",
+    "type": "component",
+    "category": "gesture",
+    "id": 40
+  },
+  {
+    "summary": "PinchGesture 捏合手势",
+    "path": "component/gesture/gesture-pinch.ets",
+    "type": "component",
+    "category": "gesture",
+    "id": 41
+  },
+  {
+    "summary": "SwipeGesture 滑动手势",
+    "path": "component/gesture/gesture-swipe.ets",
+    "type": "component",
+    "category": "gesture",
+    "id": 42
+  },
+  {
+    "summary": "GestureGroup 手势组合",
+    "path": "component/gesture/gesture-group.ets",
+    "type": "component",
+    "category": "gesture",
+    "id": 43
+  },
+  {
+    "summary": "手势优先级与竞争",
+    "path": "component/gesture/gesture-priority.ets",
+    "type": "component",
+    "category": "gesture",
+    "id": 44
+  },
+  {
+    "summary": "Image 图片基础用法",
+    "path": "component/image/image-basic.ets",
+    "type": "component",
+    "category": "image",
+    "id": 45
+  },
+  {
+    "summary": "Image 缩放类型 (objectFit)",
+    "path": "component/image/image-fit.ets",
+    "type": "component",
+    "category": "image",
+    "id": 46
+  },
+  {
+    "summary": "Image 事件处理 (onComplete, onError)",
+    "path": "component/image/image-event.ets",
+    "type": "component",
+    "category": "image",
+    "id": 47
+  },
+  {
+    "summary": "Image 样式设置",
+    "path": "component/image/image-style.ets",
+    "type": "component",
+    "category": "image",
+    "id": 48
+  },
+  {
+    "summary": "Image 列表加载示例",
+    "path": "component/image/image-list.ets",
+    "type": "component",
+    "category": "image",
+    "id": 49
+  },
+  {
+    "summary": "LazyForEach 延迟加载基础",
+    "path": "component/lazy_for_each/lazy-for-each-basic.ets",
+    "type": "component",
+    "category": "lazy_for_each",
+    "id": 50
+  },
+  {
+    "summary": "LazyForEach 动态数据更新",
+    "path": "component/lazy_for_each/lazy_for_each-dynamic.ets",
+    "type": "component",
+    "category": "lazy_for_each",
+    "id": 51
+  },
+  {
+    "summary": "LazyForEach 拖拽排序",
+    "path": "component/lazy_for_each/lazy_for_each-drag-sort.ets",
+    "type": "component",
+    "category": "lazy_for_each",
+    "id": 52
+  },
+  {
+    "summary": "LazyForEach 重新加载",
+    "path": "component/lazy_for_each/lazy_for_each-reload.ets",
+    "type": "component",
+    "category": "lazy_for_each",
+    "id": 53
+  },
+  {
+    "summary": "List 列表基础",
+    "path": "component/list/list-basic.ets",
+    "type": "component",
+    "category": "list",
+    "id": 54
+  },
+  {
+    "summary": "List 排列方向",
+    "path": "component/list/list-direction.ets",
+    "type": "component",
+    "category": "list",
+    "id": 55
+  },
+  {
+    "summary": "List 分割线",
+    "path": "component/list/list-divider.ets",
+    "type": "component",
+    "category": "list",
+    "id": 56
+  },
+  {
+    "summary": "List 分组",
+    "path": "component/list/list-group.ets",
+    "type": "component",
+    "category": "list",
+    "id": 57
+  },
+  {
+    "summary": "List 多列布局",
+    "path": "component/list/list-lanes.ets",
+    "type": "component",
+    "category": "list",
+    "id": 58
+  },
+  {
+    "summary": "List 滚动控制",
+    "path": "component/list/list-scroll.ets",
+    "type": "component",
+    "category": "list",
+    "id": 59
+  },
+  {
+    "summary": "List 样式设置",
+    "path": "component/list/list-style.ets",
+    "type": "component",
+    "category": "list",
+    "id": 60
+  },
+  {
+    "summary": "List 滑动删除",
+    "path": "component/list/list-swipe.ets",
+    "type": "component",
+    "category": "list",
+    "id": 61
+  },
+  {
+    "summary": "Menu 菜单基础",
+    "path": "component/menu/menu-basic.ets",
+    "type": "component",
+    "category": "menu",
+    "id": 62
+  },
+  {
+    "summary": "Menu 上下文菜单",
+    "path": "component/menu/menu-context.ets",
+    "type": "component",
+    "category": "menu",
+    "id": 63
+  },
+  {
+    "summary": "Menu 菜单项样式",
+    "path": "component/menu/menu-item-style.ets",
+    "type": "component",
+    "category": "menu",
+    "id": 64
+  },
+  {
+    "summary": "Menu 子菜单",
+    "path": "component/menu/menu-submenu.ets",
+    "type": "component",
+    "category": "menu",
+    "id": 65
+  },
+  {
+    "summary": "Navigation 导航容器",
+    "path": "component/navigation/navigation.md",
+    "type": "component",
+    "category": "navigation",
+    "id": 66
+  },
+  {
+    "summary": "NavDestination 导航目标页面",
+    "path": "component/navigation/nav_destination.md",
+    "type": "component",
+    "category": "navigation",
+    "id": 67
+  },
+  {
+    "summary": "NavRouter 声明式路由导航",
+    "path": "component/navigation/nav_router.md",
+    "type": "component",
+    "category": "navigation",
+    "id": 68
+  },
+  {
+    "summary": "Navigator 页面跳转组件",
+    "path": "component/navigation/navigator.md",
+    "type": "component",
+    "category": "navigation",
+    "id": 69
+  },
+  {
+    "summary": "Panel 面板",
+    "path": "component/panel/panel-basic.ets",
+    "type": "component",
+    "category": "panel",
+    "id": 70
+  },
+  {
+    "summary": "Particle 粒子动画基础",
+    "path": "component/particle/particle-basic.ets",
+    "type": "component",
+    "category": "particle",
+    "id": 71
+  },
+  {
+    "summary": "Particle 图片粒子",
+    "path": "component/particle/particle-image.ets",
+    "type": "component",
+    "category": "particle",
+    "id": 72
+  },
+  {
+    "summary": "Particle 动态发射器",
+    "path": "component/particle/particle-emitter-dynamic.ets",
+    "type": "component",
+    "category": "particle",
+    "id": 73
+  },
+  {
+    "summary": "Particle 扰动效果",
+    "path": "component/particle/particle-disturbance.ets",
+    "type": "component",
+    "category": "particle",
+    "id": 74
+  },
+  {
+    "summary": "Progress 进度条类型",
+    "path": "component/progress/progress-type.ets",
+    "type": "component",
+    "category": "progress",
+    "id": 75
+  },
+  {
+    "summary": "Progress 进度条样式",
+    "path": "component/progress/progress-style.ets",
+    "type": "component",
+    "category": "progress",
+    "id": 76
+  },
+  {
+    "summary": "Progress 动态进度",
+    "path": "component/progress/progress-dynamic.ets",
+    "type": "component",
+    "category": "progress",
+    "id": 77
+  },
+  {
+    "summary": "Radio 单选按钮",
+    "path": "component/radio/radio-basic.ets",
+    "type": "component",
+    "category": "radio",
+    "id": 78
+  },
+  {
+    "summary": "Radio 样式设置",
+    "path": "component/radio/radio-style.ets",
+    "type": "component",
+    "category": "radio",
+    "id": 79
+  },
+  {
+    "summary": "Radio 事件处理",
+    "path": "component/radio/radio-event.ets",
+    "type": "component",
+    "category": "radio",
+    "id": 80
+  },
+  {
+    "summary": "Radio 指示器样式",
+    "path": "component/radio/radio-indicator.ets",
+    "type": "component",
+    "category": "radio",
+    "id": 81
+  },
+  {
+    "summary": "Radio 自定义内容",
+    "path": "component/radio/radio-content-modifier.ets",
+    "type": "component",
+    "category": "radio",
+    "id": 82
+  },
+  {
+    "summary": "Rating 评分基础",
+    "path": "component/rating/rating-basic.ets",
+    "type": "component",
+    "category": "rating",
+    "id": 83
+  },
+  {
+    "summary": "Rating 样式设置",
+    "path": "component/rating/rating-style.ets",
+    "type": "component",
+    "category": "rating",
+    "id": 84
+  },
+  {
+    "summary": "Rating 指示器",
+    "path": "component/rating/rating-indicator.ets",
+    "type": "component",
+    "category": "rating",
+    "id": 85
+  },
+  {
+    "summary": "Rating 步长控制",
+    "path": "component/rating/rating-step-control.ets",
+    "type": "component",
+    "category": "rating",
+    "id": 86
+  },
+  {
+    "summary": "Rating 自定义内容",
+    "path": "component/rating/rating-content-modifier.ets",
+    "type": "component",
+    "category": "rating",
+    "id": 87
+  },
+  {
+    "summary": "Refresh 下拉刷新基础",
+    "path": "component/refresh/refresh-basic.ets",
+    "type": "component",
+    "category": "refresh",
+    "id": 88
+  },
+  {
+    "summary": "Refresh 自定义刷新组件",
+    "path": "component/refresh/refresh-custom-builder.ets",
+    "type": "component",
+    "category": "refresh",
+    "id": 89
+  },
+  {
+    "summary": "Refresh 提示文本",
+    "path": "component/refresh/refresh-prompt-text.ets",
+    "type": "component",
+    "category": "refresh",
+    "id": 90
+  },
+  {
+    "summary": "Refresh 下拉比例",
+    "path": "component/refresh/refresh-pull-ratio.ets",
+    "type": "component",
+    "category": "refresh",
+    "id": 91
+  },
+  {
+    "summary": "Refresh 状态追踪",
+    "path": "component/refresh/refresh-state-tracking.ets",
+    "type": "component",
+    "category": "refresh",
+    "id": 92
+  },
+  {
+    "summary": "RelativeContainer 相对布局基础",
+    "path": "component/relative_container/relative_container-basic.ets",
+    "type": "component",
+    "category": "relative_container",
+    "id": 93
+  },
+  {
+    "summary": "RelativeContainer 兄弟组件约束",
+    "path": "component/relative_container/relative_container-sibling.ets",
+    "type": "component",
+    "category": "relative_container",
+    "id": 94
+  },
+  {
+    "summary": "RelativeContainer 屏障约束",
+    "path": "component/relative_container/relative_container-barrier.ets",
+    "type": "component",
+    "category": "relative_container",
+    "id": 95
+  },
+  {
+    "summary": "RelativeContainer 辅助线",
+    "path": "component/relative_container/relative_container-guideline.ets",
+    "type": "component",
+    "category": "relative_container",
+    "id": 96
+  },
+  {
+    "summary": "RelativeContainer 偏移比例",
+    "path": "component/relative_container/relative_container-bias.ets",
+    "type": "component",
+    "category": "relative_container",
+    "id": 97
+  },
+  {
+    "summary": "Repeat 循环渲染基础",
+    "path": "component/repeat/repeat-basic.ets",
+    "type": "component",
+    "category": "repeat",
+    "id": 98
+  },
+  {
+    "summary": "Repeat 动态数据",
+    "path": "component/repeat/repeat-dynamic-data.ets",
+    "type": "component",
+    "category": "repeat",
+    "id": 99
+  },
+  {
+    "summary": "Repeat 嵌套渲染",
+    "path": "component/repeat/repeat-nested.ets",
+    "type": "component",
+    "category": "repeat",
+    "id": 100
+  },
+  {
+    "summary": "Repeat 模板复用",
+    "path": "component/repeat/repeat-template.ets",
+    "type": "component",
+    "category": "repeat",
+    "id": 101
+  },
+  {
+    "summary": "Repeat 虚拟滚动",
+    "path": "component/repeat/repeat-virtual-scroll.ets",
+    "type": "component",
+    "category": "repeat",
+    "id": 102
+  },
+  {
+    "summary": "RichEditor 富文本编辑器基础",
+    "path": "component/rich_editor/rich_editor-basic.ets",
+    "type": "component",
+    "category": "rich_editor",
+    "id": 103
+  },
+  {
+    "summary": "RichEditor 控制器",
+    "path": "component/rich_editor/rich_editor-controller.ets",
+    "type": "component",
+    "category": "rich_editor",
+    "id": 104
+  },
+  {
+    "summary": "RichEditor 事件处理",
+    "path": "component/rich_editor/rich_editor-event.ets",
+    "type": "component",
+    "category": "rich_editor",
+    "id": 105
+  },
+  {
+    "summary": "RichEditor 样式设置",
+    "path": "component/rich_editor/rich_editor-style.ets",
+    "type": "component",
+    "category": "rich_editor",
+    "id": 106
+  },
+  {
+    "summary": "RichText 富文本显示基础",
+    "path": "component/rich_text/rich_text-basic.ets",
+    "type": "component",
+    "category": "rich_text",
+    "id": 107
+  },
+  {
+    "summary": "RichText 样式设置",
+    "path": "component/rich_text/rich_text-style.ets",
+    "type": "component",
+    "category": "rich_text",
+    "id": 108
+  },
+  {
+    "summary": "Row 垂直对齐",
+    "path": "component/row/row-align.ets",
+    "type": "component",
+    "category": "row",
+    "id": 109
+  },
+  {
+    "summary": "Row 水平排列",
+    "path": "component/row/row-justify.ets",
+    "type": "component",
+    "category": "row",
+    "id": 110
+  },
+  {
+    "summary": "Row 子组件间距",
+    "path": "component/row/row-space.ets",
+    "type": "component",
+    "category": "row",
+    "id": 111
+  },
+  {
+    "summary": "Row 反向排列",
+    "path": "component/row/row-reverse.ets",
+    "type": "component",
+    "category": "row",
+    "id": 112
+  },
+  {
+    "summary": "Row 嵌套布局",
+    "path": "component/row/row-nested.ets",
+    "type": "component",
+    "category": "row",
+    "id": 113
+  },
+  {
+    "summary": "SaveButton 保存按钮基础",
+    "path": "component/save_button/save_button-basic.ets",
+    "type": "component",
+    "category": "save_button",
+    "id": 114
+  },
+  {
+    "summary": "SaveButton 按钮描述",
+    "path": "component/save_button/save_button-description.ets",
+    "type": "component",
+    "category": "save_button",
+    "id": 115
+  },
+  {
+    "summary": "SaveButton 事件处理",
+    "path": "component/save_button/save_button-event.ets",
+    "type": "component",
+    "category": "save_button",
+    "id": 116
+  },
+  {
+    "summary": "SaveButton 样式设置",
+    "path": "component/save_button/save_button-style.ets",
+    "type": "component",
+    "category": "save_button",
+    "id": 117
+  },
+  {
+    "summary": "Scroll 滚动容器基础",
+    "path": "component/scroll/scroll-basic.ets",
+    "type": "component",
+    "category": "scroll",
+    "id": 118
+  },
+  {
+    "summary": "Scroll 滚动方向",
+    "path": "component/scroll/scroll-direction.ets",
+    "type": "component",
+    "category": "scroll",
+    "id": 119
+  },
+  {
+    "summary": "Scroll 滚动条",
+    "path": "component/scroll/scroll-bar.ets",
+    "type": "component",
+    "category": "scroll",
+    "id": 120
+  },
+  {
+    "summary": "Scroll 边缘效果",
+    "path": "component/scroll/scroll-edge.ets",
+    "type": "component",
+    "category": "scroll",
+    "id": 121
+  },
+  {
+    "summary": "Scroll 滚动事件",
+    "path": "component/scroll/scroll-event.ets",
+    "type": "component",
+    "category": "scroll",
+    "id": 122
+  },
+  {
+    "summary": "Scroll 嵌套滚动",
+    "path": "component/scroll/scroll-nested.ets",
+    "type": "component",
+    "category": "scroll",
+    "id": 123
+  },
+  {
+    "summary": "Scroll 滑动定位",
+    "path": "component/scroll/scroll-snap.ets",
+    "type": "component",
+    "category": "scroll",
+    "id": 124
+  },
+  {
+    "summary": "ScrollBar 滚动条基础",
+    "path": "component/scroll_bar/scroll_bar-basic.ets",
+    "type": "component",
+    "category": "scroll_bar",
+    "id": 125
+  },
+  {
+    "summary": "ScrollBar 方向设置",
+    "path": "component/scroll_bar/scroll_bar-direction.ets",
+    "type": "component",
+    "category": "scroll_bar",
+    "id": 126
+  },
+  {
+    "summary": "ScrollBar 状态控制",
+    "path": "component/scroll_bar/scroll_bar-state.ets",
+    "type": "component",
+    "category": "scroll_bar",
+    "id": 127
+  },
+  {
+    "summary": "ScrollBar 嵌套滚动",
+    "path": "component/scroll_bar/scroll_bar-nested-scroll.ets",
+    "type": "component",
+    "category": "scroll_bar",
+    "id": 128
+  },
+  {
+    "summary": "Search 搜索框基础",
+    "path": "component/search/search-basic.ets",
+    "type": "component",
+    "category": "search",
+    "id": 129
+  },
+  {
+    "summary": "Search 搜索框样式",
+    "path": "component/search/search-style.ets",
+    "type": "component",
+    "category": "search",
+    "id": 130
+  },
+  {
+    "summary": "Select 下拉选择基础",
+    "path": "component/select/select-basic.ets",
+    "type": "component",
+    "category": "select",
+    "id": 131
+  },
+  {
+    "summary": "Select 分割线",
+    "path": "component/select/select-divider.ets",
+    "type": "component",
+    "category": "select",
+    "id": 132
+  },
+  {
+    "summary": "Select 布局设置",
+    "path": "component/select/select-layout.ets",
+    "type": "component",
+    "category": "select",
+    "id": 133
+  },
+  {
+    "summary": "Select 样式设置",
+    "path": "component/select/select-style.ets",
+    "type": "component",
+    "category": "select",
+    "id": 134
+  },
+  {
+    "summary": "Slider 滑动选择器基础",
+    "path": "component/slider/slider-basic.ets",
+    "type": "component",
+    "category": "slider",
+    "id": 135
+  },
+  {
+    "summary": "Slider 外观设置",
+    "path": "component/slider/slider-appearance.ets",
+    "type": "component",
+    "category": "slider",
+    "id": 136
+  },
+  {
+    "summary": "Slider 方向设置",
+    "path": "component/slider/slider-direction.ets",
+    "type": "component",
+    "category": "slider",
+    "id": 137
+  },
+  {
+    "summary": "Slider 步长与提示",
+    "path": "component/slider/slider-step-tips.ets",
+    "type": "component",
+    "category": "slider",
+    "id": 138
+  },
+  {
+    "summary": "Slider 样式设置",
+    "path": "component/slider/slider-style.ets",
+    "type": "component",
+    "category": "slider",
+    "id": 139
+  },
+  {
+    "summary": "Span 文本片段基础",
+    "path": "component/span/span-basic.ets",
+    "type": "component",
+    "category": "span",
+    "id": 140
+  },
+  {
+    "summary": "Span 容器设置",
+    "path": "component/span/span-container.ets",
+    "type": "component",
+    "category": "span",
+    "id": 141
+  },
+  {
+    "summary": "Span 文本装饰",
+    "path": "component/span/span-decoration.ets",
+    "type": "component",
+    "category": "span",
+    "id": 142
+  },
+  {
+    "summary": "Span 事件处理",
+    "path": "component/span/span-event.ets",
+    "type": "component",
+    "category": "span",
+    "id": 143
+  },
+  {
+    "summary": "Stack 层叠布局基础",
+    "path": "component/stack/stack-basic.ets",
+    "type": "component",
+    "category": "stack",
+    "id": 144
+  },
+  {
+    "summary": "Stack 对齐方式",
+    "path": "component/stack/stack-align.ets",
+    "type": "component",
+    "category": "stack",
+    "id": 145
+  },
+  {
+    "summary": "Stack 覆盖效果",
+    "path": "component/stack/stack-overlay.ets",
+    "type": "component",
+    "category": "stack",
+    "id": 146
+  },
+  {
+    "summary": "Stack 层级控制",
+    "path": "component/stack/stack-zindex.ets",
+    "type": "component",
+    "category": "stack",
+    "id": 147
+  },
+  {
+    "summary": "分包信息查询",
+    "path": "component/subpackaging/subpackaging-bundle-info.ets",
+    "type": "component",
+    "category": "subpackaging",
+    "id": 148
+  },
+  {
+    "summary": "Swiper 轮播基础",
+    "path": "component/swiper/swiper-basic.ets",
+    "type": "component",
+    "category": "swiper",
+    "id": 149
+  },
+  {
+    "summary": "Swiper 控制器",
+    "path": "component/swiper/swiper-controller.ets",
+    "type": "component",
+    "category": "swiper",
+    "id": 150
+  },
+  {
+    "summary": "Swiper 方向设置",
+    "path": "component/swiper/swiper-direction.ets",
+    "type": "component",
+    "category": "swiper",
+    "id": 151
+  },
+  {
+    "summary": "Swiper 指示器",
+    "path": "component/swiper/swiper-indicator.ets",
+    "type": "component",
+    "category": "swiper",
+    "id": 152
+  },
+  {
+    "summary": "TextInput 单行文本输入基础",
+    "path": "component/text_input/text_input_basic.ets",
+    "type": "component",
+    "category": "text_input",
+    "id": 153
+  },
+  {
+    "summary": "TextInput 控制器",
+    "path": "component/text_input/text_input_controller.ets",
+    "type": "component",
+    "category": "text_input",
+    "id": 154
+  },
+  {
+    "summary": "TextInput 事件处理",
+    "path": "component/text_input/text_input_event.ets",
+    "type": "component",
+    "category": "text_input",
+    "id": 155
+  },
+  {
+    "summary": "TextInput 密码输入",
+    "path": "component/text_input/text_input_password.ets",
+    "type": "component",
+    "category": "text_input",
+    "id": 156
+  },
+  {
+    "summary": "TextInput 样式设置",
+    "path": "component/text_input/text_input_style.ets",
+    "type": "component",
+    "category": "text_input",
+    "id": 157
+  },
+  {
+    "summary": "TextArea 多行文本输入基础",
+    "path": "component/text_area/text_area_basic.ets",
+    "type": "component",
+    "category": "text_area",
+    "id": 158
+  },
+  {
+    "summary": "TextArea 控制器",
+    "path": "component/text_area/text_area_controller.ets",
+    "type": "component",
+    "category": "text_area",
+    "id": 159
+  },
+  {
+    "summary": "TextArea 字数统计",
+    "path": "component/text_area/text_area_counter.ets",
+    "type": "component",
+    "category": "text_area",
+    "id": 160
+  },
+  {
+    "summary": "TextArea 事件处理",
+    "path": "component/text_area/text_area_event.ets",
+    "type": "component",
+    "category": "text_area",
+    "id": 161
+  },
+  {
+    "summary": "TextArea 样式设置",
+    "path": "component/text_area/text_area_style.ets",
+    "type": "component",
+    "category": "text_area",
+    "id": 162
+  },
+  {
+    "summary": "TextPicker 文本选择器基础",
+    "path": "component/text_picker/text_picker-basic.ets",
+    "type": "component",
+    "category": "text_picker",
+    "id": 163
+  },
+  {
+    "summary": "TextPicker 对话框模式",
+    "path": "component/text_picker/text_picker_dialog.ets",
+    "type": "component",
+    "category": "text_picker",
+    "id": 164
+  },
+  {
+    "summary": "TextPicker 分割线",
+    "path": "component/text_picker/text_picker_divider.ets",
+    "type": "component",
+    "category": "text_picker",
+    "id": 165
+  },
+  {
+    "summary": "TextPicker 多列选择",
+    "path": "component/text_picker/text_picker_multi_column.ets",
+    "type": "component",
+    "category": "text_picker",
+    "id": 166
+  },
+  {
+    "summary": "TextPicker 样式设置",
+    "path": "component/text_picker/text_picker_style.ets",
+    "type": "component",
+    "category": "text_picker",
+    "id": 167
+  },
+  {
+    "summary": "Toggle 开关切换",
+    "path": "component/toggle/toggle-basic.ets",
+    "type": "component",
+    "category": "toggle",
+    "id": 168
+  },
+  {
+    "summary": "Video 视频播放",
+    "path": "component/video/video-basic.ets",
+    "type": "component",
+    "category": "video",
+    "id": 169
+  },
+  {
+    "summary": "WaterFlow 瀑布流布局",
+    "path": "component/water_flow/water_flow-basic.ets",
+    "type": "component",
+    "category": "water_flow",
+    "id": 170
+  },
+  {
+    "summary": "AccountKit 账号服务开发实践",
+    "path": "experience/experience_account-kit.md",
+    "type": "experience",
+    "category": "account-kit",
+    "id": 171
+  },
+  {
+    "summary": "广告 Ads Kit 开发实践经验",
+    "path": "experience/experience_ads.md",
+    "type": "experience",
+    "category": "ads",
+    "id": 172
+  },
+  {
+    "summary": "App Linking 链接跳转开发实践",
+    "path": "experience/experience_app-linking.md",
+    "type": "experience",
+    "category": "app-linking",
+    "id": 173
+  },
+  {
+    "summary": "应用市场 AppGallery 开发实践",
+    "path": "experience/experience_appgallery.md",
+    "type": "experience",
+    "category": "appgallery",
+    "id": 174
+  },
+  {
+    "summary": "媒体会话 AVSession 开发实践",
+    "path": "experience/experience_avsession.md",
+    "type": "experience",
+    "category": "avsession",
+    "id": 175
+  },
+  {
+    "summary": "Badge 角标组件开发实践",
+    "path": "experience/experience_badge.md",
+    "type": "experience",
+    "category": "badge",
+    "id": 176
+  },
+  {
+    "summary": "Blank 空白填充组件开发实践",
+    "path": "experience/experience_blank.md",
+    "type": "experience",
+    "category": "blank",
+    "id": 177
+  },
+  {
+    "summary": "Button 按钮组件开发实践",
+    "path": "experience/experience_button.md",
+    "type": "experience",
+    "category": "button",
+    "id": 178
+  },
+  {
+    "summary": "CalendarPicker 日历选择器开发实践",
+    "path": "experience/experience_calendar_picker.md",
+    "type": "experience",
+    "category": "calendar_picker",
+    "id": 179
+  },
+  {
+    "summary": "相机选择器开发实践",
+    "path": "experience/experience_camera.md",
+    "type": "experience",
+    "category": "camera",
+    "id": 180
+  },
+  {
+    "summary": "Checkbox 复选框开发实践",
+    "path": "experience/experience_checkbox.md",
+    "type": "experience",
+    "category": "checkbox",
+    "id": 181
+  },
+  {
+    "summary": "CheckboxGroup 复选框组开发实践",
+    "path": "experience/experience_checkboxgroup.md",
+    "type": "experience",
+    "category": "checkboxgroup",
+    "id": 182
+  },
+  {
+    "summary": "Column 垂直布局开发实践",
+    "path": "experience/experience_column.md",
+    "type": "experience",
+    "category": "column",
+    "id": 183
+  },
+  {
+    "summary": "蓝牙与连接能力开发实践",
+    "path": "experience/experience_connectivity.md",
+    "type": "experience",
+    "category": "connectivity",
+    "id": 184
+  },
+  {
+    "summary": "联系人 Contacts Kit 开发实践",
+    "path": "experience/experience_contacts.md",
+    "type": "experience",
+    "category": "contacts",
+    "id": 185
+  },
+  {
+    "summary": "Counter 计数器开发实践",
+    "path": "experience/experience_counter.md",
+    "type": "experience",
+    "category": "counter",
+    "id": 186
+  },
+  {
+    "summary": "Curves 动画曲线开发实践",
+    "path": "experience/experience_curves.md",
+    "type": "experience",
+    "category": "curves",
+    "id": 187
+  },
+  {
+    "summary": "DataPanel 数据面板开发实践",
+    "path": "experience/experience_data_panel.md",
+    "type": "experience",
+    "category": "data_panel",
+    "id": 188
+  },
+  {
+    "summary": "DatePicker 日期选择器开发实践",
+    "path": "experience/experience_date_picker.md",
+    "type": "experience",
+    "category": "date_picker",
+    "id": 189
+  },
+  {
+    "summary": "设备信息查询开发实践",
+    "path": "experience/experience_device.md",
+    "type": "experience",
+    "category": "device",
+    "id": 190
+  },
+  {
+    "summary": "Dialogs 对话框开发实践",
+    "path": "experience/experience_dialogs.md",
+    "type": "experience",
+    "category": "dialogs",
+    "id": 191
+  },
+  {
+    "summary": "Divider 分割线开发实践",
+    "path": "experience/experience_divider.md",
+    "type": "experience",
+    "category": "divider",
+    "id": 192
+  },
+  {
+    "summary": "文件管理能力开发实践",
+    "path": "experience/experience_file.md",
+    "type": "experience",
+    "category": "file",
+    "id": 193
+  },
+  {
+    "summary": "Flex 弹性布局开发实践",
+    "path": "experience/experience_flex.md",
+    "type": "experience",
+    "category": "flex",
+    "id": 194
+  },
+  {
+    "summary": "Gesture 手势组件开发实践（6 个场景 + 踩坑记录）",
+    "path": "experience/experience_gesture.md",
+    "type": "experience",
+    "category": "gesture",
+    "id": 195
+  },
+  {
+    "summary": "健康服务开发实践",
+    "path": "experience/experience_health-service.md",
+    "type": "experience",
+    "category": "health-service",
+    "id": 196
+  },
+  {
+    "summary": "应用内支付 IAP 开发实践",
+    "path": "experience/experience_iap.md",
+    "type": "experience",
+    "category": "iap",
+    "id": 197
+  },
+  {
+    "summary": "Image 图片组件开发实践（5 个场景 + 踩坑记录）",
+    "path": "experience/experience_image.md",
+    "type": "experience",
+    "category": "image",
+    "id": 198
+  },
+  {
+    "summary": "LazyForEach 延迟加载开发实践",
+    "path": "experience/experience_lazy_for_each.md",
+    "type": "experience",
+    "category": "lazy_for_each",
+    "id": 199
+  },
+  {
+    "summary": "List 列表组件开发实践",
+    "path": "experience/experience_list.md",
+    "type": "experience",
+    "category": "list",
+    "id": 200
+  },
+  {
+    "summary": "国际化与本地化开发实践",
+    "path": "experience/experience_localization.md",
+    "type": "experience",
+    "category": "localization",
+    "id": 201
+  },
+  {
+    "summary": "位置服务开发实践",
+    "path": "experience/experience_location.md",
+    "type": "experience",
+    "category": "location",
+    "id": 202
+  },
+  {
+    "summary": "媒体库（使用 Picker 选择媒体库资源）开发实践",
+    "path": "experience/experience_media-library.md",
+    "type": "experience",
+    "category": "media-library",
+    "id": 203
+  },
+  {
+    "summary": "Menu 菜单组件开发实践",
+    "path": "experience/experience_menu.md",
+    "type": "experience",
+    "category": "menu",
+    "id": 204
+  },
+  {
+    "summary": "Navigation 路由跳转（模块内页面路由、跨模块页面路由）开发实践",
+    "path": "experience/experience_navigation-router.md",
+    "type": "experience",
+    "category": "navigation-router",
+    "id": 205
+  },
+  {
+    "summary": "网络请求开发实践",
+    "path": "experience/experience_network.md",
+    "type": "experience",
+    "category": "network",
+    "id": 206
+  },
+  {
+    "summary": "Panel 面板组件开发实践",
+    "path": "experience/experience_panel.md",
+    "type": "experience",
+    "category": "panel",
+    "id": 207
+  },
+  {
+    "summary": "Particle 粒子动画开发实践",
+    "path": "experience/experience_particle.md",
+    "type": "experience",
+    "category": "particle",
+    "id": 208
+  },
+  {
+    "summary": "支付 Payment Kit 开发实践经验",
+    "path": "experience/experience_payment.md",
+    "type": "experience",
+    "category": "payment",
+    "id": 209
+  },
+  {
+    "summary": "文件预览开发实践",
+    "path": "experience/experience_preview.md",
+    "type": "experience",
+    "category": "preview",
+    "id": 210
+  },
+  {
+    "summary": "Progress 进度条开发实践",
+    "path": "experience/experience_progress.md",
+    "type": "experience",
+    "category": "progress",
+    "id": 211
+  },
+  {
+    "summary": "推送 Push Kit 开发实践经验",
+    "path": "experience/experience_push.md",
+    "type": "experience",
+    "category": "push",
+    "id": 212
+  },
+  {
+    "summary": "Radio 单选按钮开发实践",
+    "path": "experience/experience_radio.md",
+    "type": "experience",
+    "category": "radio",
+    "id": 213
+  },
+  {
+    "summary": "Rating 评分组件开发实践",
+    "path": "experience/experience_rating.md",
+    "type": "experience",
+    "category": "rating",
+    "id": 214
+  },
+  {
+    "summary": "Refresh 下拉刷新开发实践",
+    "path": "experience/experience_refresh.md",
+    "type": "experience",
+    "category": "refresh",
+    "id": 215
+  },
+  {
+    "summary": "RelativeContainer 相对布局开发实践",
+    "path": "experience/experience_relative_container.md",
+    "type": "experience",
+    "category": "relative_container",
+    "id": 216
+  },
+  {
+    "summary": "Repeat 循环渲染开发实践",
+    "path": "experience/experience_repeat.md",
+    "type": "experience",
+    "category": "repeat",
+    "id": 217
+  },
+  {
+    "summary": "RichEditor 富文本编辑器开发实践",
+    "path": "experience/experience_rich_editor.md",
+    "type": "experience",
+    "category": "rich_editor",
+    "id": 218
+  },
+  {
+    "summary": "RichText 富文本显示开发实践",
+    "path": "experience/experience_rich_text.md",
+    "type": "experience",
+    "category": "rich_text",
+    "id": 219
+  },
+  {
+    "summary": "Row 水平布局开发实践",
+    "path": "experience/experience_row.md",
+    "type": "experience",
+    "category": "row",
+    "id": 220
+  },
+  {
+    "summary": "SaveButton 保存按钮开发实践",
+    "path": "experience/experience_save_button.md",
+    "type": "experience",
+    "category": "save_button",
+    "id": 221
+  },
+  {
+    "summary": "ScanKit 扫码能力开发实践",
+    "path": "experience/experience_scan.md",
+    "type": "experience",
+    "category": "scan",
+    "id": 222
+  },
+  {
+    "summary": "ScenarioFusionKit 融合场景服务开发实践",
+    "path": "experience/experience_scenario_fusion.md",
+    "type": "experience",
+    "category": "scenario_fusion",
+    "id": 223
+  },
+  {
+    "summary": "Scroll 滚动容器开发实践",
+    "path": "experience/experience_scroll.md",
+    "type": "experience",
+    "category": "scroll",
+    "id": 224
+  },
+  {
+    "summary": "ScrollBar 滚动条开发实践",
+    "path": "experience/experience_scroll_bar.md",
+    "type": "experience",
+    "category": "scroll_bar",
+    "id": 225
+  },
+  {
+    "summary": "Search 搜索框开发实践",
+    "path": "experience/experience_search.md",
+    "type": "experience",
+    "category": "search",
+    "id": 226
+  },
+  {
+    "summary": "安全加密开发实践",
+    "path": "experience/experience_security.md",
+    "type": "experience",
+    "category": "security",
+    "id": 227
+  },
+  {
+    "summary": "Select 下拉选择开发实践",
+    "path": "experience/experience_select.md",
+    "type": "experience",
+    "category": "select",
+    "id": 228
+  },
+  {
+    "summary": "元服务分享能力开发实践",
+    "path": "experience/experience_share.md",
+    "type": "experience",
+    "category": "share",
+    "id": 229
+  },
+  {
+    "summary": "Slider 滑动选择器开发实践",
+    "path": "experience/experience_slider.md",
+    "type": "experience",
+    "category": "slider",
+    "id": 230
+  },
+  {
+    "summary": "Span 文本片段开发实践",
+    "path": "experience/experience_span.md",
+    "type": "experience",
+    "category": "span",
+    "id": 231
+  },
+  {
+    "summary": "Stack 层叠布局开发实践",
+    "path": "experience/experience_stack.md",
+    "type": "experience",
+    "category": "stack",
+    "id": 232
+  },
+  {
+    "summary": "分包加载开发实践",
+    "path": "experience/experience_subpackaging.md",
+    "type": "experience",
+    "category": "subpackaging",
+    "id": 233
+  },
+  {
+    "summary": "Swiper 轮播组件开发实践",
+    "path": "experience/experience_swiper.md",
+    "type": "experience",
+    "category": "swiper",
+    "id": 234
+  },
+  {
+    "summary": "TextArea 多行文本输入开发实践",
+    "path": "experience/experience_text_area.md",
+    "type": "experience",
+    "category": "text_area",
+    "id": 235
+  },
+  {
+    "summary": "TextInput 单行文本输入开发实践",
+    "path": "experience/experience_text_input.md",
+    "type": "experience",
+    "category": "text_input",
+    "id": 236
+  },
+  {
+    "summary": "TextPicker 文本选择器开发实践",
+    "path": "experience/experience_text_picker.md",
+    "type": "experience",
+    "category": "text_picker",
+    "id": 237
+  },
+  {
+    "summary": "Toggle 开关切换开发实践",
+    "path": "experience/experience_toggle.md",
+    "type": "experience",
+    "category": "toggle",
+    "id": 238
+  },
+  {
+    "summary": "Video 视频播放开发实践",
+    "path": "experience/experience_video.md",
+    "type": "experience",
+    "category": "video",
+    "id": 239
+  },
+  {
+    "summary": "WaterFlow 瀑布流布局开发实践",
+    "path": "experience/experience_water_flow.md",
+    "type": "experience",
+    "category": "water_flow",
+    "id": 240
+  },
+  {
+    "summary": "窗口管理开发实践",
+    "path": "experience/experience_window.md",
+    "type": "experience",
+    "category": "window",
+    "id": 241
+  },
+  {
+    "summary": "静默登录 (AccountKit)",
+    "path": "kit/account/account-silent-login.ets",
+    "type": "kit",
+    "category": "account",
+    "id": 242
+  },
+  {
+    "summary": "华为账号登录 (AccountKit)",
+    "path": "kit/account/account-kit-login.ets",
+    "type": "kit",
+    "category": "account",
+    "id": 243
+  },
+  {
+    "summary": "获取华为账号登录状态 (AccountKit)",
+    "path": "kit/account/account-kit-login-state.ets",
+    "type": "kit",
+    "category": "account",
+    "id": 244
+  },
+  {
+    "summary": "华为账号授权 (AccountKit)",
+    "path": "kit/account/account-kit-authorization.ets",
+    "type": "kit",
+    "category": "account",
+    "id": 245
+  },
+  {
+    "summary": "取消华为账号授权 (AccountKit)",
+    "path": "kit/account/account-kit-cancel-auth.ets",
+    "type": "kit",
+    "category": "account",
+    "id": 246
+  },
+  {
+    "summary": "获取华为账号头像昵称 (AccountKit)",
+    "path": "kit/account/account-kit-avatar-nickname.ets",
+    "type": "kit",
+    "category": "account",
+    "id": 247
+  },
+  {
+    "summary": "横幅广告 (Banner Ad)",
+    "path": "kit/ads/ads-banner.ets",
+    "type": "kit",
+    "category": "ads",
+    "id": 248
+  },
+  {
+    "summary": "插屏广告 (Interstitial Ad)",
+    "path": "kit/ads/ads-interstitial.ets",
+    "type": "kit",
+    "category": "ads",
+    "id": 249
+  },
+  {
+    "summary": "原生广告 (Native Ad)",
+    "path": "kit/ads/ads-native.ets",
+    "type": "kit",
+    "category": "ads",
+    "id": 250
+  },
+  {
+    "summary": "激励广告 (Reward Ad)",
+    "path": "kit/ads/ads-reward.ets",
+    "type": "kit",
+    "category": "ads",
+    "id": 251
+  },
+  {
+    "summary": "贴片广告 (Roll Ad)",
+    "path": "kit/ads/ads-roll.ets",
+    "type": "kit",
+    "category": "ads",
+    "id": 252
+  },
+  {
+    "summary": "openLink 拉起示例",
+    "path": "kit/app-linking/applinking-open.ets",
+    "type": "kit",
+    "category": "app-linking",
+    "id": 253
+  },
+  {
+    "summary": "链接接收与解析示例",
+    "path": "kit/app-linking/applinking-receive.ets",
+    "type": "kit",
+    "category": "app-linking",
+    "id": 254
+  },
+  {
+    "summary": "openAtomicService 拉起示例",
+    "path": "kit/app-linking/open-atomic-service.ets",
+    "type": "kit",
+    "category": "app-linking",
+    "id": 255
+  },
+  {
+    "summary": "应用市场评论 (AppGallery)",
+    "path": "kit/appgallery/appgallery-review.ets",
+    "type": "kit",
+    "category": "appgallery",
+    "id": 256
+  },
+  {
+    "summary": "媒体投播选择器 (AVSession)",
+    "path": "kit/avsession/avsession-cast-picker.ets",
+    "type": "kit",
+    "category": "avsession",
+    "id": 257
+  },
+  {
+    "summary": "媒体元数据 (AVSession)",
+    "path": "kit/avsession/avsession-media-metadata.ets",
+    "type": "kit",
+    "category": "avsession",
+    "id": 258
+  },
+  {
+    "summary": "媒体会话管理 (AVSession)",
+    "path": "kit/avsession/avsession-media-session.ets",
+    "type": "kit",
+    "category": "avsession",
+    "id": 259
+  },
+  {
+    "summary": "播放控制 (AVSession)",
+    "path": "kit/avsession/avsession-playback-control.ets",
+    "type": "kit",
+    "category": "avsession",
+    "id": 260
+  },
+  {
+    "summary": "系统相机选择器 (CameraPicker)",
+    "path": "kit/camera/camera-picker.ets",
+    "type": "kit",
+    "category": "camera",
+    "id": 261
+  },
+  {
+    "summary": "相机拍照保存 URI",
+    "path": "kit/camera/camera-save-uri.ets",
+    "type": "kit",
+    "category": "camera",
+    "id": 262
+  },
+  {
+    "summary": "蓝牙基础操作",
+    "path": "kit/connectivity/connectivity-bluetooth.ets",
+    "type": "kit",
+    "category": "connectivity",
+    "id": 263
+  },
+  {
+    "summary": "BLE 广播",
+    "path": "kit/connectivity/connectivity-ble-advertising.ets",
+    "type": "kit",
+    "category": "connectivity",
+    "id": 264
+  },
+  {
+    "summary": "GATT 通信",
+    "path": "kit/connectivity/connectivity-gatt.ets",
+    "type": "kit",
+    "category": "connectivity",
+    "id": 265
+  },
+  {
+    "summary": "通讯录读取与选择联系人",
+    "path": "kit/contact/contacts-picker.ets",
+    "type": "kit",
+    "category": "contact",
+    "id": 266
+  },
+  {
+    "summary": "通过 UI 新建联系人",
+    "path": "kit/contact/contacts-add-via-ui.ets",
+    "type": "kit",
+    "category": "contact",
+    "id": 267
+  },
+  {
+    "summary": "保存到已有联系人",
+    "path": "kit/contact/contacts-save-existing.ets",
+    "type": "kit",
+    "category": "contact",
+    "id": 268
+  },
+  {
+    "summary": "系统联系人选择器",
+    "path": "kit/contacts/contacts-picker.ets",
+    "type": "kit",
+    "category": "contacts",
+    "id": 269
+  },
+  {
+    "summary": "新建联系人",
+    "path": "kit/contacts/contacts-add-via-ui.ets",
+    "type": "kit",
+    "category": "contacts",
+    "id": 270
+  },
+  {
+    "summary": "保存到已有联系人",
+    "path": "kit/contacts/contacts-save-existing.ets",
+    "type": "kit",
+    "category": "contacts",
+    "id": 271
+  },
+  {
+    "summary": "设备显示信息查询",
+    "path": "kit/device/device-display.ets",
+    "type": "kit",
+    "category": "device",
+    "id": 272
+  },
+  {
+    "summary": "设备信息查询",
+    "path": "kit/device/device-info.ets",
+    "type": "kit",
+    "category": "device",
+    "id": 273
+  },
+  {
+    "summary": "系统版本信息查询",
+    "path": "kit/device/device-version.ets",
+    "type": "kit",
+    "category": "device",
+    "id": 274
+  },
+  {
+    "summary": "文件读写操作 (CoreFileKit)",
+    "path": "kit/file/file-read-write.ets",
+    "type": "kit",
+    "category": "file",
+    "id": 275
+  },
+  {
+    "summary": "目录管理 (CoreFileKit)",
+    "path": "kit/file/file-dir-manage.ets",
+    "type": "kit",
+    "category": "file",
+    "id": 276
+  },
+  {
+    "summary": "文件信息查询 (CoreFileKit)",
+    "path": "kit/file/file-info-query.ets",
+    "type": "kit",
+    "category": "file",
+    "id": 277
+  },
+  {
+    "summary": "文件选择器操作 (CoreFileKit)",
+    "path": "kit/file/file-picker-operate.ets",
+    "type": "kit",
+    "category": "file",
+    "id": 278
+  },
+  {
+    "summary": "文件重命名与删除 (CoreFileKit)",
+    "path": "kit/file/file-rename-delete.ets",
+    "type": "kit",
+    "category": "file",
+    "id": 279
+  },
+  {
+    "summary": "文件流操作 (CoreFileKit)",
+    "path": "kit/file/file-stream-operate.ets",
+    "type": "kit",
+    "category": "file",
+    "id": 280
+  },
+  {
+    "summary": "文本文件操作 (CoreFileKit)",
+    "path": "kit/file/file-text-operate.ets",
+    "type": "kit",
+    "category": "file",
+    "id": 281
+  },
+  {
+    "summary": "TapGesture 点击手势",
+    "path": "kit/gesutre/gesture-tap.ets",
+    "type": "kit",
+    "category": "gesutre",
+    "id": 282
+  },
+  {
+    "summary": "PanGesture 拖动手势",
+    "path": "kit/gesutre/gesture-pan.ets",
+    "type": "kit",
+    "category": "gesutre",
+    "id": 283
+  },
+  {
+    "summary": "PinchGesture 捏合手势",
+    "path": "kit/gesutre/gesture-pinch.ets",
+    "type": "kit",
+    "category": "gesutre",
+    "id": 284
+  },
+  {
+    "summary": "SwipeGesture 滑动手势",
+    "path": "kit/gesutre/gesture-swipe.ets",
+    "type": "kit",
+    "category": "gesutre",
+    "id": 285
+  },
+  {
+    "summary": "GestureGroup 手势组合",
+    "path": "kit/gesutre/gesture-group.ets",
+    "type": "kit",
+    "category": "gesutre",
+    "id": 286
+  },
+  {
+    "summary": "手势优先级与竞争",
+    "path": "kit/gesutre/gesture-priority.ets",
+    "type": "kit",
+    "category": "gesutre",
+    "id": 287
+  },
+  {
+    "summary": "滑动删除手势",
+    "path": "kit/gesutre/gesture-swipe-delete.ets",
+    "type": "kit",
+    "category": "gesutre",
+    "id": 288
+  },
+  {
+    "summary": "健康服务授权",
+    "path": "kit/health-service/health-service-authorization.ets",
+    "type": "kit",
+    "category": "health-service",
+    "id": 289
+  },
+  {
+    "summary": "运动报告查询",
+    "path": "kit/health-service/health-service-activity-report.ets",
+    "type": "kit",
+    "category": "health-service",
+    "id": 290
+  },
+  {
+    "summary": "健康数据聚合",
+    "path": "kit/health-service/health-service-data-aggregate.ets",
+    "type": "kit",
+    "category": "health-service",
+    "id": 291
+  },
+  {
+    "summary": "不支持的健康能力处理",
+    "path": "kit/health-service/health-service-unsupported.ets",
+    "type": "kit",
+    "category": "health-service",
+    "id": 292
+  },
+  {
+    "summary": "应用内支付查询",
+    "path": "kit/iap/iap-purchase-query.ets",
+    "type": "kit",
+    "category": "iap",
+    "id": 293
+  },
+  {
+    "summary": "图片编解码 (ImageKit)",
+    "path": "kit/image/image-encode-decode.ets",
+    "type": "kit",
+    "category": "image",
+    "id": 294
+  },
+  {
+    "summary": "国际化 I18n",
+    "path": "kit/localization/localization-i18n.ets",
+    "type": "kit",
+    "category": "localization",
+    "id": 295
+  },
+  {
+    "summary": "国际化 Intl 格式化",
+    "path": "kit/localization/localization-intl.ets",
+    "type": "kit",
+    "category": "localization",
+    "id": 296
+  },
+  {
+    "summary": "位置信息查询",
+    "path": "kit/location/location-query.ets",
+    "type": "kit",
+    "category": "location",
+    "id": 297
+  },
+  {
+    "summary": "使用 Picker 选择媒体库资源（图片、视频等）",
+    "path": "kit/media/media-photo-picker.ets",
+    "type": "kit",
+    "category": "media",
+    "id": 298
+  },
+  {
+    "summary": "模块内页面路由",
+    "path": "kit/navigation-router/navigation-router-push-by-name.ets",
+    "type": "kit",
+    "category": "navigation-router",
+    "id": 299
+  },
+  {
+    "summary": "跨模块页面路由",
+    "path": "kit/navigation-router/navigation-router-cross-module.ets",
+    "type": "kit",
+    "category": "navigation-router",
+    "id": 300
+  },
+  {
+    "summary": "自定义目标页面路由",
+    "path": "kit/navigation-router/navigation-router-push-destination.ets",
+    "type": "kit",
+    "category": "navigation-router",
+    "id": 301
+  },
+  {
+    "summary": "路由替换与删除",
+    "path": "kit/navigation-router/navigation-router-replace-remove.ets",
+    "type": "kit",
+    "category": "navigation-router",
+    "id": 302
+  },
+  {
+    "summary": "路由返回传参",
+    "path": "kit/navigation-router/navigation-router-pop-result.ets",
+    "type": "kit",
+    "category": "navigation-router",
+    "id": 303
+  },
+  {
+    "summary": "路由拦截",
+    "path": "kit/navigation-router/navigation-router-interception.ets",
+    "type": "kit",
+    "category": "navigation-router",
+    "id": 304
+  },
+  {
+    "summary": "路由栈查询",
+    "path": "kit/navigation-router/navigation-router-stack-query.ets",
+    "type": "kit",
+    "category": "navigation-router",
+    "id": 305
+  },
+  {
+    "summary": "HTTP 网络请求",
+    "path": "kit/network/network-http-request.ets",
+    "type": "kit",
+    "category": "network",
+    "id": 306
+  },
+  {
+    "summary": "WebSocket 通信",
+    "path": "kit/network/network-websocket.ets",
+    "type": "kit",
+    "category": "network",
+    "id": 307
+  },
+  {
+    "summary": "网络连接状态查询",
+    "path": "kit/network/network-connection-status.ets",
+    "type": "kit",
+    "category": "network",
+    "id": 308
+  },
+  {
+    "summary": "mDNS 局域网服务发现",
+    "path": "kit/network/network-mdns.ets",
+    "type": "kit",
+    "category": "network",
+    "id": 309
+  },
+  {
+    "summary": "应用内支付（数字商品）",
+    "path": "kit/payment/iap-purchase.ets",
+    "type": "kit",
+    "category": "payment",
+    "id": 310
+  },
+  {
+    "summary": "华为支付（实物商品）",
+    "path": "kit/payment/payment-request.ets",
+    "type": "kit",
+    "category": "payment",
+    "id": 311
+  },
+  {
+    "summary": "单文件预览",
+    "path": "kit/preview/preview-open-single.ets",
+    "type": "kit",
+    "category": "preview",
+    "id": 312
+  },
+  {
+    "summary": "多文件预览",
+    "path": "kit/preview/preview-open-multi.ets",
+    "type": "kit",
+    "category": "preview",
+    "id": 313
+  },
+  {
+    "summary": "预览能力判断",
+    "path": "kit/preview/preview-can-preview.ets",
+    "type": "kit",
+    "category": "preview",
+    "id": 314
+  },
+  {
+    "summary": "预览回调处理",
+    "path": "kit/preview/preview-callback.ets",
+    "type": "kit",
+    "category": "preview",
+    "id": 315
+  },
+  {
+    "summary": "预览数据加载",
+    "path": "kit/preview/preview-load-data.ets",
+    "type": "kit",
+    "category": "preview",
+    "id": 316
+  },
+  {
+    "summary": "服务通知订阅请求",
+    "path": "kit/push/push-subscribe.ets",
+    "type": "kit",
+    "category": "push",
+    "id": 317
+  },
+  {
+    "summary": "接收推送消息处理",
+    "path": "kit/push/push-receive.ets",
+    "type": "kit",
+    "category": "push",
+    "id": 318
+  },
+  {
+    "summary": "二维码/条形码生成 (ScanKit)",
+    "path": "kit/scan/create-bar-code.ets",
+    "type": "kit",
+    "category": "scan",
+    "id": 319
+  },
+  {
+    "summary": "二维码/条形码扫描 (ScanKit)",
+    "path": "kit/scan/scan-bar-code.ets",
+    "type": "kit",
+    "category": "scan",
+    "id": 320
+  },
+  {
+    "summary": "选择头像 (ScenarioFusionKit)",
+    "path": "kit/scenario-fusion/scenario-fusion-choose-avatar.ets",
+    "type": "kit",
+    "category": "scenario-fusion",
+    "id": 321
+  },
+  {
+    "summary": "反馈与投诉 (ScenarioFusionKit)",
+    "path": "kit/scenario-fusion/scenario-fusion-feedback.ets",
+    "type": "kit",
+    "category": "scenario-fusion",
+    "id": 322
+  },
+  {
+    "summary": "地图选点 (ScenarioFusionKit)",
+    "path": "kit/scenario-fusion/scenario-fusion-choose-location.ets",
+    "type": "kit",
+    "category": "scenario-fusion",
+    "id": 323
+  },
+  {
+    "summary": "加密哈希 (CryptoKit)",
+    "path": "kit/security/security-crypto-hash.ets",
+    "type": "kit",
+    "category": "security",
+    "id": 324
+  },
+  {
+    "summary": "分享功能按钮 (ScenarioFusionKit)",
+    "path": "kit/share/share-button.ets",
+    "type": "kit",
+    "category": "share",
+    "id": 325
+  },
+  {
+    "summary": "元服务页面分享回调",
+    "path": "kit/share/share-on-share.ets",
+    "type": "kit",
+    "category": "share",
+    "id": 326
+  },
+  {
+    "summary": "轻量级数据持久化 (ArkData)",
+    "path": "kit/storage/preferences-utils.ets",
+    "type": "kit",
+    "category": "storage",
+    "id": 327
+  },
+  {
+    "summary": "窗口信息查询",
+    "path": "kit/window/window-info-query.ets",
+    "type": "kit",
+    "category": "window",
+    "id": 328
+  }
+]
