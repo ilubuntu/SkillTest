@@ -981,11 +981,14 @@ class OpenCodeAdapter(AgentAdapter):
     def _extract_session_ids(self, payload) -> set[str]:
         result = set()
 
+        def is_session_id(value) -> bool:
+            return str(value or "").strip().startswith("ses_")
+
         def walk(value):
             if isinstance(value, dict):
                 candidate = value.get("id") or value.get("sessionID") or value.get("sessionId")
-                if candidate:
-                    result.add(str(candidate))
+                if candidate and is_session_id(candidate):
+                    result.add(str(candidate).strip())
                 for item in value.values():
                     walk(item)
             elif isinstance(value, list):
@@ -1002,7 +1005,7 @@ class OpenCodeAdapter(AgentAdapter):
             if not isinstance(item, dict):
                 continue
             session_id = str(item.get("id") or "").strip()
-            if not session_id:
+            if not session_id.startswith("ses_"):
                 continue
             time_info = item.get("time") if isinstance(item.get("time"), dict) else {}
             infos[session_id] = {
