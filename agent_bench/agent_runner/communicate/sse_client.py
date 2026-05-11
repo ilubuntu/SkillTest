@@ -11,7 +11,7 @@ class OpenCodeSseClient:
 
     def __init__(self, api_base: str, endpoints=None):
         self.api_base = str(api_base or "").rstrip("/")
-        self.endpoints = tuple(endpoints or ("/event", "/global/event"))
+        self.endpoints = tuple(endpoints or ("/global/event", "/event"))
 
     def capture_events(self,
                        stop_event,
@@ -19,6 +19,7 @@ class OpenCodeSseClient:
                        parse_payload,
                        handle_payload,
                        handle_error,
+                       handle_empty_endpoint=None,
                        timeout: int = 120,
                        workspace_dir: str = "",
                        retry_delay: float = 1.0):
@@ -38,6 +39,7 @@ class OpenCodeSseClient:
                         with urllib.request.urlopen(req, timeout=timeout) as response:
                             connected = True
                             connected_event.set()
+                            received_payload = False
                             event_name = None
                             data_lines = []
                             while not stop_event.is_set():
@@ -52,11 +54,14 @@ class OpenCodeSseClient:
                                 elif line == "":
                                     payload = parse_payload(event_name, data_lines)
                                     if payload is not None:
+                                        received_payload = True
                                         handle_payload(payload)
                                     event_name = None
                                     data_lines = []
-                        if connected:
+                        if connected and received_payload:
                             break
+                        if connected and not received_payload and not stop_event.is_set() and handle_empty_endpoint:
+                            handle_empty_endpoint(endpoint)
                     except Exception as exc:
                         last_error = exc
                         continue

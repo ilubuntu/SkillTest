@@ -82,6 +82,10 @@ def _normalize_execution_detail_message(stage: str, message: str) -> Optional[st
     )):
         return None
     if stage == STAGE_GENERATING:
+        if "【subAgent】" in text and "无 subAgent" in text:
+            return None
+        if "TODO列表刷新" in text and "无 todo" in text:
+            return None
         if "任务已发送" in text:
             return "任务已发送"
         if "已收到任务" in text:

@@ -532,7 +532,6 @@ class CloudExecutionManager:
                 state["run_dir"] = run_dir
                 state["case_dir"] = case_dir
                 state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_sse_events.jsonl")
-                state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_progress_events.jsonl")
                 state["progress_upload_state_path"] = os.path.join(run_dir, "progress_upload_state.json")
                 self._progress.save_progress_upload_state(
                     state["progress_upload_state_path"],
@@ -597,7 +596,6 @@ class CloudExecutionManager:
                 state["run_dir"] = run_dir
                 state["case_dir"] = case_dir
                 state["sse_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_sse_events.jsonl")
-                state["sse_progress_log_path"] = os.path.join(agent_meta_dir(case_dir), "agent_opencode_progress_events.jsonl")
                 state["case_id"] = case.get("id") or f"cloud_execution_{execution_id}"
                 state["case_title"] = case.get("title") or f"Cloud Execution {execution_id}"
                 state["project_source_url"] = payload.testCase.fileUrl
