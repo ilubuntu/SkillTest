@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
-DEFAULT_MAX_TASK_RUNTIME_SECONDS = 7200
+DEFAULT_MAX_TASK_RUNTIME_SECONDS = 6000
 
 
 @dataclass

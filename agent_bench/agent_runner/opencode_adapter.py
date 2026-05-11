@@ -27,12 +27,12 @@ from agent_bench.agent_runner.adapter import AgentAdapter
 from agent_bench.agent_runner.auto_reply import OpenCodeQuestionAutoReply
 from agent_bench.agent_runner.agent_runtime_state import AgentRuntimeState
 from agent_bench.agent_runner.communicate import OpenCodeHttpClient, OpenCodeSseClient
+from agent_bench.agent_runner.spec import DEFAULT_MAX_TASK_RUNTIME_SECONDS
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
 DEFAULT_API_BASE = "http://localhost:4096"
 TIMEOUT = DEFAULT_TIMEOUT_SECONDS
 SESSION_CREATE_TIMEOUT_SECONDS = 60
-DEFAULT_MAX_TASK_RUNTIME_SECONDS = 7200
 MAX_RAW_SSE_LINE_CHARS = 2000
 DELTA_PROGRESS_THROTTLE_SECONDS = 10.0
 VALID_SSE_FILTERS = {"full", "medium", "low"}
@@ -598,7 +598,8 @@ class OpenCodeAdapter(AgentAdapter):
             sse_thread.start()
             connected_event.wait(timeout=5)
 
-        t0 = time.time()
+        started_at_monotonic = time.monotonic()
+        started_at_wall_time = time.time()
         try:
             self._http_client.prompt_async(
                 session_id=session_id,
@@ -611,7 +612,7 @@ class OpenCodeAdapter(AgentAdapter):
             payload = self._wait_for_completed_message(
                 session_id,
                 effective_prompt,
-                started_at_monotonic=t0,
+                started_at_monotonic=started_at_monotonic,
                 http_polling_log_path=http_polling_log_path,
                 tag=tag,
             )
@@ -627,7 +628,7 @@ class OpenCodeAdapter(AgentAdapter):
             message_info = self._fetch_message_info(session_id, message_id) if message_id else None
             final_payload = message_info or payload
             parts = final_payload.get("parts", []) if isinstance(final_payload, dict) else []
-            elapsed = time.time() - t0
+            elapsed = time.time() - started_at_wall_time
             self._last_interaction_metrics = self._build_interaction_metrics(
                 source="agent_runner",
                 session_id=session_id,
