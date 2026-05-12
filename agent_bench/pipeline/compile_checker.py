@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import threading
 from contextlib import contextmanager
-from typing import Dict, Tuple, Any
+from typing import Callable, Dict, Tuple, Any
 
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
@@ -331,7 +331,8 @@ def prepare_project_workspace(template_project_path: str, workspace_dir: str):
 
 def check_project_compilable(project_path: str,
                              timeout: int = DEFAULT_TIMEOUT_SECONDS,
-                             template_project_path: str = None) -> Dict[str, Any]:
+                             template_project_path: str = None,
+                             on_compile_start: Callable[[], None] | None = None) -> Dict[str, Any]:
     """直接编译 side 工程目录。"""
     if not os.path.isdir(project_path):
         return {
@@ -340,7 +341,7 @@ def check_project_compilable(project_path: str,
             "checked": True,
         }
 
-    is_success, error_msg = _compile_project(project_path, timeout=timeout)
+    is_success, error_msg = _compile_project(project_path, timeout=timeout, on_compile_start=on_compile_start)
 
     if not is_success:
         print(f"[COMPILE ERROR] error_msg={error_msg[:200]}")
@@ -722,7 +723,9 @@ def build_agent_workspace_env(project_path: str) -> Dict[str, str]:
     return env
 
 
-def _compile_project(project_path: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> Tuple[bool, str]:
+def _compile_project(project_path: str,
+                     timeout: int = DEFAULT_TIMEOUT_SECONDS,
+                     on_compile_start: Callable[[], None] | None = None) -> Tuple[bool, str]:
     """在指定项目目录下执行 hvigor 编译"""
     paths = resolve_harmony_toolchain()
 
@@ -736,6 +739,8 @@ def _compile_project(project_path: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) 
     try:
         # HarmonyOS 编译链路内存和 I/O 压力很高，多个 execution 并行时需要单独限流。
         with _hvigor_compile_slot():
+            if on_compile_start:
+                on_compile_start()
             env = _build_workspace_compile_env(project_path, paths)
             ohpm_path = _resolve_ohpm_path(paths)
             if not ohpm_path:

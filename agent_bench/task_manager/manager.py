@@ -282,8 +282,8 @@ class CloudExecutionManager:
             if payload is None or not local_base_url:
                 continue
             logger.info("任务从等待队列启动 taskId=%s", next_execution_id)
-            self._progress.append_conversation(state, "status", "任务结束排队，开始执行")
-            self._progress.append_execution_detail(state, STAGE_PENDING, "任务结束排队，开始执行")
+            self._progress.append_conversation(state, "status", "排队结束，准备开始执行")
+            self._progress.append_execution_detail(state, STAGE_PENDING, "排队结束，准备开始执行")
             self._launch_execution_locked(payload, local_base_url)
 
     def start(self, payload: CloudExecutionStartRequest, local_base_url: str):
@@ -563,7 +563,7 @@ class CloudExecutionManager:
                 self._progress.append_execution_detail(
                     state,
                     STAGE_PENDING,
-                    f"任务已接收，等待执行{_executor_info_suffix(state)}",
+                    f"任务开始执行{_executor_info_suffix(state)}",
                 )
                 self._progress.append_execution_detail(state, STAGE_PREPARING, f"本地产物目录: {run_dir}")
                 executor_log = os.path.join(

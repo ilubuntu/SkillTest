@@ -585,6 +585,10 @@ def _run_compile_check(case: dict,
         compile_project_path,
         timeout=DEFAULT_TIMEOUT_SECONDS,
         template_project_path=template_project_path,
+        on_compile_start=lambda: _notify(on_progress, "log", {
+            "level": "INFO",
+            "message": "hvigor等待结束，开始执行",
+        }),
     )
     compile_result["project_path"] = compile_project_path
     if compile_project_path != project_path:
