@@ -15,6 +15,7 @@ from agent_bench.pipeline.loader import load_logging_config, validate_runtime_co
 from agent_bench.pipeline.compile_checker import apply_harmony_toolchain_env
 from agent_bench.agent_runner.discovery import check_api_available, ensure_opencode_server
 from agent_bench.agent_runner.opencode_env import find_opencode_executable
+from agent_bench.task_manager import cloud_execution_manager
 
 _LOGGING_CONFIG = load_logging_config()
 _LOG_LEVEL_NAME = str(_LOGGING_CONFIG.get("level") or "INFO").upper()
@@ -117,6 +118,7 @@ async def startup():
         logger.warning(f"OpenCode Server 当前不可用，执行器先启动成功，后续任务执行前会再次检查: {api_base}")
     else:
         logger.info("OpenCode Server 启动成功")
+    cloud_execution_manager.restore_pending_tasks()
     logger.info("启动执行器服务 (端口 8000)...")
     logger.info("执行器已就绪，等待任务下发...")
     runtime_log_path = getattr(app.state, "runtime_log_path", "")

@@ -27,6 +27,7 @@ from agent_bench.pipeline.case_runner import run_single_case
 from agent_bench.pipeline.loader import load_agent, load_agents, load_config, load_logging_config
 from agent_bench.pipeline.artifacts import agent_meta_dir, agent_workspace_dir, diff_dir, original_project_dir
 from agent_bench.task_manager.artifacts import TaskArtifactUploader
+from agent_bench.task_manager.file_queue import LocalTaskFileQueue
 from agent_bench.task_manager.progress import TaskProgressTracker
 from agent_bench.task_manager.registry import TaskRegistry
 from agent_bench.task_manager.result_reporting import TaskResultReporter
@@ -43,6 +44,7 @@ def _runtime_results_root() -> str:
 
 RESULTS_ROOT = _runtime_results_root()
 CACHE_ROOT = os.path.join(os.path.dirname(RESULTS_ROOT), "cache", "case_packages")
+TASK_QUEUE_ROOT = os.path.join(os.path.dirname(RESULTS_ROOT), "taskqueue")
 
 STATUS_PUSH_INTERVAL_SECONDS = 2.0
 STATUS_PUSH_DETAIL_FLUSH_SECONDS = 3.0
@@ -240,6 +242,9 @@ class CloudExecutionManager:
         # 超过并发上限的任务先进入等待队列，空出槽位后再启动。
         self._pending_queue: list[int] = []
         self._server_started_time = int(time.time() * 1000)
+        self._file_queue = LocalTaskFileQueue(TASK_QUEUE_ROOT)
+        self._update_pending = False
+        self._pending_restored = False
 
     def _current_load_summary_locked(self) -> str:
         running_count = self._registry.running_execution_count()
@@ -247,6 +252,8 @@ class CloudExecutionManager:
         return f"当前运行中={running_count}，排队中={queued_count}"
 
     def _can_start_new_execution(self) -> tuple[bool, str]:
+        if self._update_pending:
+            return False, "程序准备更新，任务暂不进入执行状态"
         running_count = self._registry.running_execution_count()
         if running_count >= self._max_concurrency:
             return False, f"当前运行中的任务数量已达上限: {self._max_concurrency}"
@@ -267,11 +274,16 @@ class CloudExecutionManager:
             started_at=now_iso(),
             local_base_url=local_base_url,
         )
+        self._file_queue.mark_running(execution_id)
         thread.start()
 
     def _start_queued_executions_locked(self):
         # 每次任务结束后尽量补满可用并发槽位。
-        while self._pending_queue and self._registry.running_execution_count() < self._max_concurrency:
+        while (
+            not self._update_pending
+            and self._pending_queue
+            and self._registry.running_execution_count() < self._max_concurrency
+        ):
             next_execution_id = self._pending_queue.pop(0)
             state = self._registry.get(next_execution_id)
             if not state:
@@ -285,6 +297,48 @@ class CloudExecutionManager:
             self._progress.append_conversation(state, "status", "排队结束，准备开始执行")
             self._progress.append_execution_detail(state, STAGE_PENDING, "排队结束，准备开始执行")
             self._launch_execution_locked(payload, local_base_url)
+
+    def restore_pending_tasks(self):
+        """服务启动后恢复 pending 文件队列；running 文件只保留为异常中断证据。"""
+        with self._lock:
+            if self._pending_restored:
+                return
+            self._pending_restored = True
+            restored_count = 0
+            for record in self._file_queue.load_pending_records():
+                payload_data = record.get("payload")
+                if not isinstance(payload_data, dict):
+                    continue
+                try:
+                    payload = CloudExecutionStartRequest.model_validate(payload_data)
+                except Exception:
+                    continue
+                if self._registry.get(payload.executionId):
+                    continue
+                local_base_url = str(record.get("localBaseUrl") or "").strip()
+                state = create_task_state(payload, payload.cloudBaseUrl or self._cloud_base_url)
+                self._registry.create(payload.executionId, state)
+                self._progress.ensure_stage_entry(state, STAGE_PENDING, "任务排队中")
+                self._pending_queue.append(payload.executionId)
+                self._registry.set_handle_metadata(
+                    payload.executionId,
+                    payload=payload,
+                    local_base_url=local_base_url,
+                    queued=True,
+                    queued_at=now_iso(),
+                )
+                status_thread = threading.Thread(
+                    target=self._status_report_loop,
+                    args=(payload.executionId,),
+                    daemon=True,
+                    name=f"execution-status-{payload.executionId}",
+                )
+                self._registry.set_handle_metadata(payload.executionId, status_thread=status_thread)
+                status_thread.start()
+                restored_count += 1
+            if restored_count:
+                logger.info("已从本地 pending 队列恢复任务数量=%s", restored_count)
+            self._start_queued_executions_locked()
 
     def start(self, payload: CloudExecutionStartRequest, local_base_url: str):
         if not str(payload.testCase.input or "").strip():
@@ -305,6 +359,7 @@ class CloudExecutionManager:
 
             state = create_task_state(payload, payload.cloudBaseUrl or self._cloud_base_url)
             self._registry.create(payload.executionId, state)
+            self._file_queue.write_pending(payload, local_base_url)
             logger.info(
                 "收到任务下发 taskId=%s 任务=%s 工程包=%s",
                 payload.executionId,
@@ -344,6 +399,66 @@ class CloudExecutionManager:
             self._progress.append_conversation(state, "status", queue_message)
             self._progress.append_execution_detail(state, STAGE_PENDING, queue_message)
             return True, f"任务已接收，当前排队序号={queue_index}"
+
+    def prepare_update(self, action: str = "enable") -> Dict[str, Any]:
+        """进入/退出更新准备状态。
+
+        action="enable": 进入更新准备，停止启动新任务。
+        action="disable": 恢复正常，继续启动排队任务。
+        """
+        with self._lock:
+            if action == "enable":
+                self._update_pending = True
+            elif action == "disable":
+                self._update_pending = False
+                self._start_queued_executions_locked()
+            return self.maintenance_status_locked()
+
+    def maintenance_status(self) -> Dict[str, Any]:
+        with self._lock:
+            return self.maintenance_status_locked()
+
+    def maintenance_status_locked(self) -> Dict[str, Any]:
+        running_execution_ids = self._registry.running_execution_ids()
+        pending_execution_ids = list(self._pending_queue)
+        return {
+            "updatePending": self._update_pending,
+            "canUpdate": self._update_pending and not running_execution_ids,
+            "runningExecutionIds": running_execution_ids,
+            "pendingExecutionIds": pending_execution_ids,
+            "runningFileExecutionIds": self._file_queue.running_ids(),
+            "pendingFileExecutionIds": self._file_queue.pending_ids(),
+        }
+
+    def stop_executions(self, execution_ids: list[int]) -> Dict[str, Any]:
+        requested_ids = []
+        successed_ids = []
+        failed_ids = []
+        with self._lock:
+            for raw_execution_id in execution_ids or []:
+                try:
+                    execution_id = int(raw_execution_id)
+                except Exception:
+                    continue
+                if execution_id in requested_ids:
+                    continue
+                requested_ids.append(execution_id)
+                if execution_id in self._pending_queue:
+                    if self._file_queue.remove_pending(execution_id):
+                        self._pending_queue = [item for item in self._pending_queue if item != execution_id]
+                        self._registry.delete(execution_id)
+                        successed_ids.append(execution_id)
+                        logger.info("已移除 pending 任务: executionId=%s", execution_id)
+                    else:
+                        failed_ids.append(execution_id)
+                        logger.warning("pending 任务移除失败，本地队列文件不存在: executionId=%s", execution_id)
+                    continue
+                if execution_id in self._registry.running_execution_ids():
+                    failed_ids.append(execution_id)
+                    logger.info("运行中任务不执行主动停止，已跳过: executionId=%s", execution_id)
+                    continue
+                failed_ids.append(execution_id)
+        return {"successedIDs": successed_ids, "failedIds": failed_ids}
 
     def get_state(self, execution_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         with self._lock:
@@ -516,6 +631,11 @@ class CloudExecutionManager:
                     execution_id=execution_id,
                     on_progress=on_progress,
                 )
+                harmonyos_url = self._artifacts.upload_harmonyos_dir(
+                    upload_workspace_dir,
+                    execution_id=execution_id,
+                    on_progress=on_progress,
+                )
                 diff_file_url = self._artifacts.upload_diff_file(
                     upload_patch_path,
                     execution_id=execution_id,
@@ -525,6 +645,7 @@ class CloudExecutionManager:
                     current = self._registry.get(execution_id)
                     if current is not None:
                         current["output_code_url"] = output_code_url
+                        current["harmonyos_url"] = harmonyos_url
                         current["diff_file_url"] = diff_file_url
             elif event == "agent_interaction_trace_done" and upload_agent_log_path:
                 self._upload_agent_interaction_log(execution_id, upload_agent_log_path)
@@ -627,7 +748,6 @@ class CloudExecutionManager:
                     "status",
                     f"执行计划已确认: Agent={agent.get('name') or agent.get('id') or '未知'}，即将开始处理工程",
                 )
-
             agent_started_at = time.time()
             result = run_single_case(
                 case=case,
@@ -642,11 +762,17 @@ class CloudExecutionManager:
 
             if str(result.get("status") or "").lower() not in {"completed", "success"}:
                 raise RuntimeError(f"Agent 执行失败: {result.get('status') or 'unknown'}")
-
             output_code_url = str(state.get("output_code_url") or "").strip()
             diff_file_url = str(state.get("diff_file_url") or "").strip()
             if not output_code_url:
                 output_code_url = self._artifacts.upload_output_code_dir(
+                    agent_workspace_dir(case_dir),
+                    execution_id=execution_id,
+                    on_progress=on_progress,
+                )
+            harmonyos_url = str(state.get("harmonyos_url") or "").strip()
+            if not harmonyos_url:
+                harmonyos_url = self._artifacts.upload_harmonyos_dir(
                     agent_workspace_dir(case_dir),
                     execution_id=execution_id,
                     on_progress=on_progress,
@@ -669,10 +795,10 @@ class CloudExecutionManager:
 
             with self._lock:
                 state["output_code_url"] = output_code_url
+                state["harmonyos_url"] = harmonyos_url
                 state["diff_file_url"] = diff_file_url
                 state["result"] = result
                 state["last_result_payload"] = result_payload
-
             self._result_reporter.report(
                 state=state,
                 result_payload=result_payload,
@@ -692,9 +818,12 @@ class CloudExecutionManager:
         finally:
             with self._lock:
                 state["status_push_stop"] = True
+                self._file_queue.remove_running(execution_id)
                 self._registry.set_handle_metadata(execution_id, finished_at=now_iso())
                 self._registry.clear_handle_metadata(execution_id, "worker_thread", "status_thread")
                 self._start_queued_executions_locked()
+                if self._update_pending and not self._registry.running_execution_ids():
+                    logger.info("更新准备完成：当前无运行任务，可以重启更新程序")
                 load_summary = self._current_load_summary_locked()
                 self._progress.append_conversation(
                     state,

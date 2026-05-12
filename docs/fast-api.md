@@ -312,8 +312,106 @@ curl http://127.0.0.1:8000/api/cloud-api/summary
 
 - `serverStartedTime` 使用毫秒时间戳，避免本地时间字符串和 UTC 时区歧义。
 - `totalReceived` 是当前执行器进程内存统计，不是数据库累计值。
-- 执行器重启后，内存中的任务状态和计数会重新开始。
+- 执行器重启后，内存状态会重新建立；本地 `pending` 文件队列会自动恢复。
 - `maxConcurrency` 来自 `config/config.yaml` 的 `task_manager.max_concurrency`。
+
+### `POST /api/cloud-api/maintenance/prepare-update`
+
+通知执行器进入/退出更新准备状态。
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `action` | string | 否 | `enable`（默认）：进入更新准备，停止启动新任务；`disable`：恢复正常调度，排队任务继续执行 |
+
+请求示例：
+
+```bash
+# 进入更新准备
+curl -X POST "http://127.0.0.1:8000/api/cloud-api/maintenance/prepare-update?action=enable"
+
+# 恢复正常调度
+curl -X POST "http://127.0.0.1:8000/api/cloud-api/maintenance/prepare-update?action=disable"
+```
+
+响应示例：
+
+```json
+{
+  "updatePending": true,
+  "canUpdate": false,
+  "runningExecutionIds": [1233],
+  "pendingExecutionIds": [1234, 1235],
+  "runningFileExecutionIds": [1233],
+  "pendingFileExecutionIds": [1234, 1235]
+}
+```
+
+说明：
+
+- `action=enable`：执行器继续接收新任务，但新任务和已排队任务只保留在 `pending`，不再进入 `running`；已经在运行的任务不会被中断。
+- `action=disable`：恢复正常调度，排队中的任务会立即开始执行。
+- `canUpdate=false` 时不要重启，等当前 running 任务自然结束。
+- `canUpdate=true` 时可以重启更新程序。
+- 更新完成后程序启动会自动读取本地 `pending` 文件队列并继续执行。
+
+### `GET /api/cloud-api/maintenance/status`
+
+查询当前是否可以安全重启更新程序。
+
+请求示例：
+
+```bash
+curl http://127.0.0.1:8000/api/cloud-api/maintenance/status
+```
+
+响应示例：
+
+```json
+{
+  "updatePending": true,
+  "canUpdate": true,
+  "runningExecutionIds": [],
+  "pendingExecutionIds": [1234, 1235],
+  "runningFileExecutionIds": [],
+  "pendingFileExecutionIds": [1234, 1235]
+}
+```
+
+### `POST /api/cloud-api/maintenance/stop-executions`
+
+云测下发需要从等待队列移除的任务列表，接口立即返回。
+
+请求示例：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/cloud-api/maintenance/stop-executions \
+  -H "Content-Type: application/json" \
+  -d '{"executionIds":[1305,1306,1307]}'
+```
+
+请求体：
+
+```json
+{
+  "executionIds": [1305, 1306, 1307]
+}
+```
+
+响应示例：
+
+```json
+{
+  "successedIDs": [1306],
+  "failedIds": [1305, 1307]
+}
+```
+
+说明：
+
+- 只有成功从 `pending` 等待队列移除的任务会进入 `successedIDs`。
+- `pending` 任务会直接从内存等待队列移除，并删除本地 `taskqueue/pending/{executionId}.json`。
+- `running` 任务不主动停止，不调用 OpenCode abort，不终止本地进程，会进入 `failedIds`。
+- 本地不存在的任务也会进入 `failedIds`。
 
 ## 6. 本地查看 Agent/LLM 交互流程
 

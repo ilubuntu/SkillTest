@@ -5,6 +5,7 @@ import logging
 import socket
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from agent_bench.cloud_api.interaction_trace import load_agent_interaction_trace
 from agent_bench.cloud_api.models import CloudExecutionStartRequest
@@ -13,6 +14,10 @@ from agent_bench.task_manager import cloud_execution_manager
 
 router = APIRouter(prefix="/api/cloud-api", tags=["cloud_api"])
 logger = logging.getLogger(__name__)
+
+
+class StopExecutionsRequest(BaseModel):
+    executionIds: list[int] = Field(default_factory=list)
 
 
 def _clip_cloud_request_text(value: str, limit: int = 100) -> str:
@@ -123,6 +128,26 @@ async def get_cloud_execution_status(execution_id: int | None = Query(default=No
 @router.get("/summary")
 async def get_cloud_execution_summary():
     return cloud_execution_manager.summary()
+
+
+@router.post("/maintenance/prepare-update")
+async def prepare_executor_update(
+    action: str = Query(default="enable", description="enable=进入更新准备; disable=恢复正常调度"),
+):
+    """进入/退出更新准备状态。enable: 停止启动新任务; disable: 恢复正常调度。"""
+    return cloud_execution_manager.prepare_update(action=action)
+
+
+@router.get("/maintenance/status")
+async def get_executor_maintenance_status():
+    """查询是否已经可以安全重启更新程序。"""
+    return cloud_execution_manager.maintenance_status()
+
+
+@router.post("/maintenance/stop-executions")
+async def stop_executor_executions(payload: StopExecutionsRequest):
+    """从 pending 等待队列移除任务；running 任务不主动停止。"""
+    return cloud_execution_manager.stop_executions(payload.executionIds)
 
 
 def _load_agent_interaction_payload(execution_id: int):

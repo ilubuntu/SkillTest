@@ -19,6 +19,10 @@ class TaskRegistry:
     def get(self, execution_id: int) -> Optional[Dict[str, Any]]:
         return self._states.get(execution_id)
 
+    def delete(self, execution_id: int):
+        self._states.pop(execution_id, None)
+        self._handles.pop(execution_id, None)
+
     def require(self, execution_id: int) -> Dict[str, Any]:
         return self._states[execution_id]
 

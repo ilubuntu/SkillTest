@@ -67,6 +67,31 @@ class TaskArtifactUploader:
                 on_progress("log", {"level": "ERROR", "message": f"[cloud_api] 输出代码上传失败: {exc}"})
             return ""
 
+    def upload_harmonyos_dir(self, workspace_dir: str, execution_id: int, on_progress=None) -> str:
+        if not HAS_STORAGE_UPLOADER:
+            return ""
+        harmonyos_dir = os.path.join(workspace_dir, ".harmonyos")
+        if not os.path.isdir(harmonyos_dir):
+            return ""
+        try:
+            object_name = f"cloud_api/harmonyos/execution_{execution_id}_harmonyos.zip"
+            if on_progress:
+                on_progress("log", {"level": "WARN", "message": f"[cloud_api] 开始上传 .harmonyos 目录: {object_name}"})
+            uploader = self._create_agc_uploader()
+            result = uploader.upload_directory(
+                harmonyos_dir,
+                object_name=object_name,
+                exclude_generated_files=False,
+            )
+            upload_url = result.get("download_url") or ""
+            if on_progress:
+                on_progress("log", {"level": "WARN", "message": f"[cloud_api] .harmonyos 目录上传完成: {upload_url}"})
+            return upload_url
+        except Exception as exc:
+            if on_progress:
+                on_progress("log", {"level": "ERROR", "message": f"[cloud_api] .harmonyos 目录上传失败: {exc}"})
+            return ""
+
     def upload_diff_file(self, file_path: str, execution_id: int, on_progress=None) -> str:
         if not HAS_STORAGE_UPLOADER:
             return ""

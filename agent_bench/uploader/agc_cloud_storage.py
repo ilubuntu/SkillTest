@@ -326,6 +326,7 @@ class AgcCloudStorageClient:
         content_type: Optional[str] = None,
         archive_format: str = "zip",
         share_token: Optional[str] = None,
+        exclude_generated_files: bool = True,
     ) -> Dict:
         if not directory_path:
             raise ValueError("directory_path 不能为空")
@@ -340,7 +341,11 @@ class AgcCloudStorageClient:
             archive_name = object_name or f"{os.path.basename(os.path.abspath(directory_path.rstrip(os.sep))) or 'archive'}.zip"
             with tempfile.TemporaryDirectory(prefix="agc_upload_") as tmp_dir:
                 archive_path = os.path.join(tmp_dir, os.path.basename(archive_name))
-                self._package_directory_as_zip(directory_path, archive_path)
+                self._package_directory_as_zip(
+                    directory_path,
+                    archive_path,
+                    exclude_generated_files=exclude_generated_files,
+                )
                 return self.upload_file(
                     archive_path,
                     object_name=archive_name,
@@ -352,7 +357,11 @@ class AgcCloudStorageClient:
         archive_name = object_name or f"{os.path.basename(os.path.abspath(directory_path.rstrip(os.sep))) or 'archive'}.tar.gz"
         with tempfile.TemporaryDirectory(prefix="agc_upload_") as tmp_dir:
             archive_path = os.path.join(tmp_dir, os.path.basename(archive_name))
-            self._package_directory_as_tar_gz(directory_path, archive_path)
+            self._package_directory_as_tar_gz(
+                directory_path,
+                archive_path,
+                exclude_generated_files=exclude_generated_files,
+            )
             return self.upload_file(
                 archive_path,
                 object_name=archive_name,
@@ -395,24 +404,24 @@ class AgcCloudStorageClient:
         return False
 
     @classmethod
-    def _package_directory_as_zip(cls, directory_path: str, archive_path: str):
+    def _package_directory_as_zip(cls, directory_path: str, archive_path: str, exclude_generated_files: bool = True):
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
             for current_root, _, files in os.walk(directory_path):
                 for filename in files:
                     full_path = os.path.join(current_root, filename)
                     relative_path = os.path.relpath(full_path, directory_path)
-                    if cls._should_exclude_from_package(relative_path):
+                    if exclude_generated_files and cls._should_exclude_from_package(relative_path):
                         continue
                     zip_file.write(full_path, arcname=relative_path)
 
     @classmethod
-    def _package_directory_as_tar_gz(cls, directory_path: str, archive_path: str):
+    def _package_directory_as_tar_gz(cls, directory_path: str, archive_path: str, exclude_generated_files: bool = True):
         with tarfile.open(archive_path, "w:gz") as tar:
             for current_root, _, files in os.walk(directory_path):
                 for filename in files:
                     full_path = os.path.join(current_root, filename)
                     relative_path = os.path.relpath(full_path, directory_path)
-                    if cls._should_exclude_from_package(relative_path):
+                    if exclude_generated_files and cls._should_exclude_from_package(relative_path):
                         continue
                     tar.add(full_path, arcname=relative_path)
 
