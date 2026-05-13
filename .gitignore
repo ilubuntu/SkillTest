@@ -54,3 +54,4 @@ cache/
 results/
 agent_traces/
 .opencode_runtime/
+taskqueue/
