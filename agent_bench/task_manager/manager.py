@@ -4,6 +4,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import hashlib
 import sys
@@ -44,6 +45,7 @@ def _runtime_results_root() -> str:
 
 RESULTS_ROOT = _runtime_results_root()
 CACHE_ROOT = os.path.join(os.path.dirname(RESULTS_ROOT), "cache", "case_packages")
+SKILL_CACHE_ROOT = os.path.join(os.path.dirname(RESULTS_ROOT), "cache", "skill_packages")
 TASK_QUEUE_ROOT = os.path.join(os.path.dirname(RESULTS_ROOT), "taskqueue")
 
 STATUS_PUSH_INTERVAL_SECONDS = 2.0
@@ -220,6 +222,123 @@ def _sanitize_original_project_signing_configs(original_dir: str, on_progress=No
         _emit_prepare_log(on_progress, "清空原始工程签名信息成功，默认为[]")
     elif result == "already_empty":
         _emit_prepare_log(on_progress, "原始签名信息为空，无需清理")
+
+
+def _safe_path_token(value: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "").strip())
+    return token.strip("._") or "unknown"
+
+
+def _merge_cloud_skills(default_skills: list, dynamic_skills: list) -> list:
+    """合并云端默认 Skill 和任务动态 Skill，同名动态 Skill 覆盖默认 Skill。"""
+    merged = []
+    indexes = {}
+    for skill in list(default_skills or []) + list(dynamic_skills or []):
+        name = str(getattr(skill, "name", "") or "").strip()
+        if not name:
+            continue
+        if name in indexes:
+            merged[indexes[name]] = skill
+            continue
+        indexes[name] = len(merged)
+        merged.append(skill)
+    return merged
+
+
+def _cloud_skill_archive_path(skill) -> str:
+    name = str(getattr(skill, "name", "") or "").strip()
+    version = str(getattr(skill, "version", "") or "").strip()
+    path = str(getattr(skill, "path", "") or "").strip()
+    suffix = os.path.splitext(urllib.parse.urlparse(path).path or "")[1] or ".zip"
+    cache_key = hashlib.sha256(f"{name}\n{version}\n{path}".encode("utf-8")).hexdigest()[:16]
+    os.makedirs(SKILL_CACHE_ROOT, exist_ok=True)
+    return os.path.join(
+        SKILL_CACHE_ROOT,
+        f"{_safe_path_token(name)}_{_safe_path_token(version)}_{cache_key}{suffix}",
+    )
+
+
+def _download_cloud_skill_archive(skill, on_progress=None) -> str:
+    archive_path = _cloud_skill_archive_path(skill)
+    if os.path.exists(archive_path) and os.path.getsize(archive_path) > 0:
+        _emit_prepare_log(on_progress, f"Skill 缓存已命中: {skill.name}@{skill.version}")
+        return archive_path
+    _emit_prepare_log(on_progress, f"开始下载 Skill: {skill.name}@{skill.version}")
+    with urllib.request.urlopen(str(skill.path).strip(), timeout=60) as response, open(archive_path, "wb") as target:
+        shutil.copyfileobj(response, target)
+    _emit_prepare_log(on_progress, f"Skill 下载完成: {skill.name}@{skill.version}")
+    return archive_path
+
+
+def _locate_skill_root(extract_root: str) -> str:
+    if os.path.isfile(os.path.join(extract_root, "SKILL.md")):
+        return extract_root
+    entries = [
+        os.path.join(extract_root, name)
+        for name in os.listdir(extract_root)
+        if not name.startswith("__MACOSX")
+    ]
+    dirs = [path for path in entries if os.path.isdir(path)]
+    if len(dirs) == 1 and os.path.isfile(os.path.join(dirs[0], "SKILL.md")):
+        return dirs[0]
+    for current_root, _dirnames, filenames in os.walk(extract_root):
+        if "SKILL.md" in filenames:
+            return current_root
+    raise FileNotFoundError(f"Skill 包中不存在 SKILL.md: {extract_root}")
+
+
+def _prepare_cloud_skill_sources(payload: CloudExecutionStartRequest, case_dir: str, on_progress=None) -> list:
+    agent_config = payload.agentConfig
+    if agent_config is None:
+        return []
+    skills = _merge_cloud_skills(agent_config.defaultSkills, payload.dynamicSkills)
+    if not skills:
+        return []
+
+    prepared = []
+    skill_root = os.path.join(case_dir, "cloud_skills")
+    os.makedirs(skill_root, exist_ok=True)
+    for skill in skills:
+        archive_path = _download_cloud_skill_archive(skill, on_progress=on_progress)
+        if not zipfile.is_zipfile(archive_path):
+            raise ValueError(f"Skill 包不是 zip 文件: {skill.name}@{skill.version}")
+        extract_dir = os.path.join(
+            skill_root,
+            f"{_safe_path_token(skill.name)}_{_safe_path_token(skill.version)}",
+        )
+        if os.path.exists(extract_dir):
+            shutil.rmtree(extract_dir)
+        os.makedirs(extract_dir, exist_ok=True)
+        _extract_zip_with_normalized_paths(archive_path, extract_dir, on_progress=None)
+        source_dir = _locate_skill_root(extract_dir)
+        prepared.append({
+            "name": str(skill.name).strip(),
+            "path": source_dir,
+        })
+        _emit_prepare_log(on_progress, f"Skill 已准备完成: {skill.name}@{skill.version}")
+    return prepared
+
+
+def _build_cloud_agent(payload: CloudExecutionStartRequest, case_dir: str, on_progress=None) -> Optional[dict]:
+    agent_config = payload.agentConfig
+    if agent_config is None:
+        return None
+    opencode_agent = str(agent_config.agent or "").strip()
+    if opencode_agent not in {"build", "harmonyos-plugin"}:
+        raise ValueError(f"不支持的 agentConfig.agent: {opencode_agent}")
+    provider_id = str(agent_config.llm.providerId or "").strip()
+    model_id = str(agent_config.llm.modelId or "").strip()
+    mounted_skills = _prepare_cloud_skill_sources(payload, case_dir, on_progress=on_progress)
+    return {
+        "id": str(agent_config.id or "").strip(),
+        "name": str(agent_config.id or "").strip(),
+        "opencode_agent": opencode_agent,
+        "model": f"{provider_id}/{model_id}",
+        "extra_prompt": str(agent_config.extraPrompt or "").strip(),
+        "mounted_skills": mounted_skills,
+        "cloud_agent_config": agent_config.model_dump(),
+        "dynamic_skills": [item.model_dump() for item in payload.dynamicSkills or []],
+    }
 
 
 class CloudExecutionManager:
@@ -734,7 +853,9 @@ class CloudExecutionManager:
                 state["project_source_url"] = payload.testCase.fileUrl
                 self._progress.append_conversation(state, "prepare", f"工程已就绪: {original_dir}")
 
-            agent = load_agent(payload.agentId or "")
+            agent = _build_cloud_agent(payload, case_dir, on_progress=on_progress)
+            if not agent:
+                agent = load_agent(payload.agentId or "")
             if not agent:
                 agents = load_agents()
                 agent = load_agent(agents[0].get("id")) if agents else None

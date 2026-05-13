@@ -39,6 +39,29 @@ class CloudDispatchPayload(BaseModel):
     testCase: CloudTestCasePayload
 
 
+class CloudLlmPayload(BaseModel):
+    """云端选择的 LLM 供应商与模型。"""
+    providerId: str = ""
+    modelId: str = ""
+
+
+class CloudSkillPayload(BaseModel):
+    """云端托管的 Skill 包描述。"""
+    name: str = ""
+    version: str = ""
+    path: str = ""
+
+
+class CloudAgentConfigPayload(BaseModel):
+    """新协议下云端托管的 Agent 配置。"""
+    id: str = ""
+    agent: str = ""
+    llm: CloudLlmPayload = Field(default_factory=CloudLlmPayload)
+    pluginVersion: str = ""
+    extraPrompt: str = ""
+    defaultSkills: List[CloudSkillPayload] = Field(default_factory=list)
+
+
 class CloudExecutionStartRequest(CloudDispatchPayload):
     """任务启动请求，在调度载荷基础上附带云端连接信息。"""
     cloudBaseUrl: str = ""
@@ -46,6 +69,8 @@ class CloudExecutionStartRequest(CloudDispatchPayload):
     token: str = ""
     requestHost: str = ""
     executorHostname: str = ""
+    agentConfig: Optional[CloudAgentConfigPayload] = None
+    dynamicSkills: List[CloudSkillPayload] = Field(default_factory=list)
 
 
 class CloudStatusReportPayload(BaseModel):
