@@ -83,13 +83,31 @@ class OpenCodeHttpClient:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 
-    def list_children(self, session_id: str, timeout: int = 10):
+    def list_children(self,
+                      session_id: str,
+                      workspace_dir: Optional[str] = None,
+                      timeout: int = 10):
         req = urllib.request.Request(
-            f"{self.api_base}/session/{session_id}/children",
+            self._session_url(session_id, "children", workspace_dir),
             method="GET",
         )
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def abort_session(self,
+                      session_id: str,
+                      workspace_dir: Optional[str] = None,
+                      timeout: int = 5):
+        req = urllib.request.Request(
+            self._session_url(session_id, "abort", workspace_dir),
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            body = response.read().decode("utf-8")
+            try:
+                return json.loads(body) if body else True
+            except Exception:
+                return body or True
 
     def list_todos(self, session_id: str, timeout: int = 10):
         req = urllib.request.Request(

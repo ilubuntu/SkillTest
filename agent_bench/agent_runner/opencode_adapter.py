@@ -27,6 +27,7 @@ from agent_bench.agent_runner.adapter import AgentAdapter
 from agent_bench.agent_runner.auto_reply import OpenCodeQuestionAutoReply
 from agent_bench.agent_runner.agent_runtime_state import AgentRuntimeState
 from agent_bench.agent_runner.communicate import OpenCodeHttpClient, OpenCodeSseClient
+from agent_bench.agent_runner.session_cleaner import OpenCodeSessionCleaner
 from agent_bench.agent_runner.spec import DEFAULT_MAX_TASK_RUNTIME_SECONDS
 from agent_bench.common.default_constants import DEFAULT_TIMEOUT_SECONDS
 
@@ -84,6 +85,10 @@ class OpenCodeAdapter(AgentAdapter):
         self.artifact_base_dir = artifact_base_dir or "generate"
         self._http_client = OpenCodeHttpClient(self.api_base)
         self._sse_client = OpenCodeSseClient(self.api_base)
+        self._session_cleaner = OpenCodeSessionCleaner(
+            http_client=self._http_client,
+            log_func=lambda level, message: self._log(level, message),
+        )
 
         # setup 阶段准备的配置
         self._system_message = ""
@@ -403,6 +408,7 @@ class OpenCodeAdapter(AgentAdapter):
 
     def execute(self, prompt: str, tag: str = "", workspace_dir: Optional[str] = None) -> str:
         """创建 session，发送消息（携带 system/tools 配置），返回响应"""
+        session_id = ""
         try:
             self._current_workspace_dir = str(workspace_dir or "").strip()
             self._last_interaction_metrics = None
@@ -485,9 +491,12 @@ class OpenCodeAdapter(AgentAdapter):
                 tag=tag)
             return ""
         except TimeoutError:
-            self._last_error_message = f"请求超时 ({self.timeout}s)"
-            self._log("ERROR", f"请求超时 ({self.timeout}s)", tag=tag)
-            raise TimeoutError(f"Agent 请求超时 ({self.timeout}s)")
+            if not self._last_error_message:
+                self._last_error_message = f"请求超时 ({self.timeout}s)"
+            self._cleanup_timeout_session(session_id, workspace_dir, tag)
+            timeout_message = self._last_error_message or f"请求超时 ({self.timeout}s)"
+            self._log("ERROR", timeout_message, tag=tag)
+            raise TimeoutError(timeout_message if timeout_message.startswith("Agent ") else f"Agent {timeout_message}")
 
     def _execute_message_sync(self,
                               session_id: str,
@@ -1716,7 +1725,7 @@ class OpenCodeAdapter(AgentAdapter):
                     if retry_attempt not in (None, ""):
                         details = f"{details}; attempt={retry_attempt}"
                     self._last_non_delta_progress_at = time.time()
-                    self._log("INFO", f"{source_prefix} Agent 服务端限流，等待重试: {details}", tag=tag)
+                    self._log("INFO", f"{source_prefix} Agent 服务端重试: {details}", tag=tag)
             return
 
         mapped = self._map_sse_payload(payload)
@@ -2197,6 +2206,23 @@ class OpenCodeAdapter(AgentAdapter):
             self._last_error_message = f"创建 Session 异常: {e}"
             self._log("ERROR", f"创建 Session 异常: {e}")
             return None
+
+    def _cleanup_timeout_session(self,
+                                 session_id: str,
+                                 workspace_dir: Optional[str],
+                                 tag: str = ""):
+        """超时失败收口时，best-effort 通知 OpenCode 取消会话资源。"""
+        if not session_id:
+            return
+        try:
+            self._session_cleaner.cleanup_timeout_session(
+                session_id=session_id,
+                workspace_dir=workspace_dir,
+                reason=self._last_error_message,
+                log_prefix=tag,
+            )
+        except Exception as exc:
+            self._log("WARN", f"Agent 超时，OpenCode 会话清理异常: {exc}", tag=tag)
 
     # ── teardown ─────────────────────────────────────────────
 
