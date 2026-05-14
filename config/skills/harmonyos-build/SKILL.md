@@ -1,5 +1,5 @@
 ---
-name: build-harmony-project
+name: harmonyos-build
 description: Build HarmonyOS NEXT projects from the terminal by using the local DevEco Studio toolchain instead of DevEco Studio UI. Use when the user asks to compile, build, package, or verify a HarmonyOS project in VS Code or another CLI workflow, especially when the project contains `build-profile.json5`, `hvigorfile.ts`, or Harmony module structure. Do not modify signing files, signing keys, or `build-profile.json5` while using this skill.
 ---
 

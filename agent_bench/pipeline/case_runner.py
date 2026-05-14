@@ -346,7 +346,7 @@ def _log_skill_call_detection(case_id: str,
         if part_type in {"tool", "skill"} and matched_skill:
             explicit_skill_matches.append(f"{part_type}:{matched_skill}")
             continue
-        if "build-harmony-project" in expected_skills and any(token in serialized for token in ("hvigor", "assemblehap", "--stop-daemon")):
+        if "harmonyos-build" in expected_skills and any(token in serialized for token in ("hvigor", "assemblehap", "--stop-daemon")):
             compile_command_matches.append(part_type)
     if explicit_skill_matches:
         summary = ",".join(str(item) for item in explicit_skill_matches[:3])

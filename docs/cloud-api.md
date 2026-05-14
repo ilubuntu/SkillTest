@@ -11,9 +11,68 @@
 
 ## 1. 云测下发任务
 
+### `POST /api/cloud-api/executions`
+
+新协议任务下发入口。Agent、模型、Plugin、Skill 全部由云测在请求体中下发。
+
+请求体：
+
+```json
+{
+  "executionId": 1492,
+  "testCase": {
+    "input": "修复首页商品列表添加后不刷新问题",
+    "expectedOutput": "无",
+    "fileUrl": "https://example.com/original_project.zip"
+  },
+  "codeAgent": {
+    "id": 16,
+    "name": "GLM-5.1_plugin_HW",
+    "model": {
+      "name": "GLM-5.1",
+      "code": "huawei/glm-5.1"
+    },
+    "skills": [
+      {
+        "id": 2,
+        "name": "harmonyos-hvigor",
+        "version": "v1.0.0",
+        "fileUrl": "https://example.com/skills/harmonyos-hvigor.zip"
+      }
+    ],
+    "plugins": [
+      {
+        "id": 1,
+        "name": "harmonyos-plugin",
+        "version": "v1.26.05.07"
+      }
+    ]
+  }
+}
+```
+
+关键字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `codeAgent.model.code` | string | 是 | OpenCode 模型编码，例如 `huawei/glm-5.1` |
+| `codeAgent.plugins[0].name` | string | 是 | OpenCode Agent 名称，支持 `build`、`harmonyos-plugin` |
+| `codeAgent.skills[].fileUrl` | string | 是 | Skill zip 下载地址 |
+
+成功响应：
+
+```json
+{
+  "accepted": true,
+  "executionId": 1492,
+  "message": "任务已接收",
+  "agentId": "16"
+}
+```
+
 ### `POST /api/cloud-api/agent/{agent_id}`
 
-云测平台调用本地执行器，按指定 `agent_id` 下发任务。
+老协议兼容入口。云测平台调用本地执行器，按指定 `agent_id` 下发任务。
 
 示例地址：
 

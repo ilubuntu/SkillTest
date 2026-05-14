@@ -6,7 +6,7 @@
 
 主流程中实际使用的 skill 包括：
 
-- `build-harmony-project`
+- `harmonyos-build`
 
 约束规则打分和静态代码打分 agent 已移除，对应 skill 不再挂载。
 

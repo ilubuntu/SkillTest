@@ -26,7 +26,6 @@ def _external_config_dir() -> str:
 CONFIG_PATH = os.path.join(_external_config_dir(), "config.yaml")
 AGENTS_DIR = _external_config_dir()
 AGENTS_REGISTRY_PATH = os.path.join(AGENTS_DIR, "agents.yaml")
-LLM_CATALOG_PATH = os.path.join(_external_config_dir(), "llm.yaml")
 
 DEFAULT_LOGGING_CONFIG = {
     "level": "INFO",
@@ -159,49 +158,6 @@ def load_agents() -> List[dict]:
     return [agent for agent in agents if isinstance(agent, dict)]
 
 
-def _normalize_llm_catalog_entry(entry: dict) -> dict:
-    model = str(entry.get("model") or "").strip()
-    providers = []
-    for provider in entry.get("providers") or []:
-        if not isinstance(provider, dict):
-            continue
-        provider_id = str(provider.get("providerId") or "").strip()
-        provider_name = str(provider.get("providerName") or "").strip()
-        model_id = str(provider.get("modelId") or "").strip()
-        if not provider_id or not provider_name or not model_id:
-            continue
-        providers.append({
-            "providerId": provider_id,
-            "providerName": provider_name,
-            "modelId": model_id,
-            "enabled": bool(provider.get("enabled", True)),
-        })
-    return {
-        "model": model,
-        "providers": providers,
-    }
-
-
-def load_llm_catalog() -> List[dict]:
-    """加载本地可用 LLM 目录，供云测选择模型和供应商。"""
-    if not os.path.exists(LLM_CATALOG_PATH):
-        raise FileNotFoundError(f"LLM 配置文件不存在: {LLM_CATALOG_PATH}")
-    data = load_yaml(LLM_CATALOG_PATH) or []
-    if not isinstance(data, list):
-        raise ValueError(f"LLM 配置格式无效: {LLM_CATALOG_PATH}")
-
-    catalog = []
-    for entry in data:
-        if not isinstance(entry, dict):
-            continue
-        normalized = _normalize_llm_catalog_entry(entry)
-        if normalized["model"] and normalized["providers"]:
-            catalog.append(normalized)
-    if not catalog:
-        raise ValueError(f"LLM 配置为空或无有效模型: {LLM_CATALOG_PATH}")
-    return catalog
-
-
 def _normalize_mounted_skills(agent: dict) -> List[dict]:
     """规格化 Agent 自身声明的 mounted_skills，并按顺序去重。"""
     normalized = []
@@ -255,11 +211,6 @@ def validate_runtime_config() -> None:
         raise FileNotFoundError(f"配置文件不存在: {CONFIG_PATH}")
     if not os.path.isfile(AGENTS_REGISTRY_PATH):
         raise FileNotFoundError(f"Agent 配置文件不存在: {AGENTS_REGISTRY_PATH}")
-    if not os.path.isfile(LLM_CATALOG_PATH):
-        raise FileNotFoundError(f"LLM 配置文件不存在: {LLM_CATALOG_PATH}")
-
-    load_llm_catalog()
-
     registry = load_agents_registry()
     for agent in registry.get("agents", []) or []:
         merged = dict(agent)

@@ -55,9 +55,63 @@ curl http://127.0.0.1:8000/api/health
 
 ## 3. 下发任务
 
+### `POST /api/cloud-api/executions`
+
+新协议任务下发入口。Agent、模型、Plugin、Skill 均由请求体 `codeAgent` 下发。
+
+请求示例：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/cloud-api/executions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer test-token' \
+  -d '{
+    "executionId": 1492,
+    "testCase": {
+      "input": "这是一个商品管理工程，首页添加商品后列表不刷新，请修复。",
+      "expectedOutput": "无",
+      "fileUrl": "https://example.com/original_project.zip"
+    },
+    "codeAgent": {
+      "id": 16,
+      "name": "GLM-5.1_plugin_HW",
+      "model": {
+        "name": "GLM-5.1",
+        "code": "huawei/glm-5.1"
+      },
+      "skills": [
+        {
+          "id": 2,
+          "name": "harmonyos-hvigor",
+          "version": "v1.0.0",
+          "fileUrl": "https://example.com/skills/harmonyos-hvigor.zip"
+        }
+      ],
+      "plugins": [
+        {
+          "id": 1,
+          "name": "harmonyos-plugin",
+          "version": "v1.26.05.07"
+        }
+      ]
+    }
+  }'
+```
+
+成功响应示例：
+
+```json
+{
+  "accepted": true,
+  "executionId": 1492,
+  "message": "任务已接收",
+  "agentId": "16"
+}
+```
+
 ### `POST /api/cloud-api/agent/{agent_id}`
 
-按 `agent_id` 下发云测任务。`agent_id` 必须能在 `config/agents.yaml` 中找到。
+老协议兼容入口。按 `agent_id` 下发云测任务，`agent_id` 必须能在 `config/agents.yaml` 中找到。
 
 请求路径示例：
 

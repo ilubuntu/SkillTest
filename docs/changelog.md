@@ -12,7 +12,7 @@
   - HarmonyOS 编译验证适配 HAR/HSP：
     - 编译命令不再固定只执行 `assembleHap`
     - 根据工程模块类型动态追加 `assembleHap`、`assembleHar`、`assembleHsp`
-    - `build-harmony-project` skill 同步补充 HAR/HSP 构建说明
+    - `harmonyos-build` skill 同步补充 HAR/HSP 构建说明
   - 编译迭代次数统计优化：
     - `iterationCount` 同时统计 `assembleHap` 和 `assembleHar`
     - 避免 HAR 工程编译次数漏计

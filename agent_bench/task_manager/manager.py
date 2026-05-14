@@ -50,6 +50,7 @@ TASK_QUEUE_ROOT = os.path.join(os.path.dirname(RESULTS_ROOT), "taskqueue")
 
 STATUS_PUSH_INTERVAL_SECONDS = 2.0
 STATUS_PUSH_DETAIL_FLUSH_SECONDS = 3.0
+DEFAULT_SKILL_EXTRA_PROMPT = "在调用skill处理任务的过程中，请使用默认选项直接执行，不需要询问我，你自主决策。"
 logger = logging.getLogger("agent_bench.executor")
 
 STAGE_PENDING = "pending"
@@ -229,28 +230,12 @@ def _safe_path_token(value: str) -> str:
     return token.strip("._") or "unknown"
 
 
-def _merge_cloud_skills(default_skills: list, dynamic_skills: list) -> list:
-    """合并云端默认 Skill 和任务动态 Skill，同名动态 Skill 覆盖默认 Skill。"""
-    merged = []
-    indexes = {}
-    for skill in list(default_skills or []) + list(dynamic_skills or []):
-        name = str(getattr(skill, "name", "") or "").strip()
-        if not name:
-            continue
-        if name in indexes:
-            merged[indexes[name]] = skill
-            continue
-        indexes[name] = len(merged)
-        merged.append(skill)
-    return merged
-
-
 def _cloud_skill_archive_path(skill) -> str:
     name = str(getattr(skill, "name", "") or "").strip()
     version = str(getattr(skill, "version", "") or "").strip()
-    path = str(getattr(skill, "path", "") or "").strip()
-    suffix = os.path.splitext(urllib.parse.urlparse(path).path or "")[1] or ".zip"
-    cache_key = hashlib.sha256(f"{name}\n{version}\n{path}".encode("utf-8")).hexdigest()[:16]
+    file_url = _cloud_skill_file_url(skill)
+    suffix = os.path.splitext(urllib.parse.urlparse(file_url).path or "")[1] or ".zip"
+    cache_key = hashlib.sha256(f"{name}\n{version}\n{file_url}".encode("utf-8")).hexdigest()[:16]
     os.makedirs(SKILL_CACHE_ROOT, exist_ok=True)
     return os.path.join(
         SKILL_CACHE_ROOT,
@@ -258,13 +243,18 @@ def _cloud_skill_archive_path(skill) -> str:
     )
 
 
+def _cloud_skill_file_url(skill) -> str:
+    return str(getattr(skill, "fileUrl", "") or "").strip()
+
+
 def _download_cloud_skill_archive(skill, on_progress=None) -> str:
     archive_path = _cloud_skill_archive_path(skill)
     if os.path.exists(archive_path) and os.path.getsize(archive_path) > 0:
         _emit_prepare_log(on_progress, f"Skill 缓存已命中: {skill.name}@{skill.version}")
         return archive_path
+    file_url = _cloud_skill_file_url(skill)
     _emit_prepare_log(on_progress, f"开始下载 Skill: {skill.name}@{skill.version}")
-    with urllib.request.urlopen(str(skill.path).strip(), timeout=60) as response, open(archive_path, "wb") as target:
+    with urllib.request.urlopen(file_url, timeout=60) as response, open(archive_path, "wb") as target:
         shutil.copyfileobj(response, target)
     _emit_prepare_log(on_progress, f"Skill 下载完成: {skill.name}@{skill.version}")
     return archive_path
@@ -288,10 +278,10 @@ def _locate_skill_root(extract_root: str) -> str:
 
 
 def _prepare_cloud_skill_sources(payload: CloudExecutionStartRequest, case_dir: str, on_progress=None) -> list:
-    agent_config = payload.agentConfig
-    if agent_config is None:
+    code_agent = payload.codeAgent
+    if code_agent is None:
         return []
-    skills = _merge_cloud_skills(agent_config.defaultSkills, payload.dynamicSkills)
+    skills = list(code_agent.skills or [])
     if not skills:
         return []
 
@@ -320,25 +310,24 @@ def _prepare_cloud_skill_sources(payload: CloudExecutionStartRequest, case_dir: 
 
 
 def _build_cloud_agent(payload: CloudExecutionStartRequest, case_dir: str, on_progress=None) -> Optional[dict]:
-    agent_config = payload.agentConfig
-    if agent_config is None:
-        return None
-    opencode_agent = str(agent_config.agent or "").strip()
-    if opencode_agent not in {"build", "harmonyos-plugin"}:
-        raise ValueError(f"不支持的 agentConfig.agent: {opencode_agent}")
-    provider_id = str(agent_config.llm.providerId or "").strip()
-    model_id = str(agent_config.llm.modelId or "").strip()
-    mounted_skills = _prepare_cloud_skill_sources(payload, case_dir, on_progress=on_progress)
-    return {
-        "id": str(agent_config.id or "").strip(),
-        "name": str(agent_config.id or "").strip(),
-        "opencode_agent": opencode_agent,
-        "model": f"{provider_id}/{model_id}",
-        "extra_prompt": str(agent_config.extraPrompt or "").strip(),
-        "mounted_skills": mounted_skills,
-        "cloud_agent_config": agent_config.model_dump(),
-        "dynamic_skills": [item.model_dump() for item in payload.dynamicSkills or []],
-    }
+    code_agent = payload.codeAgent
+    if code_agent is not None:
+        plugins = list(code_agent.plugins or [])
+        opencode_agent = str(plugins[0].name or "").strip() if plugins else "build"
+        if opencode_agent not in {"build", "harmonyos-plugin"}:
+            raise ValueError(f"不支持的 codeAgent.plugins[0].name: {opencode_agent}")
+        mounted_skills = _prepare_cloud_skill_sources(payload, case_dir, on_progress=on_progress)
+        return {
+            "id": str(code_agent.id or "").strip(),
+            "name": str(code_agent.name or code_agent.id or "").strip(),
+            "opencode_agent": opencode_agent,
+            "model": str(code_agent.model.code or "").strip(),
+            "extra_prompt": DEFAULT_SKILL_EXTRA_PROMPT,
+            "mounted_skills": mounted_skills,
+            "cloud_agent_config": code_agent.model_dump(),
+        }
+
+    return None
 
 
 class CloudExecutionManager:

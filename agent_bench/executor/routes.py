@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from agent_bench.cloud_api.interaction_trace import load_agent_interaction_trace
 from agent_bench.cloud_api.models import CloudExecutionStartRequest
-from agent_bench.pipeline.loader import load_agent, load_llm_catalog
+from agent_bench.pipeline.loader import load_agent
 from agent_bench.task_manager import cloud_execution_manager
 
 router = APIRouter(prefix="/api/cloud-api", tags=["cloud_api"])
@@ -28,35 +28,35 @@ def _clip_cloud_request_text(value: str, limit: int = 100) -> str:
 
 
 def _validate_cloud_execution_request(payload: CloudExecutionStartRequest):
-    agent_config = payload.agentConfig
-    if agent_config is None:
-        raise HTTPException(status_code=400, detail="缺少 agentConfig")
-    if not str(agent_config.id or "").strip():
-        raise HTTPException(status_code=400, detail="缺少 agentConfig.id")
-    opencode_agent = str(agent_config.agent or "").strip()
+    if not str(payload.testCase.input or "").strip():
+        raise HTTPException(status_code=400, detail="缺少真实的任务输入，已终止执行")
+    code_agent = payload.codeAgent
+    if code_agent is None:
+        raise HTTPException(status_code=400, detail="缺少 codeAgent")
+    if not str(code_agent.id or "").strip():
+        raise HTTPException(status_code=400, detail="缺少 codeAgent.id")
+    if not str(code_agent.name or "").strip():
+        raise HTTPException(status_code=400, detail="缺少 codeAgent.name")
+    model_code = str(code_agent.model.code or "").strip()
+    if not model_code:
+        raise HTTPException(status_code=400, detail="缺少 codeAgent.model.code")
+    plugins = list(code_agent.plugins or [])
+    opencode_agent = str(plugins[0].name or "").strip() if plugins else "build"
     if opencode_agent not in {"build", "harmonyos-plugin"}:
-        raise HTTPException(status_code=400, detail="agentConfig.agent 仅支持 build/harmonyos-plugin")
-    if not str(agent_config.llm.providerId or "").strip():
-        raise HTTPException(status_code=400, detail="缺少 agentConfig.llm.providerId")
-    if not str(agent_config.llm.modelId or "").strip():
-        raise HTTPException(status_code=400, detail="缺少 agentConfig.llm.modelId")
+        raise HTTPException(status_code=400, detail="codeAgent.plugins[0].name 仅支持 build/harmonyos-plugin")
+    if len(plugins) > 1:
+        logger.info("codeAgent.plugins 当前仅使用第一个: using=%s total=%s", opencode_agent, len(plugins))
 
-    for skill in list(agent_config.defaultSkills or []) + list(payload.dynamicSkills or []):
+    for skill in list(code_agent.skills or []):
         if not str(skill.name or "").strip():
             raise HTTPException(status_code=400, detail="Skill name 不能为空")
         if not str(skill.version or "").strip():
             raise HTTPException(status_code=400, detail=f"Skill version 不能为空: {skill.name}")
-        skill_path = str(skill.path or "").strip()
-        if not skill_path:
-            raise HTTPException(status_code=400, detail=f"Skill path 不能为空: {skill.name}")
-        if not (skill_path.startswith("http://") or skill_path.startswith("https://")):
-            raise HTTPException(status_code=400, detail=f"Skill path 仅支持 HTTP/HTTPS: {skill.name}")
-
-
-@router.get("/llm-catalog")
-async def get_llm_catalog():
-    """返回当前执行器本地配置的可用 LLM 列表，供云测选择模型和供应商。"""
-    return load_llm_catalog()
+        skill_url = str(skill.fileUrl or "").strip()
+        if not skill_url:
+            raise HTTPException(status_code=400, detail=f"Skill fileUrl 不能为空: {skill.name}")
+        if not (skill_url.startswith("http://") or skill_url.startswith("https://")):
+            raise HTTPException(status_code=400, detail=f"Skill fileUrl 仅支持 HTTP/HTTPS: {skill.name}")
 
 
 @router.post("/executions")
@@ -72,8 +72,8 @@ async def start_cloud_execution(
     payload.requestHost = str(request.headers.get("host") or request.url.netloc or "").strip()
     payload.executorHostname = socket.gethostname()
     _validate_cloud_execution_request(payload)
-    agent_config = payload.agentConfig
-    payload.agentId = str(agent_config.id).strip()
+    code_agent = payload.codeAgent
+    payload.agentId = str(code_agent.id).strip()
     logger.info(
         "云端任务下发请求: executionId=%s agent=%s protocol=executions requestHost=%s hostname=%s input=%s expectedOutput=%s fileUrl=%s",
         payload.executionId,
@@ -103,6 +103,7 @@ async def start_cloud_execution(
         "accepted": True,
         "executionId": payload.executionId,
         "message": message,
+        "agentId": payload.agentId,
     }
 
 

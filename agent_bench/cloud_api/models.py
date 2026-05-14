@@ -39,27 +39,48 @@ class CloudDispatchPayload(BaseModel):
     testCase: CloudTestCasePayload
 
 
-class CloudLlmPayload(BaseModel):
-    """云端选择的 LLM 供应商与模型。"""
-    providerId: str = ""
-    modelId: str = ""
-
-
 class CloudSkillPayload(BaseModel):
     """云端托管的 Skill 包描述。"""
+    id: int = 0
     name: str = ""
     version: str = ""
-    path: str = ""
+    fileUrl: str = ""
+
+    @field_validator("fileUrl", mode="before")
+    @classmethod
+    def _normalize_skill_url(cls, value):
+        return "" if value is None else value
 
 
-class CloudAgentConfigPayload(BaseModel):
-    """新协议下云端托管的 Agent 配置。"""
-    id: str = ""
-    agent: str = ""
-    llm: CloudLlmPayload = Field(default_factory=CloudLlmPayload)
-    pluginVersion: str = ""
-    extraPrompt: str = ""
-    defaultSkills: List[CloudSkillPayload] = Field(default_factory=list)
+class CloudCodeAgentModelPayload(BaseModel):
+    """云测下发的模型描述。"""
+    name: str = ""
+    code: str = ""
+
+
+class CloudCodeAgentPluginPayload(BaseModel):
+    """云测下发的 OpenCode 插件描述。"""
+    id: int = 0
+    name: str = ""
+    version: str = ""
+
+
+class CloudCodeAgentPayload(BaseModel):
+    """云测下发的代码生成 Agent 描述。"""
+    id: int | str = ""
+    name: str = ""
+    model: CloudCodeAgentModelPayload = Field(default_factory=CloudCodeAgentModelPayload)
+    skills: List[CloudSkillPayload] = Field(default_factory=list)
+    plugins: List[CloudCodeAgentPluginPayload] = Field(default_factory=list)
+
+    @field_validator("plugins", mode="before")
+    @classmethod
+    def _normalize_plugins(cls, value):
+        if value is None or value == "":
+            return []
+        if isinstance(value, dict):
+            return [value] if value.get("name") else []
+        return value
 
 
 class CloudExecutionStartRequest(CloudDispatchPayload):
@@ -69,8 +90,7 @@ class CloudExecutionStartRequest(CloudDispatchPayload):
     token: str = ""
     requestHost: str = ""
     executorHostname: str = ""
-    agentConfig: Optional[CloudAgentConfigPayload] = None
-    dynamicSkills: List[CloudSkillPayload] = Field(default_factory=list)
+    codeAgent: Optional[CloudCodeAgentPayload] = None
 
 
 class CloudStatusReportPayload(BaseModel):
